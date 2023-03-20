@@ -4,9 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 from collections import defaultdict
-import scipy
+import scipy.signal
 import json
 import copy
+import glob
 import sys
 import pickle
 import string
@@ -14,20 +15,26 @@ import logging
 from functools import lru_cache
 from copy import copy
 
-import librosa
 import soundfile as sf
+import librosa
+from scipy.io import loadmat
 
 import torch
-
 from data_utils import load_audio, get_emg_features, FeatureNormalizer, phoneme_inventory, read_phonemes, TextTransform
 
 from absl import flags
+
+data_folder    = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
+project_folder = '/home/users/ghwilson/projects/silent_speech/'
+
+
 FLAGS = flags.FLAGS
 flags.DEFINE_list('remove_channels', [], 'channels to remove')
-flags.DEFINE_list('silent_data_directories', ['./emg_data/silent_parallel_data'], 'silent data locations')
-flags.DEFINE_list('voiced_data_directories', ['./emg_data/voiced_parallel_data','./emg_data/nonparallel_data'], 'voiced data locations')
-flags.DEFINE_string('testset_file', 'testset_largedev.json', 'file with testset indices')
-flags.DEFINE_string('text_align_directory', 'text_alignments', 'directory with alignment files')
+flags.DEFINE_list('silent_data_directories', [f'{data_folder}/emg_data/silent_parallel_data'], 'silent data locations')
+flags.DEFINE_list('voiced_data_directories', [f'{data_folder}/emg_data/voiced_parallel_data',
+                                              f'{data_folder}/emg_data/nonparallel_data'], 'voiced data locations')
+flags.DEFINE_string('testset_file', f'{project_folder}/testset_largedev.json', 'file with testset indices')
+flags.DEFINE_string('text_align_directory', f'{data_folder}/text_alignments', 'directory with alignment files')
 
 def remove_drift(signal, fs):
     b, a = scipy.signal.butter(3, 2, 'highpass', fs=fs)
@@ -54,11 +61,11 @@ def apply_to_all(function, signal_array, *args, **kwargs):
         results.append(function(signal_array[:,i], *args, **kwargs))
     return np.stack(results, 1)
 
-def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_directory=None):
-    index = int(index)
+def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_directory=None, returnRaw= False):
+    index   = int(index)
     raw_emg = np.load(os.path.join(base_dir, f'{index}_emg.npy'))
-    before = os.path.join(base_dir, f'{index-1}_emg.npy')
-    after = os.path.join(base_dir, f'{index+1}_emg.npy')
+    before  = os.path.join(base_dir, f'{index-1}_emg.npy')
+    after   = os.path.join(base_dir, f'{index+1}_emg.npy')
     if os.path.exists(before):
         raw_emg_before = np.load(before)
     else:
@@ -72,10 +79,14 @@ def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_
     x = apply_to_all(notch_harmonics, x, 60, 1000)
     x = apply_to_all(remove_drift, x, 1000)
     x = x[raw_emg_before.shape[0]:x.shape[0]-raw_emg_after.shape[0],:]
-    emg_orig = apply_to_all(subsample, x, 689.06, 1000)
-    x = apply_to_all(subsample, x, 516.79, 1000)
-    emg = x
 
+    if returnRaw:
+        emg_orig = apply_to_all(subsample, x, 689.06, 1000)
+    else:
+        emg_orig = x.copy()
+    x   = apply_to_all(subsample, x, 516.79, 1000)
+    emg = x
+    
     for c in FLAGS.remove_channels:
         emg[:,int(c)] = 0
         emg_orig[:,int(c)] = 0
@@ -88,7 +99,7 @@ def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_
     if emg_features.shape[0] > mfccs.shape[0]:
         emg_features = emg_features[:mfccs.shape[0],:]
     assert emg_features.shape[0] == mfccs.shape[0]
-    emg = emg[6:6+6*emg_features.shape[0],:]
+    emg      = emg[6:6+6*emg_features.shape[0],:]
     emg_orig = emg_orig[8:8+8*emg_features.shape[0],:]
     assert emg.shape[0] == emg_features.shape[0]*6
 
@@ -143,9 +154,43 @@ class SizeAwareSampler(torch.utils.data.Sampler):
             batch.append(idx)
             batch_length += length
         # dropping last incomplete batch
+        
+class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
+    def __init__(self, emg_dataset, max_len):
+        self.dataset = emg_dataset
+        self.max_len = max_len
+
+    def __iter__(self):
+        indices = list(range(len(self.dataset)))
+        random.shuffle(indices)
+        batch = []
+        batch_length = 0
+        for idx in indices:
+           # directory_info, file_idx = self.dataset.example_indices[idx]
+            
+            x         = loadmat(self.dataset.example_indices[idx])['audio_file'][0]
+            json_file = x.split('_audio_clean')[0] + '_info.json'
+
+            with open(json_file) as f:
+                info = json.load(f)
+                
+                
+            if not np.any([l in string.ascii_letters for l in info['text']]):
+                continue
+            length = sum([emg_len for emg_len, _, _ in info['chunks']])
+            if length > self.max_len:
+                logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
+            if length + batch_length > self.max_len:
+                yield batch
+                batch = []
+                batch_length = 0
+            batch.append(idx)
+            batch_length += length
+        # dropping last incomplete batch
 
 class EMGDataset(torch.utils.data.Dataset):
-    def __init__(self, base_dir=None, limit_length=False, dev=False, test=False, no_testset=False, no_normalizers=False):
+    def __init__(self, base_dir=None, limit_length=False, dev=False, test=False, no_testset=False, 
+                 no_normalizers=False, returnRaw = False, togglePhones = False):
 
         self.text_align_directory = FLAGS.text_align_directory
 
@@ -205,8 +250,9 @@ class EMGDataset(torch.utils.data.Dataset):
         self.num_features = sample_emg.shape[1]
         self.limit_length = limit_length
         self.num_sessions = len(directories)
+        self.returnRaw    = returnRaw
 
-        self.text_transform = TextTransform()
+        self.text_transform = TextTransform(togglePhones = togglePhones)
 
     def silent_subset(self):
         result = copy(self)
@@ -228,7 +274,7 @@ class EMGDataset(torch.utils.data.Dataset):
     @lru_cache(maxsize=None)
     def __getitem__(self, i):
         directory_info, idx = self.example_indices[i]
-        mfccs, emg, text, book_location, phonemes, raw_emg = load_utterance(directory_info.directory, idx, self.limit_length, text_align_directory=self.text_align_directory)
+        mfccs, emg, text, book_location, phonemes, raw_emg = load_utterance(directory_info.directory, idx, self.limit_length, text_align_directory=self.text_align_directory, returnRaw = self.returnRaw)
         raw_emg = raw_emg / 20
         raw_emg = 50*np.tanh(raw_emg/50.)
 
@@ -236,6 +282,7 @@ class EMGDataset(torch.utils.data.Dataset):
             mfccs = self.mfcc_norm.normalize(mfccs)
             emg = self.emg_norm.normalize(emg)
             emg = 8*np.tanh(emg/8.)
+            
 
         session_ids = np.full(emg.shape[0], directory_info.session_index, dtype=np.int64)
         audio_file = f'{directory_info.directory}/{idx}_audio_clean.flac'
@@ -249,7 +296,7 @@ class EMGDataset(torch.utils.data.Dataset):
             voiced_mfccs, voiced_emg, _, _, phonemes, _ = load_utterance(voiced_directory.directory, voiced_idx, False, text_align_directory=self.text_align_directory)
 
             if not self.no_normalizers:
-                voiced_mfccs = self.mfcc_norm.normalize(voiced_mfccs)
+                #voiced_mfccs = self.mfcc_norm.normalize(voiced_mfccs)  # HACKY WORKAROUND - AVOID MAKING MFCCS
                 voiced_emg = self.emg_norm.normalize(voiced_emg)
                 voiced_emg = 8*np.tanh(voiced_emg/8.)
 
@@ -299,6 +346,130 @@ class EMGDataset(torch.utils.data.Dataset):
                   'text_int':text_ints,
                   'text_int_lengths':text_lengths}
         return result
+    
+    
+class PreprocessedEMGDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dir=None, train = False, dev=False, test=False, limit_length = False,
+                 pin_memory = True, no_normalizers = False, togglePhones = False, device = None):
+        
+        self.togglePhones = togglePhones
+
+        files = list()
+        if train:
+            partition_files = glob.glob(os.path.join(base_dir, 'train/') + '*/*.mat')
+            #print(f'Adding {len(partition_files)} to dataset.')
+            files.extend(partition_files)
+            
+        if dev:
+            partition_files = glob.glob(os.path.join(base_dir, 'dev/') + '*/*.mat')
+            #print(f'Adding {len(partition_files)} to dataset.')
+            files.extend(partition_files)
+            
+        if test:
+            partition_files = glob.glob(os.path.join(base_dir, 'test/') + '*/*.mat')
+            #print(f'Adding {len(partition_files)} to dataset.')
+            files.extend(partition_files)
+            
+        self.example_indices = files
+        self.train = train
+        self.dev = dev
+        self.test = test
+        self.pin_memory = pin_memory 
+        self.device = device
+
+        self.example_indices.sort()
+        np.random.seed(0)
+        np.random.shuffle(self.example_indices)
+
+    
+        self.num_speech_features = loadmat(self.example_indices[0])['audio_features'].shape[1]
+        self.num_features        = loadmat(self.example_indices[0])['emg'].shape[1]
+        self.limit_length = limit_length
+        self.num_sessions = len(glob.glob(os.path.join(base_dir, 'train/') + '*session_*/'))
+        
+        self.text_transform = TextTransform(togglePhones = self.togglePhones)
+        
+        self.no_normalizers = no_normalizers
+        if not self.no_normalizers:
+            self.mfcc_norm, self.emg_norm = pickle.load(open(FLAGS.normalizers_file,'rb'))
+
+    def silent_subset(self):
+        result = copy(self)
+        silent_indices = []
+        for example in self.example_indices:
+            if example[0].silent:
+                silent_indices.append(example)
+        result.example_indices = silent_indices
+        return result
+
+    def subset(self, fraction):
+        result = copy(self)
+        result.example_indices = self.example_indices[:int(fraction*len(self.example_indices))]
+        return result
+
+    def __len__(self):
+        return len(self.example_indices)
+
+    @lru_cache(maxsize=None)
+    def __getitem__(self, i):
+        
+        result = loadmat(self.example_indices[i])
+                
+        if self.pin_memory:
+            keys = ['audio_features',  'emg', 'text', 'session_ids', 'raw_emg', 'phonemes', 
+                    'parallel_voiced_emg', 'parallel_voiced_audio_features']
+            for key in keys:
+                try:
+                    result[key] = torch.tensor(result[key].squeeze()).pin_memory()
+                except:
+                    continue
+                    
+        result['text_int'] = torch.tensor(np.array(self.text_transform.text_to_int(result['text'][0]), dtype=np.int64)).pin_memory()
+
+        return result
+    
+
+    @staticmethod
+    def collate_raw(batch):
+        
+        audio_features        = []
+        audio_feature_lengths = []
+        parallel_emg          = []
+        for ex in batch:
+            if ex['silent']:
+                audio_features.append(ex['parallel_voiced_audio_features'])
+                audio_feature_lengths.append(ex['parallel_voiced_audio_features'].shape[0])
+                parallel_emg.append(ex['parallel_voiced_emg'])
+            else:
+                audio_features.append(ex['audio_features'])
+                audio_feature_lengths.append(ex['audio_features'].shape[0])
+                parallel_emg.append(np.zeros(1))
+                
+        phonemes    = [ex['phonemes'] for ex in batch]
+        emg         = [ex['emg'] for ex in batch]
+        raw_emg     = [ex['raw_emg'] for ex in batch]
+        session_ids = [ex['session_ids'] for ex in batch]
+        lengths     = [ex['emg'].shape[0] for ex in batch]
+        silent      = [ex['silent'] for ex in batch]
+        text        = [ex['text'] for ex in batch]
+        text_int    = [ex['text_int'] for ex in batch]
+        int_lengths = [ex['text_int'].shape[0] for ex in batch]
+
+        result = {'audio_features':audio_features,
+                  'audio_feature_lengths':audio_feature_lengths,
+                  'emg':emg,
+                  'raw_emg':raw_emg,
+                  'parallel_voiced_emg':parallel_emg,
+                  'phonemes':phonemes,
+                  'session_ids':session_ids,
+                  'lengths':lengths,
+                  'silent':silent,
+                  'text':text,
+                  'text_int': text_int,
+                  'text_int_lengths':int_lengths}
+        
+        return result 
+    
 
 def make_normalizers():
     dataset = EMGDataset(no_normalizers=True)

@@ -5,9 +5,9 @@ import logging
 import torch
 from torch import nn
 
-from architecture import Model
+from architecture import Model, S4Model
 from transduction_model import test, save_output
-from read_emg import EMGDataset
+from read_emg import EMGDataset, PreprocessedEMGDataset
 from asr_evaluation import evaluate
 from data_utils import phoneme_inventory, print_confusion
 from vocoder import Vocoder
@@ -16,6 +16,7 @@ from absl import flags
 FLAGS = flags.FLAGS
 flags.DEFINE_list('models', [], 'identifiers of models to evaluate')
 flags.DEFINE_boolean('dev', False, 'evaluate dev insead of test')
+#flags.DEFINE_string('base_dir', '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/', 'path to processed EMG dataset')
 
 class EnsembleModel(nn.Module):
     def __init__(self, models):
@@ -38,15 +39,17 @@ def main():
             logging.StreamHandler()
             ], level=logging.INFO, format="%(message)s")
 
-    dev = FLAGS.dev
-    testset = EMGDataset(dev=dev, test=not dev)
-
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    dev     = FLAGS.dev
+    testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = FLAGS.dev, test = not FLAGS.dev)
+    device  = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     models = []
     for fname in FLAGS.models:
         state_dict = torch.load(fname)
-        model = Model(testset.num_features, testset.num_speech_features, len(phoneme_inventory)).to(device)
+        if FLAGS.S4:
+            model = S4Model(testset.num_features, testset.num_speech_features, len(phoneme_inventory)).to(device)
+        else:
+            model = Model(testset.num_features, testset.num_speech_features, len(phoneme_inventory)).to(device)
         model.load_state_dict(state_dict)
         models.append(model)
     ensemble = EnsembleModel(models)

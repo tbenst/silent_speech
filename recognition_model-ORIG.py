@@ -1,5 +1,5 @@
 '''
-This script has been modified to use torchaudio in place of ctcdecode. On standard benchmarks it provides a ~10-100x speed improvement.
+This script has been modified to use torchaudio in place of ctcdecode. On standard benchmarks it provides a ~10x speed improvement for beam search decoding.
 
 Download the Relevant LM files and then point script toward a directory holding the files via --lm_directory flag. Files can be obtained through:
 
@@ -21,10 +21,9 @@ import torch.nn.functional as F
 from torchaudio.models.decoder import ctc_decoder
 
 from read_emg import EMGDataset, SizeAwareSampler, PreprocessedEMGDataset, PreprocessedSizeAwareSampler
-from architecture import Model, S4Model, H3Model
+from architecture import Model, S4Model, S4Model2
 from data_utils import combine_fixed_length, decollate_tensor
 from transformer import TransformerEncoderLayer
-import neptune.new as neptune
 
 from absl import flags
 FLAGS = flags.FLAGS
@@ -39,13 +38,15 @@ flags.DEFINE_integer('learning_rate_patience', 5, 'learning rate decay patience'
 flags.DEFINE_string('start_training_from', None, 'start training from this model')
 flags.DEFINE_float('l2', 0, 'weight decay')
 flags.DEFINE_string('evaluate_saved', None, 'run evaluation on given model file')
+#flags.DEFINE_string('lm_directory', '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/deepspeech', 
+#                    'Path to KenLM language model')
 flags.DEFINE_string('lm_directory', '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/', 
                     'Path to KenLM language model')
 flags.DEFINE_string('base_dir', '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/',
                     'path to processed EMG dataset')
 
 
-seqlen       = 600
+
 togglePhones = False
 
 
@@ -63,13 +64,14 @@ def test(model, testset, device):
        lexicon = lexicon_file,
        tokens  = testset.text_transform.chars + ['_'],
        lm      = os.path.join(FLAGS.lm_directory, '4gram_lm.bin'),
+       #lm      = None,
        blank_token = '_',
        sil_token   = '|',
        nbest       = 1,
        lm_weight   = 2, # default is 2; Gaddy sets to 1.85
        #word_score  = -3,
        #sil_score   = -2,
-       beam_size   = 150  # SET TO 150 during inference
+       beam_size   = 50  # SET TO 150 during inference
     )
 
     dataloader  = torch.utils.data.DataLoader(testset, batch_size=1, collate_fn=testset.collate_raw)
@@ -103,26 +105,22 @@ def test(model, testset, device):
 def train_model(trainset, devset, device, n_epochs):
     
     dataloader = torch.utils.data.DataLoader(trainset, pin_memory=(device=='cuda'), 
-                                         collate_fn=devset.collate_raw, num_workers=0,
+                                         collate_fn=devset.collate_raw, num_workers=0, 
                                          batch_sampler = PreprocessedSizeAwareSampler(trainset, 128000))
+
+   # dataloader = torch.utils.data.DataLoader(trainset, pin_memory=(device=='cuda'), num_workers=0, collate_fn=EMGDataset.collate_raw, batch_sampler=SizeAwareSampler(trainset, 128000))
 
 
     n_chars = len(devset.text_transform.chars)
     
     if FLAGS.S4:
-        #model = H3Model(devset.num_features, n_chars+1).to(device)
-        model = S4Model(devset.num_features, n_chars+1).to(device)
+        model = S4Model2(devset.num_features, n_chars+1).to(device)
     else:
         model = Model(devset.num_features, n_chars+1).to(device)
-        
-    run = neptune.init_run(
-    project="neuro/Gaddy",    
-    api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJjNmRjNDNhNS0yOGI0LTQ5MjAtODZiZi04Njc0NjA1ZDUwOWMifQ==")  
 
-    logging.info(model)
-    model_parameters  = filter(lambda p: p.requires_grad, model.parameters())
-    params            = sum([np.prod(p.size()) for p in model_parameters])
-    run['num_parameters'] = params
+    print(model)
+    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    params           = sum([np.prod(p.size()) for p in model_parameters])
     logging.info(f'Number of parameters: {params}')
 
     if FLAGS.start_training_from is not None:
@@ -132,16 +130,6 @@ def train_model(trainset, devset, device, n_epochs):
     optim    = torch.optim.AdamW(model.parameters(), lr=FLAGS.learning_rate, weight_decay=FLAGS.l2)
     lr_sched = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=[125,150,175], gamma=.5)
 
-    #lr_sched = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=[150,175,200], gamma=.5)
-    #lr_sched = torch.optim.lr_scheduler.OneCycleLR(optim, max_lr = FLAGS.learning_rate, epochs = FLAGS.epochs,
-    #                                              steps_per_epoch = int(8055 / FLAGS.batch_size) + 1)
-    
-    
-    params = {}
-    for flag in FLAGS:
-        params[flag] = getattr(FLAGS, flag) 
-    run['hyperparameters'] = params
-    
     def set_lr(new_lr):
         for param_group in optim.param_groups:
             param_group['lr'] = new_lr
@@ -151,13 +139,8 @@ def train_model(trainset, devset, device, n_epochs):
         iteration = iteration + 1
         if iteration <= FLAGS.learning_rate_warmup:
             set_lr(iteration*target_lr/FLAGS.learning_rate_warmup)
-            
-            
-    run["sys/tags"].add("MultiStepLR")
-    run["sys/tags"].add("800Hz")
-    run["sys/tags"].add("8xDownsampling")
-    run["sys/tags"].add("FCN_embedding")
 
+    seqlen    = 200  
     batch_idx = 0
     optim.zero_grad()
     for epoch_idx in range(n_epochs):
@@ -176,13 +159,6 @@ def train_model(trainset, devset, device, n_epochs):
             pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, example['lengths']), batch_first=False) 
             y    = nn.utils.rnn.pad_sequence(example['text_int'], batch_first=True).to(device)
             loss = F.ctc_loss(pred, y, example['lengths'], example['text_int_lengths'], blank=n_chars)
-            
-            if torch.isnan(loss) or torch.isinf(loss):
-                print('batch:', batch_idx)
-                print('Isnan output:',torch.any(torch.isnan(pred)))
-                print('Isinf output:',torch.any(torch.isinf(pred)))
-                raise ValueError("NaN/Inf detected in loss")
-                
             losses.append(loss.item())
             
             loss.backward()
@@ -190,42 +166,26 @@ def train_model(trainset, devset, device, n_epochs):
                 nn.utils.clip_grad_norm_(model.parameters(), 10)
                 optim.step()
                 optim.zero_grad(set_to_none=True)
-                #lr_sched.step() # EXPERIMENTAL
-                
-            del example, pred, loss, y, sess, X, X_raw
-            torch.cuda.empty_cache()
 
             batch_idx += 1
         train_loss = np.mean(losses)
         val        = test(model, devset, device)
-        lr_sched.step() # EXPERIMENTAL
+        lr_sched.step()
         logging.info(f'finished epoch {epoch_idx+1} - training loss: {train_loss:.4f} validation WER: {val*100:.2f}')
-        
-        run["train/loss"].log(train_loss)
-        run["val/WER"].log(val * 100)
-        
-        
         torch.save(model.state_dict(), os.path.join(FLAGS.output_directory,'model.pt'))
-        
-    run.stop()
-    model.load_state_dict(torch.load(os.path.join(FLAGS.output_directory,'model.pt'))) # re-load best parameters
-    
-    return model
 
+    model.load_state_dict(torch.load(os.path.join(FLAGS.output_directory,'model.pt'))) # re-load best parameters
+    return model
 
 def evaluate_saved():
     device  = 'cuda' if torch.cuda.is_available() and not FLAGS.debug else 'cpu'
+    #testset = EMGDataset(test=True)
     #testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = False, test = True)
     
     testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = True, test = False,
                                     togglePhones = togglePhones)
     n_chars = len(testset.text_transform.chars)
-    
-    if FLAGS.S4:
-        model = S4Model(testset.num_features, n_chars+1).to(device)
-    else:
-        model = Model(testset.num_features, n_chars+1).to(device)
-    
+    model   = Model(testset.num_features, n_chars+1).to(device)
     model.load_state_dict(torch.load(FLAGS.evaluate_saved))
     print('WER:', test(model, testset, device))
 
@@ -237,10 +197,12 @@ def main():
             ], level=logging.INFO, format="%(message)s")
 
     logging.info(sys.argv)
+
+    #trainset = EMGDataset(dev=False,test=False)
+    #devset   = EMGDataset(dev=True)
     
     trainset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = True, dev = False, test = False,
                                      togglePhones = togglePhones)
-    #trainset = trainset.subset(0.01) # FOR DEBUGGING - REMOVE WHEN RUNNING
     devset   = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = True, test = False,
                                      togglePhones = togglePhones)
     

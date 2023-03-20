@@ -1,13 +1,16 @@
 import string
 
 import numpy as np
-import librosa
 import soundfile as sf
+import librosa
 from textgrids import TextGrid
 import jiwer
 from unidecode import unidecode
+from g2p_en import G2p
+import re
 
 import torch
+import torchaudio
 import matplotlib.pyplot as plt
 
 from absl import flags
@@ -55,14 +58,16 @@ def mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin,
                       center=center, pad_mode='reflect', normalized=False, onesided=True)
 
     spec = torch.sqrt(spec.pow(2).sum(-1)+(1e-9))
-
     spec = torch.matmul(mel_basis[str(fmax)+'_'+str(y.device)], spec)
     spec = spectral_normalize_torch(spec)
 
     return spec
 
 def load_audio(filename, start=None, end=None, max_frames=None, renormalize_volume=False):
-    audio, r = sf.read(filename)
+    #audio, r = sf.read(filename)
+    #audio, r = sf.read(filename.replace('flac', 'wav'))
+    audio, r = torchaudio.load(filename)
+    audio    = audio.numpy().T
 
     if len(audio.shape) > 1:
         audio = audio[:,0] # select first channel of stero audio
@@ -75,8 +80,11 @@ def load_audio(filename, start=None, end=None, max_frames=None, renormalize_volu
         audio = librosa.resample(audio, 16000, 22050)
     else:
         assert r == 22050
+    #print(audio, audio.shape)
+    
     audio = np.clip(audio, -1, 1) # because resampling sometimes pushes things out of range
     pytorch_mspec = mel_spectrogram(torch.tensor(audio, dtype=torch.float32).unsqueeze(0), 1024, 80, 22050, 256, 1024, 0, 8000, center=False)
+    
     mspec = pytorch_mspec.squeeze(0).T.numpy()
     if max_frames is not None and mspec.shape[0] > max_frames:
         mspec = mspec[:max_frames,:]
@@ -155,6 +163,7 @@ class FeatureNormalizer(object):
         sample = sample + self.feature_means
         return sample
 
+    
 def combine_fixed_length(tensor_list, length):
     total_length = sum(t.size(0) for t in tensor_list)
     if total_length % length != 0:
@@ -166,6 +175,7 @@ def combine_fixed_length(tensor_list, length):
     n = total_length // length
     return tensor.view(n, length, *tensor.size()[1:])
 
+
 def decollate_tensor(tensor, lengths):
     b, s, d = tensor.size()
     tensor = tensor.view(b*s, d)
@@ -176,6 +186,7 @@ def decollate_tensor(tensor, lengths):
         results.append(tensor[idx:idx+length])
         idx += length
     return results
+
 
 def splice_audio(chunks, overlap):
     chunks = [c.copy() for c in chunks] # copy so we can modify in place
@@ -201,6 +212,7 @@ def splice_audio(chunks, overlap):
 
     return result
 
+
 def print_confusion(confusion_mat, n=10):
     # axes are (pred, target)
     target_counts = confusion_mat.sum(0) + 1e-4
@@ -220,6 +232,7 @@ def print_confusion(confusion_mat, n=10):
         p2s = phoneme_inventory[p2]
         print(f'{p1s} {p2s} {v*100:.1f} {(confusion_mat[p1,p1]+confusion_mat[p2,p2])/(target_counts[p1]+target_counts[p2])*100:.1f}')
 
+        
 def read_phonemes(textgrid_fname, max_len=None):
     tg = TextGrid(textgrid_fname)
     phone_ids = np.zeros(int(tg['phones'][-1].xmax*86.133)+1, dtype=np.int64)
@@ -240,19 +253,141 @@ def read_phonemes(textgrid_fname, max_len=None):
         assert phone_ids.shape[0] == max_len
     return phone_ids
 
+
+def numToWords(num,join=True):
+    '''words = {} convert an integer number into words'''
+    units = ['','one','two','three','four','five','six','seven','eight','nine']
+    teens = ['','eleven','twelve','thirteen','fourteen','fifteen','sixteen', \
+             'seventeen','eighteen','nineteen']
+    tens = ['','ten','twenty','thirty','forty','fifty','sixty','seventy', \
+            'eighty','ninety']
+    thousands = ['','thousand','million','billion','trillion','quadrillion', \
+                 'quintillion','sextillion','septillion','octillion', \
+                 'nonillion','decillion','undecillion','duodecillion', \
+                 'tredecillion','quattuordecillion','sexdecillion', \
+                 'septendecillion','octodecillion','novemdecillion', \
+                 'vigintillion']
+    words = []
+    if num==0: words.append('zero')
+    else:
+        numStr    = '%d'%int(num)
+        numStrLen = len(numStr)
+        groups = int((numStrLen+2)/3)
+        numStr = numStr.zfill(groups*3)
+        for i in range(0,groups*3,3):
+            h,t,u = int(numStr[i]),int(numStr[i+1]),int(numStr[i+2])
+            g = groups-int(i/3+1)
+            if h>=1:
+                words.append(units[h])
+                words.append('hundred')
+            if t>1:
+                words.append(tens[t])
+                if u>=1: words.append(units[u])
+            elif t==1:
+                if u>=1: words.append(teens[u])
+                else: words.append(tens[t])
+            else:
+                if u>=1: words.append(units[u])
+            if (g>=1) and ((h+t+u)>0): words.append(thousands[g]+' ')
+    if join: return ' '.join(words)
+    return words
+
+
+def convertNumbersToStrings(sentence):
+    
+    output_sentence = []
+    for word in sentence.split():
+        if word.isdigit():
+            output_sentence.append(numToWords(word))
+        else:
+            output_sentence.append(word)
+    output_sentence = ' '.join(output_sentence)
+
+    return output_sentence
+
+
+def applyCustomCorrections(sentence, replacement_dict):
+    '''
+    Correct specific strings in dataset. Inputs are:
+    
+        sentence (str) - string to clean
+        replacement_dict (dict) - dict containing key-value pairs
+                                  of strings to remove and replacements
+    '''
+    
+    output_sentence = []
+    for word in sentence.split():
+        if word in replacement_dict.keys():
+            output_sentence.append(replacement_dict[word])
+        else:
+            output_sentence.append(word)
+    output_sentence = ' '.join(output_sentence)
+
+    return output_sentence
+
+
 class TextTransform(object):
-    def __init__(self):
-        self.transformation = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
-        self.chars = string.ascii_lowercase+string.digits+' '
+    def __init__(self, togglePhones = False):
+        self.togglePhones     = togglePhones
+        
+        self.transformation   = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
+        self.replacement_dict = {
+            '£250' : 'two hundred fifty pounds',
+            '£1000' : 'one thousand pounds'
+        }
+        
+        if self.togglePhones:
+            self.g2p   = G2p()
+            self.chars = [
+                'AA', 'AE', 'AH', 'AO', 'AW',
+                'AY', 'B',  'CH', 'D', 'DH',
+                'EH', 'ER', 'EY', 'F', 'G',
+                'HH', 'IH', 'IY', 'JH', 'K',
+                'L', 'M', 'N', 'NG', 'OW',
+                'OY', 'P', 'R', 'S', 'SH',
+                'T', 'TH', 'UH', 'UW', 'V',
+                'W', 'Y', 'Z', 'ZH'] + ['|']
+        else:
+            self.g2p   = None
+            self.chars = [x for x in string.ascii_lowercase+string.digits+ '|']
+
+    def clean_2(self, text):
+        text = applyCustomCorrections(text, self.replacement_dict)
+        text = unidecode(text)
+        text = text.replace('-', ' ')
+        text = text.replace(':', ' ')
+        text = self.transformation(text)
+        text = convertNumbersToStrings(text)
+        return text             
 
     def clean_text(self, text):
-        text = unidecode(text)
-        text = self.transformation(text)
+        if self.togglePhones:
+            text = self.g2p(text)
+            text = [re.sub("\d+", "", x) for x in text]
+            text = [x.replace('-', ' ') for x in text]
+            text = [x.replace(':', ' ') for x in text]
+            text = [jiwer.RemovePunctuation()(x) for x in text]
+            text = [x for x in text if len(x) > 0]
+        else:
+            text = applyCustomCorrections(text, self.replacement_dict)
+            text = unidecode(text)
+            text = text.replace('-', ' ')
+            text = text.replace(':', ' ')
+            text = self.transformation(text)
+            text = convertNumbersToStrings(text)
+        
         return text
 
     def text_to_int(self, text):
         text = self.clean_text(text)
+        if self.togglePhones:
+            text = [x.replace(' ', '|') for x in text]
+        else:
+            text = text.replace(' ', '|')
         return [self.chars.index(c) for c in text]
 
     def int_to_text(self, ints):
-        return ''.join(self.chars[i] for i in ints)
+        text = ''.join(self.chars[i] for i in ints)
+        text = text.replace('|', ' ').lower()
+        return text
+
