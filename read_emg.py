@@ -481,7 +481,7 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
     
 class EMGDataModule(pl.LightningDataModule):
     def __init__(self, base_dir, togglePhones, normalizers_file,
-                 batch_size=32, num_workers=0) -> None:
+                 batch_size=32, max_len=128000, num_workers=0) -> None:
         super().__init__()
         self.train = PreprocessedEMGDataset(base_dir = base_dir, train = True, dev = False, test = False,
                                         togglePhones = togglePhones, normalizers_file = normalizers_file)
@@ -492,6 +492,7 @@ class EMGDataModule(pl.LightningDataModule):
                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.max_len = max_len
         
     def train_dataloader(self):
         loader = DataLoader(
@@ -501,7 +502,7 @@ class EMGDataModule(pl.LightningDataModule):
             # shuffle=True,
             num_workers=self.num_workers,
             pin_memory=True,
-            batch_sampler = PreprocessedSizeAwareSampler(self.train, 128000)
+            batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len)
         )
         return loader
 

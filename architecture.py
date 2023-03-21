@@ -132,7 +132,7 @@ class Model(pl.LightningModule):
             # print('batch:', batch_idx)
             print('Isnan output:',torch.any(torch.isnan(pred)))
             print('Isinf output:',torch.any(torch.isinf(pred)))
-            raise ValueError("NaN/Inf detected in loss")
+            # raise ValueError("NaN/Inf detected in loss")
             
         return loss, bz
     

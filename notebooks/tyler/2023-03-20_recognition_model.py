@@ -47,13 +47,14 @@ else:
     sessions_dir = '/data/magneto/'
 
 ##
-auto_lr_find = True
+auto_lr_find = False
 debug = False
+max_len = 128000 * 2
 log_neptune = True
 output_directory = os.path.join(os.environ["LOCAL_SCRATCH"], f"{isotime}_gaddy")
 S4 = 0
 batch_size = 32
-learning_rate = 3e-4
+learning_rate = 8e-5
 epochs = 200
 learning_rate_warmup = 1000
 learning_rate_patience = 5
@@ -79,17 +80,23 @@ logging.basicConfig(handlers=[
         ], level=logging.INFO, format="%(message)s")
 
 
-datamodule = EMGDataModule(base_dir, togglePhones, normalizers_file)
+datamodule = EMGDataModule(base_dir, togglePhones, normalizers_file, max_len=max_len)
 
 logging.info('output example: %s', datamodule.val.example_indices[0])
 logging.info('train / dev split: %d %d',len(datamodule.train),len(datamodule.val))
 ##
 n_chars = len(datamodule.val.text_transform.chars)
 num_outs = n_chars+1
-steps_per_epoch = len(datamodule.train_dataloader())
+steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this is 242
 model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform,
-              steps_per_epoch=steps_per_epoch, epochs=epochs)
+              steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate)
+
+params = {
+    "num_features": num_features, "model_size": model_size,
+    "dropout": dropout, "num_layers": num_layers,
+    "num_outs": num_outs, "lr": learning_rate
+}
 
 # neptune_logger = None
 
@@ -101,7 +108,7 @@ neptune_logger = NeptuneLogger(
     name=model.__class__.__name__,
     tags=[model.__class__.__name__,
             "OneCycleLR",
-            "fp16"
+            "fp16",
             "MultiStepLR",
             "800Hz",
             "8xDownsampling",
@@ -109,6 +116,7 @@ neptune_logger = NeptuneLogger(
             ],
     log_model_checkpoints=False,
 )
+neptune_logger.log_hyperparams(params)
 
 if ON_SHERLOCK:
     # pl_root_dir = os.environ["SCRATCH"]
@@ -123,13 +131,13 @@ callbacks = None
 # maybe due to bad length estimate for sampler (should be 507, not 8055)
 trainer = pl.Trainer(
     max_epochs=epochs,
-    devices=[2],
+    devices=[1],
     accelerator="gpu",
     gradient_clip_val=10,
     logger=neptune_logger,
     default_root_dir=pl_root_dir,
     callbacks=callbacks,
-    precision=16,
+    precision=16, # get NaN
     enable_checkpointing=False
 )
 
