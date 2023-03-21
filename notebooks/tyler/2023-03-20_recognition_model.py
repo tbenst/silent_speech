@@ -89,7 +89,7 @@ num_outs = n_chars+1
 steps_per_epoch = len(datamodule.train_dataloader())
 model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform,
-              steps_per_epoch=steps_per_epoch, epochs=epochs, batch_size=batch_size)
+              steps_per_epoch=steps_per_epoch, epochs=epochs)
 
 # neptune_logger = None
 
@@ -124,7 +124,8 @@ trainer = pl.Trainer(
     gradient_clip_val=10,
     logger=neptune_logger,
     default_root_dir=pl_root_dir,
-    callbacks=callbacks
+    callbacks=callbacks,
+    enable_checkpointing=False
 )
 
 if auto_lr_find:

@@ -153,10 +153,26 @@ class SizeAwareSampler(torch.utils.data.Sampler):
             batch_length += length
         # dropping last incomplete batch
         
+def lookup_emg_length(example):
+    x = loadmat(example)['audio_file'][0]
+    json_file = x.split('_audio_clean')[0] + '_info.json'
+
+    with open(json_file) as f:
+        info = json.load(f)
+        
+        
+    if not np.any([l in string.ascii_letters for l in info['text']]):
+        return False
+
+    length = sum([emg_len for emg_len, _, _ in info['chunks']])
+    return length
+        
 class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
     def __init__(self, emg_dataset, max_len):
         self.dataset = emg_dataset
         self.max_len = max_len
+        
+        self.lengths = [lookup_emg_length(ex) for ex in self.dataset.example_indices]
 
     def __iter__(self):
         indices = list(range(len(self.dataset)))
@@ -164,18 +180,7 @@ class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
         batch = []
         batch_length = 0
         for idx in indices:
-           # directory_info, file_idx = self.dataset.example_indices[idx]
-            
-            x         = loadmat(self.dataset.example_indices[idx])['audio_file'][0]
-            json_file = x.split('_audio_clean')[0] + '_info.json'
-
-            with open(json_file) as f:
-                info = json.load(f)
-                
-                
-            if not np.any([l in string.ascii_letters for l in info['text']]):
-                continue
-            length = sum([emg_len for emg_len, _, _ in info['chunks']])
+            length = self.lengths[idx]
             if length > self.max_len:
                 logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
             if length + batch_length > self.max_len:

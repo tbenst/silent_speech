@@ -48,7 +48,7 @@ class ResBlock(nn.Module):
     
 class Model(pl.LightningModule):
     def __init__(self, num_features, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
-                 steps_per_epoch, epochs, batch_size, num_aux_outs=None, lr=3e-4,
+                 steps_per_epoch, epochs, num_aux_outs=None, lr=3e-4,
                  lm_directory=LM_DIR):
         super().__init__()
 
@@ -71,7 +71,6 @@ class Model(pl.LightningModule):
         self.lr = lr
         self.epochs = epochs
         self.steps_per_epoch = steps_per_epoch
-        self.batch_size = batch_size
         
         # val/test procedure...
         self.text_transform = text_transform
@@ -119,6 +118,7 @@ class Model(pl.LightningModule):
         X     = combine_fixed_length(batch['emg'], self.seqlen)
         X_raw = combine_fixed_length(batch['raw_emg'], self.seqlen*8)
         sess  = combine_fixed_length(batch['session_ids'], self.seqlen)        
+        bz = X.shape[0]
     
         pred = self(X, X_raw, sess)
         pred = F.log_softmax(pred, 2)
@@ -129,12 +129,12 @@ class Model(pl.LightningModule):
         loss = F.ctc_loss(pred, y, batch['lengths'], batch['text_int_lengths'], blank=self.n_chars)
         
         if torch.isnan(loss) or torch.isinf(loss):
-            print('batch:', batch_idx)
+            # print('batch:', batch_idx)
             print('Isnan output:',torch.any(torch.isnan(pred)))
             print('Isinf output:',torch.any(torch.isinf(pred)))
             raise ValueError("NaN/Inf detected in loss")
             
-        return loss
+        return loss, bz
     
     def calc_wer(self, batch):
         X     = batch['emg'][0].unsqueeze(0)
@@ -147,25 +147,25 @@ class Model(pl.LightningModule):
         pred_int     = beam_results[0][0].tokens
         pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
         target_text  = self.text_transform.clean_2(batch['text'][0][0])
-        return jiwer.wer([target_text], [pred_text])
+        return jiwer.wer([target_text], [pred_text]), X.shape[0]
     
     def training_step(self, batch, batch_idx):
-        loss = self.calc_loss(batch)
-        self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=batch_size)
+        loss, bz = self.calc_loss(batch)
+        self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz)
         return loss
     
     def validation_step(self, batch, batch_idx):
         # loss = self.calc_loss(batch)
-        wer = self.calc_wer(batch)
+        wer, bz = self.calc_wer(batch)
         # self.log("val/loss", loss, prog_bar=True)
-        self.log("val/wer", wer, prog_bar=True, batch_size=batch_size)
+        self.log("val/wer", wer, prog_bar=True, batch_size=bz)
         return wer
 
     def test_step(self, batch, batch_idx):
         # loss = self.calc_loss(batch)
-        wer = self.calc_wer(batch)
+        wer, bz = self.calc_wer(batch)
         # self.log("test/loss", loss, prog_bar=True)
-        self.log("test/wer", wer, prog_bar=True, batch_size=batch_size)
+        self.log("test/wer", wer, prog_bar=True, batch_size=bz)
         return wer
 
     def configure_optimizers(self):
