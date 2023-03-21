@@ -22,7 +22,7 @@ First build the LLaMA environment. Then,
 ```
 > conda install libsndfile -c conda-forge
 > 
-> pip install jiwer torchaudio matplotlib scipy neptune soundfile absl-py librosa numba unidecode praat-textgrids g2p_en einops opt_einsum hydra-core pytorch_lightning
+> pip install jiwer torchaudio matplotlib scipy neptune soundfile absl-py librosa numba unidecode praat-textgrids g2p_en einops opt_einsum hydra-core pytorch_lightning "neptune-client==0.16.18"
 ```
 
 ### original setup
