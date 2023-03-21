@@ -29,6 +29,7 @@ import neptune.new as neptune
 from absl import flags
 FLAGS = flags.FLAGS
 flags.DEFINE_boolean('debug', False, 'debug')
+flags.DEFINE_boolean('log_neptune', True, 'log training to Neptune.ai')
 flags.DEFINE_string('output_directory', 'output', 'where to save models and outputs')
 flags.DEFINE_integer('S4', 0, 'Toggle S4 model in place of transformer')
 flags.DEFINE_integer('batch_size', 32, 'training batch size')
@@ -114,15 +115,17 @@ def train_model(trainset, devset, device, n_epochs):
         model = S4Model(devset.num_features, n_chars+1).to(device)
     else:
         model = Model(devset.num_features, n_chars+1).to(device)
-        
-    run = neptune.init_run(
-    project="neuro/Gaddy",    
-    api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJjNmRjNDNhNS0yOGI0LTQ5MjAtODZiZi04Njc0NjA1ZDUwOWMifQ==")  
+
+    if FLAGS.log_neptune:
+        run = neptune.init_run(
+        project="neuro/Gaddy",    
+        api_token=os.environ["NEPTUNE_API_TOKEN"])  
 
     logging.info(model)
     model_parameters  = filter(lambda p: p.requires_grad, model.parameters())
     params            = sum([np.prod(p.size()) for p in model_parameters])
-    run['num_parameters'] = params
+    if FLAGS.log_neptune:
+        run['num_parameters'] = params
     logging.info(f'Number of parameters: {params}')
 
     if FLAGS.start_training_from is not None:
@@ -140,7 +143,6 @@ def train_model(trainset, devset, device, n_epochs):
     params = {}
     for flag in FLAGS:
         params[flag] = getattr(FLAGS, flag) 
-    run['hyperparameters'] = params
     
     def set_lr(new_lr):
         for param_group in optim.param_groups:
@@ -152,11 +154,12 @@ def train_model(trainset, devset, device, n_epochs):
         if iteration <= FLAGS.learning_rate_warmup:
             set_lr(iteration*target_lr/FLAGS.learning_rate_warmup)
             
-            
-    run["sys/tags"].add("MultiStepLR")
-    run["sys/tags"].add("800Hz")
-    run["sys/tags"].add("8xDownsampling")
-    run["sys/tags"].add("FCN_embedding")
+    if FLAGS.log_neptune:
+        run['hyperparameters'] = params
+        run["sys/tags"].add("MultiStepLR")
+        run["sys/tags"].add("800Hz")
+        run["sys/tags"].add("8xDownsampling")
+        run["sys/tags"].add("FCN_embedding")
 
     batch_idx = 0
     optim.zero_grad()
@@ -201,8 +204,9 @@ def train_model(trainset, devset, device, n_epochs):
         lr_sched.step() # EXPERIMENTAL
         logging.info(f'finished epoch {epoch_idx+1} - training loss: {train_loss:.4f} validation WER: {val*100:.2f}')
         
-        run["train/loss"].log(train_loss)
-        run["val/WER"].log(val * 100)
+        if FLAGS.log_neptune:
+            run["train/loss"].log(train_loss)
+            run["val/WER"].log(val * 100)
         
         
         torch.save(model.state_dict(), os.path.join(FLAGS.output_directory,'model.pt'))

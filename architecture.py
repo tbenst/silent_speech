@@ -3,15 +3,19 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from transformer import TransformerEncoderLayer
+from data_utils import combine_fixed_length, decollate_tensor
 
-import sys
+import sys, os, jiwer
+import pytorch_lightning as pl
+from torchaudio.models.decoder import ctc_decoder
 from s4 import S4
+from data_utils import TextTransform
 
-from absl import flags
-FLAGS = flags.FLAGS
-flags.DEFINE_integer('model_size', 768, 'number of hidden dimensions')
-flags.DEFINE_integer('num_layers', 6, 'number of layers')
-flags.DEFINE_float('dropout', .2, 'dropout')
+MODEL_SIZE = 768 # number of hidden dimensions
+NUM_LAYERS = 6 # number of layers
+DROPOUT = .2 # dropout
+
+LM_DIR = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/"
 
 class ResBlock(nn.Module):
     def __init__(self, num_ins, num_outs, stride=1):
@@ -42,24 +46,49 @@ class ResBlock(nn.Module):
         return F.relu(x + res)
     
     
-class Model(nn.Module):
-    def __init__(self, num_features, num_outs, num_aux_outs=None):
+class Model(pl.LightningModule):
+    def __init__(self, num_features, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
+                 steps_per_epoch, epochs, batch_size, num_aux_outs=None, lr=3e-4,
+                 lm_directory=LM_DIR):
         super().__init__()
 
         self.conv_blocks = nn.Sequential(
-            ResBlock(8, FLAGS.model_size, 2),
-            ResBlock(FLAGS.model_size, FLAGS.model_size, 2),
-            ResBlock(FLAGS.model_size, FLAGS.model_size, 2),
+            ResBlock(8, model_size, 2),
+            ResBlock(model_size, model_size, 2),
+            ResBlock(model_size, model_size, 2),
         )
-        self.w_raw_in = nn.Linear(FLAGS.model_size, FLAGS.model_size)
-        encoder_layer = TransformerEncoderLayer(d_model=FLAGS.model_size, nhead=8, relative_positional=True, 
-                                                relative_positional_distance=100, dim_feedforward=3072, dropout=FLAGS.dropout)
-        self.transformer = nn.TransformerEncoder(encoder_layer, FLAGS.num_layers)
-        self.w_out       = nn.Linear(FLAGS.model_size, num_outs)
+        self.w_raw_in = nn.Linear(model_size, model_size)
+        encoder_layer = TransformerEncoderLayer(d_model=model_size, nhead=8, relative_positional=True, 
+                                                relative_positional_distance=100, dim_feedforward=3072, dropout=dropout)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
+        self.w_out       = nn.Linear(model_size, num_outs)
 
         self.has_aux_out = num_aux_outs is not None
         if self.has_aux_out:
-            self.w_aux = nn.Linear(FLAGS.model_size, num_aux_outs)
+            self.w_aux = nn.Linear(model_size, num_aux_outs)
+            
+        self.seqlen = 600
+        self.lr = lr
+        self.epochs = epochs
+        self.steps_per_epoch = steps_per_epoch
+        self.batch_size = batch_size
+        
+        # val/test procedure...
+        self.text_transform = text_transform
+        self.n_chars = len(text_transform.chars)
+        lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+        self.ctc_decoder = ctc_decoder(
+            lexicon = lexicon_file,
+            tokens  = text_transform.chars + ['_'],
+            lm      = os.path.join(lm_directory, '4gram_lm.bin'),
+            blank_token = '_',
+            sil_token   = '|',
+            nbest       = 1,
+            lm_weight   = 2, # default is 2; Gaddy sets to 1.85
+            #word_score  = -3,
+            #sil_score   = -2,
+            beam_size   = 150  # SET TO 150 during inference
+        )
 
     def forward(self, x_feat, x_raw, session_ids):
         # x shape is (batch, time, electrode)
@@ -86,6 +115,67 @@ class Model(nn.Module):
             return self.w_out(x)
         
         
+    def calc_loss(self, batch):
+        X     = combine_fixed_length(batch['emg'], self.seqlen)
+        X_raw = combine_fixed_length(batch['raw_emg'], self.seqlen*8)
+        sess  = combine_fixed_length(batch['session_ids'], self.seqlen)        
+    
+        pred = self(X, X_raw, sess)
+        pred = F.log_softmax(pred, 2)
+
+        # seq first, as required by ctc
+        pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, batch['lengths']), batch_first=False) 
+        y    = nn.utils.rnn.pad_sequence(batch['text_int'], batch_first=True)
+        loss = F.ctc_loss(pred, y, batch['lengths'], batch['text_int_lengths'], blank=self.n_chars)
+        
+        if torch.isnan(loss) or torch.isinf(loss):
+            print('batch:', batch_idx)
+            print('Isnan output:',torch.any(torch.isnan(pred)))
+            print('Isinf output:',torch.any(torch.isinf(pred)))
+            raise ValueError("NaN/Inf detected in loss")
+            
+        return loss
+    
+    def calc_wer(self, batch):
+        X     = batch['emg'][0].unsqueeze(0)
+        X_raw = batch['raw_emg'][0].unsqueeze(0)
+        sess  = batch['session_ids'][0]
+
+        pred  = F.log_softmax(self(X, X_raw, sess), -1).cpu()
+
+        beam_results = self.ctc_decoder(pred)
+        pred_int     = beam_results[0][0].tokens
+        pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
+        target_text  = self.text_transform.clean_2(batch['text'][0][0])
+        return jiwer.wer([target_text], [pred_text])
+    
+    def training_step(self, batch, batch_idx):
+        loss = self.calc_loss(batch)
+        self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=batch_size)
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        # loss = self.calc_loss(batch)
+        wer = self.calc_wer(batch)
+        # self.log("val/loss", loss, prog_bar=True)
+        self.log("val/wer", wer, prog_bar=True, batch_size=batch_size)
+        return wer
+
+    def test_step(self, batch, batch_idx):
+        # loss = self.calc_loss(batch)
+        wer = self.calc_wer(batch)
+        # self.log("test/loss", loss, prog_bar=True)
+        self.log("test/wer", wer, prog_bar=True, batch_size=batch_size)
+        return wer
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
+            steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
+        lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
+
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
         
 class S4Layer(nn.Module):
     """
@@ -152,9 +242,9 @@ class S4Model(nn.Module):
         
         # Linear encoder
         self.encoder = nn.Sequential(
-            nn.Linear(8, FLAGS.model_size),
+            nn.Linear(8, MODEL_SIZE),
             nn.Softsign(),
-            nn.Linear(8, FLAGS.model_size)
+            nn.Linear(8, MODEL_SIZE)
         )
         
         
@@ -163,24 +253,24 @@ class S4Model(nn.Module):
         self.norms     = nn.ModuleList()
         self.dropouts  = nn.ModuleList()
         self.linears   = nn.ModuleList()
-        for i in range(FLAGS.num_layers):
+        for i in range(NUM_LAYERS):
             if i > 2:
-                s4_dropout = FLAGS.dropout
+                s4_dropout = DROPOUT
             #   # channels = 2
             #else:
                 s4_dropout = 0
             #  #  channels = 3
             
-            s4_dropout = FLAGS.dropout
+            s4_dropout = DROPOUT
             
-            dropout = FLAGS.dropout
-            self.s4_layers.append(S4Layer(FLAGS.model_size, dropout, s4_dropout = s4_dropout))
+            dropout = DROPOUT
+            self.s4_layers.append(S4Layer(MODEL_SIZE, dropout, s4_dropout = s4_dropout))
         
-        self.w_out = nn.Linear(FLAGS.model_size, num_outs)
+        self.w_out = nn.Linear(MODEL_SIZE, num_outs)
         
         self.has_aux_out = num_aux_outs is not None
         if self.has_aux_out:
-            self.w_aux = nn.Linear(FLAGS.model_size, num_aux_outs)
+            self.w_aux = nn.Linear(MODEL_SIZE, num_aux_outs)
 
             
     def forward(self, x_feat, x_raw, session_ids):
@@ -218,25 +308,25 @@ class H3Model(nn.Module):
         self.prenorm = False 
         
         # Linear encoder
-        self.encoder = nn.Linear(8, FLAGS.model_size)
+        self.encoder = nn.Linear(8, MODEL_SIZE)
         
         # Stack S4 layers as residual blocks
         self.h3_layers = nn.ModuleList()
         self.norms     = nn.ModuleList()
         self.dropouts  = nn.ModuleList()
         self.linears   = nn.ModuleList()
-        for i in range(FLAGS.num_layers):
+        for i in range(NUM_LAYERS):
             self.h3_layers.append(
-                H3(d_model = FLAGS.model_size, dropout=FLAGS.dropout, lr=None)
+                H3(d_model = MODEL_SIZE, dropout=DROPOUT, lr=None)
             )
-            self.norms.append(nn.LayerNorm(FLAGS.model_size))
-            self.dropouts.append(nn.Dropout1d(FLAGS.dropout))
+            self.norms.append(nn.LayerNorm(MODEL_SIZE))
+            self.dropouts.append(nn.Dropout1d(DROPOUT))
         
-        self.w_out = nn.Linear(FLAGS.model_size, num_outs)
+        self.w_out = nn.Linear(MODEL_SIZE, num_outs)
         
         self.has_aux_out = num_aux_outs is not None
         if self.has_aux_out:
-            self.w_aux = nn.Linear(FLAGS.model_size, num_aux_outs)
+            self.w_aux = nn.Linear(MODEL_SIZE, num_aux_outs)
 
             
     def forward(self, x_feat, x_raw, session_ids):
