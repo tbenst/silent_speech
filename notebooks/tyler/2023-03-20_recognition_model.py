@@ -101,6 +101,7 @@ neptune_logger = NeptuneLogger(
     name=model.__class__.__name__,
     tags=[model.__class__.__name__,
             "OneCycleLR",
+            "fp16"
             "MultiStepLR",
             "800Hz",
             "8xDownsampling",
@@ -117,6 +118,9 @@ else:
     
 callbacks = None
 
+# validation not running...?
+# https://lightning.ai/forums/t/validation-step-and-validation-epoch-end-wont-get-called-in-trainer-fit-routine/1546
+# maybe due to bad length estimate for sampler (should be 507, not 8055)
 trainer = pl.Trainer(
     max_epochs=epochs,
     devices=[2],
@@ -125,6 +129,7 @@ trainer = pl.Trainer(
     logger=neptune_logger,
     default_root_dir=pl_root_dir,
     callbacks=callbacks,
+    precision=16,
     enable_checkpointing=False
 )
 

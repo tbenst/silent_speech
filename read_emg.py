@@ -173,6 +173,7 @@ class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
         self.max_len = max_len
         
         self.lengths = [lookup_emg_length(ex) for ex in self.dataset.example_indices]
+        self.approx_len = int(np.ceil(np.array(self.lengths)).sum() / max_len)
 
     def __iter__(self):
         indices = list(range(len(self.dataset)))
@@ -192,7 +193,7 @@ class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
         # dropping last incomplete batch
         
     def __len__(self):
-        return len(self.dataset)
+        return self.approx_len
 
 class EMGDataset(torch.utils.data.Dataset):
     def __init__(self, base_dir=None, normalizers_file=None, limit_length=False, dev=False, test=False, no_testset=False, 
