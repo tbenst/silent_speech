@@ -7,8 +7,8 @@ wget -c https://download.pytorch.org/torchaudio/download-assets/librispeech-3-gr
 
 '''
 ##
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 ##
 import pytorch_lightning as pl
 import os
@@ -91,9 +91,9 @@ steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this i
 model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform,
               steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate)
-
+##
 params = {
-    "num_features": num_features, "model_size": model_size,
+    "num_features": datamodule.val.num_features, "model_size": model_size,
     "dropout": dropout, "num_layers": num_layers,
     "num_outs": num_outs, "lr": learning_rate
 }
@@ -108,6 +108,7 @@ neptune_logger = NeptuneLogger(
     name=model.__class__.__name__,
     tags=[model.__class__.__name__,
             "OneCycleLR",
+            "AdamW",
             "fp16",
             "MultiStepLR",
             "800Hz",
@@ -137,7 +138,7 @@ trainer = pl.Trainer(
     logger=neptune_logger,
     default_root_dir=pl_root_dir,
     callbacks=callbacks,
-    precision=16, # get NaN
+    precision=16,
     enable_checkpointing=False
 )
 
