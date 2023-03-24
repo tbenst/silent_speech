@@ -171,9 +171,9 @@ class Model(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
 
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
-            steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
-        # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[125,150,175], gamma=.5)
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
+        #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[125,150,175], gamma=.5)
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
 
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}

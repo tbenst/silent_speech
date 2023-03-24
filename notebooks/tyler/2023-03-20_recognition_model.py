@@ -107,7 +107,7 @@ neptune_logger = NeptuneLogger(
     # name=magneto.fullname(model), # from lib
     name=model.__class__.__name__,
     tags=[model.__class__.__name__,
-            "OneCycleLR",
+            "MultiStepLR",
             "AdamW",
             "fp16",
             "MultiStepLR",
@@ -151,5 +151,5 @@ trainer.fit(model, datamodule.train_dataloader(),
 
 trainer.validate(model, dataloaders=datamodule.val_dataloader(), ckpt_path='best')
 # trainer.test(model, dataloaders=dataloader, ckpt_path='best')
-# neptune_logger.experiment.stop()
+neptune_logger.experiment.stop()
 ##
