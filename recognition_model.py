@@ -49,6 +49,10 @@ flags.DEFINE_string('base_dir', '/oak/stanford/projects/babelfish/magneto/GaddyP
 seqlen       = 600
 togglePhones = False
 
+# horrible hack to get around this repo not being a proper python package
+SCRIPT_DIR = os.getcwd()
+normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
+print(f"{normalizers_file=}")
 
 def test(model, testset, device):
     model.eval()
@@ -222,7 +226,7 @@ def evaluate_saved():
     #testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = False, test = True)
     
     testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = True, test = False,
-                                    togglePhones = togglePhones)
+                                    togglePhones = togglePhones, normalizers_file = normalizers_file)
     n_chars = len(testset.text_transform.chars)
     
     if FLAGS.S4:
@@ -243,10 +247,10 @@ def main():
     logging.info(sys.argv)
     
     trainset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = True, dev = False, test = False,
-                                     togglePhones = togglePhones)
+                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
     #trainset = trainset.subset(0.01) # FOR DEBUGGING - REMOVE WHEN RUNNING
     devset   = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = True, test = False,
-                                     togglePhones = togglePhones)
+                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
     
     logging.info('output example: %s', devset.example_indices[0])
     logging.info('train / dev split: %d %d',len(trainset),len(devset))
