@@ -54,6 +54,7 @@ log_neptune = True
 output_directory = os.path.join(os.environ["LOCAL_SCRATCH"], f"{isotime}_gaddy")
 S4 = 0
 batch_size = 32
+precision = 32
 learning_rate = 3e-4
 epochs = 200
 # TODO: lr should not jump
@@ -113,7 +114,7 @@ neptune_logger = NeptuneLogger(
     tags=[model.__class__.__name__,
             "MultiStepLR",
             "AdamW",
-            "fp16",
+            f"fp{precision}",
             "MultiStepLR",
             "800Hz",
             "8xDownsampling",
@@ -145,7 +146,7 @@ trainer = pl.Trainer(
     logger=neptune_logger,
     default_root_dir=pl_root_dir,
     callbacks=callbacks,
-    precision=16,
+    precision=precision,
     enable_checkpointing=False
 )
 
