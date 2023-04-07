@@ -176,14 +176,16 @@ class Model(pl.LightningModule):
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
         #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[125,150,175], gamma=.5)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+            milestones=[125 * 125, 150  * 125, 175 * 125], # ~125 steps @ accum gradient x 2 (249 batches)
+            gamma=.5)
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
 
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
     
     
     def set_lr(self, new_lr):
-        optimizer = self.optimizers()
+        optimizer = self.optimizers().optimizer
         for param_group in optimizer.param_groups:
             param_group['lr'] = new_lr
             
@@ -191,10 +193,18 @@ class Model(pl.LightningModule):
     # def lr_scheduler_step(self, scheduler, metric):
     def lr_scheduler_step(self, scheduler, optimizer_idx, metric):
         # warmup per Gaddy
+
+        # print(f"lr_scheduler_step: {self.global_step=}")
+        # optimizer = self.optimizers().optimizer
+        # for param_group in optimizer.param_groups:
+        #     print(f"lr: {param_group['lr']}")
+
         if self.global_step <= self.learning_rate_warmup:
-            self.set_lr(self.global_step*self.target_lr/self.learning_rate_warmup)
+            new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
+            self.set_lr(new_lr)
         else:
             # default for pytorch lightning
+            # TODO: why does lr reset to way below what it should?!
             if metric is None:
                 scheduler.step()
             else:

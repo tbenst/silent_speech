@@ -56,7 +56,10 @@ S4 = 0
 batch_size = 32
 learning_rate = 3e-4
 epochs = 200
-learning_rate_warmup = 1000
+# TODO: lr should not jump
+ # account for accum gradient on two batches (gaddy counts iterations not backprop steps)
+# learning_rate_warmup = 16
+learning_rate_warmup = 500
 learning_rate_patience = 5
 start_training_from = None
 model_size = 768 # number of hidden dimensions
@@ -90,7 +93,8 @@ num_outs = n_chars+1
 steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this is 242
 model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform,
-              steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate)
+              steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate,
+              learning_rate_warmup=learning_rate_warmup)
 ##
 params = {
     "num_features": datamodule.val.num_features, "model_size": model_size,
