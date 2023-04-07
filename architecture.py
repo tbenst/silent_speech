@@ -49,6 +49,7 @@ class ResBlock(nn.Module):
 class Model(pl.LightningModule):
     def __init__(self, num_features, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
                  steps_per_epoch, epochs, num_aux_outs=None, lr=3e-4,
+                 learning_rate_warmup = 1000,
                  lm_directory=LM_DIR):
         super().__init__()
 
@@ -69,6 +70,8 @@ class Model(pl.LightningModule):
             
         self.seqlen = 600
         self.lr = lr
+        self.target_lr = lr # will not mutate
+        self.learning_rate_warmup = learning_rate_warmup
         self.epochs = epochs
         self.steps_per_epoch = steps_per_epoch
         
@@ -177,6 +180,25 @@ class Model(pl.LightningModule):
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
 
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
+    
+    
+    def set_lr(self, new_lr):
+        optimizer = self.optimizers()
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = new_lr
+            
+    # note: in pytorch-lightning 2.0.0, needs to be:
+    # def lr_scheduler_step(self, scheduler, metric):
+    def lr_scheduler_step(self, scheduler, optimizer_idx, metric):
+        # warmup per Gaddy
+        if self.global_step <= self.learning_rate_warmup:
+            self.set_lr(self.global_step*self.target_lr/self.learning_rate_warmup)
+        else:
+            # default for pytorch lightning
+            if metric is None:
+                scheduler.step()
+            else:
+                scheduler.step(metric)
         
 class S4Layer(nn.Module):
     """

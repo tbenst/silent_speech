@@ -54,7 +54,7 @@ log_neptune = True
 output_directory = os.path.join(os.environ["LOCAL_SCRATCH"], f"{isotime}_gaddy")
 S4 = 0
 batch_size = 32
-learning_rate = 8e-5
+learning_rate = 3e-4
 epochs = 200
 learning_rate_warmup = 1000
 learning_rate_patience = 5
@@ -125,7 +125,9 @@ if ON_SHERLOCK:
 else:
     pl_root_dir = "/scratch"
     
-callbacks = None
+callbacks = [
+    pl.callbacks.LearningRateMonitor(logging_interval="step"),
+]
 
 # validation not running...?
 # https://lightning.ai/forums/t/validation-step-and-validation-epoch-end-wont-get-called-in-trainer-fit-routine/1546
