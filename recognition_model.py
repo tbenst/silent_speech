@@ -107,10 +107,11 @@ def test(model, testset, device):
 
 def train_model(trainset, devset, device, n_epochs):
     
+    print("training model")
     dataloader = torch.utils.data.DataLoader(trainset, pin_memory=(device=='cuda'), 
                                          collate_fn=devset.collate_raw, num_workers=0,
                                          batch_sampler = PreprocessedSizeAwareSampler(trainset, 128000))
-
+    print("created dataloader")
 
     n_chars = len(devset.text_transform.chars)
     
@@ -120,10 +121,12 @@ def train_model(trainset, devset, device, n_epochs):
     else:
         model = Model(devset.num_features, n_chars+1).to(device)
 
+    print("made model")
     if FLAGS.log_neptune:
         run = neptune.init_run(
         project="neuro/Gaddy",    
         api_token=os.environ["NEPTUNE_API_TOKEN"])  
+        print("logging to neptune")
 
     logging.info(model)
     model_parameters  = filter(lambda p: p.requires_grad, model.parameters())
@@ -167,6 +170,7 @@ def train_model(trainset, devset, device, n_epochs):
 
     batch_idx = 0
     optim.zero_grad()
+    print("now training first epoch!")
     for epoch_idx in range(n_epochs):
         losses = []
         for example in dataloader:
