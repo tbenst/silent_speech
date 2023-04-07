@@ -172,7 +172,8 @@ class Model(pl.LightningModule):
         return wer
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        initial_lr = self.target_lr/self.learning_rate_warmup
+        optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
         #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
