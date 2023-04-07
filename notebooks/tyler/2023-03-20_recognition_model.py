@@ -137,6 +137,7 @@ trainer = pl.Trainer(
     devices=[1],
     accelerator="gpu",
     gradient_clip_val=10,
+    accumulate_grad_batches=2,
     logger=neptune_logger,
     default_root_dir=pl_root_dir,
     callbacks=callbacks,
