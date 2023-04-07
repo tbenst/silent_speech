@@ -29,6 +29,7 @@ import neptune.new as neptune
 from absl import flags
 FLAGS = flags.FLAGS
 flags.DEFINE_boolean('debug', False, 'debug')
+flags.DEFINE_boolean('log_neptune', True, 'log training to Neptune.ai')
 flags.DEFINE_string('output_directory', 'output', 'where to save models and outputs')
 flags.DEFINE_integer('S4', 0, 'Toggle S4 model in place of transformer')
 flags.DEFINE_integer('batch_size', 32, 'training batch size')
@@ -48,6 +49,10 @@ flags.DEFINE_string('base_dir', '/oak/stanford/projects/babelfish/magneto/GaddyP
 seqlen       = 600
 togglePhones = False
 
+# horrible hack to get around this repo not being a proper python package
+SCRIPT_DIR = os.getcwd()
+normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
+print(f"{normalizers_file=}")
 
 def test(model, testset, device):
     model.eval()
@@ -102,10 +107,11 @@ def test(model, testset, device):
 
 def train_model(trainset, devset, device, n_epochs):
     
+    print("training model")
     dataloader = torch.utils.data.DataLoader(trainset, pin_memory=(device=='cuda'), 
                                          collate_fn=devset.collate_raw, num_workers=0,
                                          batch_sampler = PreprocessedSizeAwareSampler(trainset, 128000))
-
+    print("created dataloader")
 
     n_chars = len(devset.text_transform.chars)
     
@@ -114,10 +120,13 @@ def train_model(trainset, devset, device, n_epochs):
         model = S4Model(devset.num_features, n_chars+1).to(device)
     else:
         model = Model(devset.num_features, n_chars+1).to(device)
-        
-    run = neptune.init_run(
-    project="neuro/Gaddy",    
-    api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJjNmRjNDNhNS0yOGI0LTQ5MjAtODZiZi04Njc0NjA1ZDUwOWMifQ==")  
+
+    print("made model")
+    if FLAGS.log_neptune:
+        run = neptune.init_run(
+        project="neuro/Gaddy",    
+        api_token=os.environ["NEPTUNE_API_TOKEN"])  
+        print("logging to neptune")
 
     logging.info(model)
     model_parameters  = filter(lambda p: p.requires_grad, model.parameters())
@@ -160,6 +169,7 @@ def train_model(trainset, devset, device, n_epochs):
 
     batch_idx = 0
     optim.zero_grad()
+    print("now training first epoch!")
     for epoch_idx in range(n_epochs):
         losses = []
         for example in dataloader:

@@ -17,6 +17,15 @@ Note that there will not be an exception if the directory is not found, but logg
 
 ## Environment Setup
 
+### alternate setup
+First build the LLaMA environment. Then, 
+```
+> conda install libsndfile -c conda-forge
+> 
+> pip install jiwer torchaudio matplotlib scipy soundfile absl-py librosa numba unidecode praat-textgrids g2p_en einops opt_einsum hydra-core pytorch_lightning "neptune-client==0.16.18"
+```
+
+### original setup
 This code requires Python 3.6 or later.
 We strongly recommend running in a new Anaconda environment.
 
