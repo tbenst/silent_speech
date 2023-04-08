@@ -91,6 +91,9 @@ class Model(pl.LightningModule):
             #sil_score   = -2,
             beam_size   = 150  # SET TO 150 during inference
         )
+        
+        self.step_target = []
+        self.step_pred = []
 
     def forward(self, x_feat, x_raw, session_ids):
         # x shape is (batch, time, electrode)
@@ -139,7 +142,8 @@ class Model(pl.LightningModule):
             
         return loss, bz
     
-    def calc_wer(self, batch):
+    def _beam_search_step(self, batch):
+        "Repeatedly called by validation_step & test_step. Impure function!"
         X     = batch['emg'][0].unsqueeze(0)
         X_raw = batch['raw_emg'][0].unsqueeze(0)
         sess  = batch['session_ids'][0]
@@ -150,7 +154,20 @@ class Model(pl.LightningModule):
         pred_int     = beam_results[0][0].tokens
         pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
         target_text  = self.text_transform.clean_2(batch['text'][0][0])
-        return jiwer.wer([target_text], [pred_text]), X.shape[0]
+
+        return target_text, pred_text
+    
+        # we accumulate results here
+        self.step_target.append(target_text)
+        self.step_pred.append(pred_text)
+
+        # perhaps problem is we need to call jiwer.wer only on ALL text...?
+        # return jiwer.wer([target_text], [pred_text]), X.shape[0]
+    
+        # if len(target_text) > 0:
+        #     references.append(target_text)
+        #     predictions.append(pred_text)
+        # return jiwer.wer(references, predictions)
     
     def training_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
@@ -158,18 +175,32 @@ class Model(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
-        # loss = self.calc_loss(batch)
-        wer, bz = self.calc_wer(batch)
-        # self.log("val/loss", loss, prog_bar=True)
-        self.log("val/wer", wer, prog_bar=True, batch_size=bz)
-        return wer
+        loss, bz = self.calc_loss(batch)
+        target_text, pred_text = self._beam_search_step(batch)
+        self.step_target.append(target_text)
+        self.step_pred.append(pred_text)
+        self.log("val/loss", loss, prog_bar=True, batch_size=bz)
+        return loss
+    
+    def on_validation_epoch_end(self) -> None:
+        wer = jiwer.wer(self.step_target, self.step_pred)
+        self.step_target.clear()
+        self.step_pred.clear()
+        self.log("val/wer", wer, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        # loss = self.calc_loss(batch)
-        wer, bz = self.calc_wer(batch)
-        # self.log("test/loss", loss, prog_bar=True)
-        self.log("test/wer", wer, prog_bar=True, batch_size=bz)
-        return wer
+        loss, bz = self.calc_loss(batch)
+        target_text, pred_text = self._beam_search_step(batch)
+        self.step_target.append(target_text)
+        self.step_pred.append(pred_text)
+        self.log("test/loss", loss, prog_bar=True, batch_size=bz)
+        return loss
+    
+    def on_test_epoch_end(self) -> None:
+        wer = jiwer.wer(self.step_target, self.step_pred)
+        self.step_target.clear()
+        self.step_pred.clear()
+        self.log("test/wer", wer, prog_bar=True)
 
     def configure_optimizers(self):
         initial_lr = self.target_lr/self.learning_rate_warmup
