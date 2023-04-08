@@ -167,7 +167,7 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=precision,
-    # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
+    check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 
 if auto_lr_find:
