@@ -35,7 +35,7 @@ from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
 import neptune
 from datetime import datetime
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -58,7 +58,7 @@ max_len = 128000 * 2
 log_neptune = True
 S4 = 0
 batch_size = 32
-precision = 16
+precision = "16-mixed"
 # precision = 32
 learning_rate = 3e-4
 epochs = 200
@@ -109,43 +109,52 @@ params = {
     "num_outs": num_outs, "lr": learning_rate
 }
 
-# neptune_logger = None
-
-neptune_logger = NeptuneLogger(
-    # need to store credentials in your shell env
-    api_key=os.environ["NEPTUNE_API_TOKEN"],
-    project="neuro/Gaddy",
-    # name=magneto.fullname(model), # from lib
-    name=model.__class__.__name__,
-    tags=[model.__class__.__name__,
-            "MultiStepLR",
-            "AdamW",
-            f"fp{precision}",
-            "MultiStepLR",
-            "800Hz",
-            "8xDownsampling",
-            "FCN_embedding",
-            ],
-    log_model_checkpoints=False,
-)
-neptune_logger.log_hyperparams(params)
-
-checkpoint_callback = ModelCheckpoint(
-    monitor="val/loss",
-    mode="max",
-    dirpath=output_directory,
-    filename=model.__class__.__name__+"-{epoch:02d}-{val/loss:.3f}",
-)
-
 callbacks = [
-    pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
-    # pl.callbacks.LearningRateMonitor(logging_interval="step"), # good for troubleshooting warmup
-    checkpoint_callback
+    # starting at epoch 0, accumulate 2 batches of grads
+    GradientAccumulationScheduler(scheduling={0: 2})
 ]
+
+if log_neptune:
+    neptune_logger = NeptuneLogger(
+        # need to store credentials in your shell env
+        api_key=os.environ["NEPTUNE_API_TOKEN"],
+        project="neuro/Gaddy",
+        # name=magneto.fullname(model), # from lib
+        name=model.__class__.__name__,
+        tags=[model.__class__.__name__,
+                "MultiStepLR",
+                "AdamW",
+                f"fp{precision}",
+                "MultiStepLR",
+                "800Hz",
+                "8xDownsampling",
+                "FCN_embedding",
+                ],
+        log_model_checkpoints=False,
+    )
+    neptune_logger.log_hyperparams(params)
+
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val/loss",
+        mode="min",
+        dirpath=output_directory,
+        filename=model.__class__.__name__+"-{epoch:02d}-{val/loss:.3f}",
+    )
+    callbacks.extend([
+        checkpoint_callback,
+        pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
+        # pl.callbacks.LearningRateMonitor(logging_interval="step"), # good for troubleshooting warmup
+    ])
+else:
+    neptune_logger = None
+    callbacks = None
 
 # QUESTION: why does validation loop become massively slower as training goes on?
 # perhaps this line will resolve..?
 # export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'
+
+# TODO: at epoch 22 validation seems to massively slow down...?
+# may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
     max_epochs=epochs,
     devices=[0],
@@ -154,20 +163,27 @@ trainer = pl.Trainer(
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
     gradient_clip_val=10,
-    accumulate_grad_batches=2,
     logger=neptune_logger,
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=precision,
+    # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 
 if auto_lr_find:
+    # TODO: might be deprecated
+    # https://lightning.ai/docs/pytorch/stable/upgrade/from_1_9.html
+    # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#learning-rate-finder
     tuner = pl.tuner.Tuner(trainer)
     tuner.lr_find(model, datamodule)
         
 logging.info('about to fit')
-trainer.fit(model, datamodule.train_dataloader(),
-            datamodule.val_dataloader())
+# epoch of 242 if only train...
+# trainer.fit(model, datamodule.train_dataloader(),
+#             datamodule.val_dataloader())
+# trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
+trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
+            val_dataloaders=datamodule.val_dataloader()) 
 
 trainer.validate(model, dataloaders=datamodule.val_dataloader(), ckpt_path='best')
 # trainer.test(model, dataloaders=dataloader, ckpt_path='best')

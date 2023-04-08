@@ -188,6 +188,7 @@ class Model(pl.LightningModule):
         self.step_target.clear()
         self.step_pred.clear()
         self.log("val/wer", wer, prog_bar=True)
+        torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 
     def test_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
@@ -223,9 +224,7 @@ class Model(pl.LightningModule):
         for param_group in optimizer.param_groups:
             param_group['lr'] = new_lr
             
-    # note: in pytorch-lightning 2.0.0, needs to be:
-    # def lr_scheduler_step(self, scheduler, metric):
-    def lr_scheduler_step(self, scheduler, optimizer_idx, metric):
+    def lr_scheduler_step(self, scheduler, metric):
         # warmup per Gaddy
 
         # print(f"lr_scheduler_step: {self.global_step=}")
@@ -237,8 +236,6 @@ class Model(pl.LightningModule):
             new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
             self.set_lr(new_lr)
         else:
-            # default for pytorch lightning
-            # TODO: why does lr reset to way below what it should?!
             if metric is None:
                 scheduler.step()
             else:
