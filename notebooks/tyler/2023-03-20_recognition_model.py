@@ -40,6 +40,8 @@ isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
+assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this in shell: export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'"
+
 # load our data file paths and metadata:
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
@@ -53,8 +55,8 @@ max_len = 128000 * 2
 log_neptune = True
 output_directory = os.path.join(os.environ["LOCAL_SCRATCH"], f"{isotime}_gaddy")
 S4 = 0
-batch_size = 32
-# precision = 16
+# batch_size = 32
+precision = 16
 precision = 32
 learning_rate = 3e-4
 epochs = 200
@@ -135,13 +137,13 @@ callbacks = [
     pl.callbacks.LearningRateMonitor(logging_interval="step"),
 ]
 
-# validation not running...?
-# https://lightning.ai/forums/t/validation-step-and-validation-epoch-end-wont-get-called-in-trainer-fit-routine/1546
-# maybe due to bad length estimate for sampler (should be 507, not 8055)
+# QUESTION: why does validation loop become massively slower as training goes on?
+# perhaps this line will resolve..?
+# export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'
 trainer = pl.Trainer(
     max_epochs=epochs,
-    # devices=[0],
-    devices=[1],
+    devices=[0],
+    # devices=[1],
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)

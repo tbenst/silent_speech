@@ -498,7 +498,7 @@ class EMGDataModule(pl.LightningDataModule):
         loader = DataLoader(
             self.train,
             # batch_size=self.batch_size,
-            collate_fn=self.val.collate_raw,
+            collate_fn=self.train.collate_raw,
             # shuffle=True,
             num_workers=self.num_workers,
             pin_memory=True,
@@ -509,7 +509,7 @@ class EMGDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         loader = DataLoader(
             self.val,
-            batch_size=self.batch_size,
+            batch_size=1, # gaddy uses bz=1 for val/test, does this matter for WER..?
             collate_fn=self.val.collate_raw,
             num_workers=self.num_workers,
             pin_memory=True
@@ -519,7 +519,7 @@ class EMGDataModule(pl.LightningDataModule):
     def test_dataloader(self):
         loader = DataLoader(
             self.test,
-            batch_size=self.batch_size,
+            batch_size=1,
             collate_fn=self.val.collate_raw,
             num_workers=self.num_workers,
             pin_memory=True
