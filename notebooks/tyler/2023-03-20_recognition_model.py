@@ -35,6 +35,7 @@ from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
 import neptune
 from datetime import datetime
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -45,15 +46,16 @@ assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this 
 # load our data file paths and metadata:
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
+    output_directory = os.environ["LOCAL_SCRATCH"]
 else:
     sessions_dir = '/data/magneto/'
-
+    output_directory = "/scratch"
+output_directory = os.path.join(output_directory, f"{isotime}_gaddy")
 ##
 auto_lr_find = False
 debug = False
 max_len = 128000 * 2
 log_neptune = True
-output_directory = os.path.join(os.environ["LOCAL_SCRATCH"], f"{isotime}_gaddy")
 S4 = 0
 # batch_size = 32
 precision = 16
@@ -127,14 +129,17 @@ neptune_logger = NeptuneLogger(
 )
 neptune_logger.log_hyperparams(params)
 
-if ON_SHERLOCK:
-    # pl_root_dir = os.environ["SCRATCH"]
-    pl_root_dir = os.environ["LOCAL_SCRATCH"]
-else:
-    pl_root_dir = "/scratch"
-    
+checkpoint_callback = ModelCheckpoint(
+    monitor="val/loss",
+    mode="max",
+    dirpath=output_directory,
+    filename=model.__class__.__name__+"-{epoch:02d}-{val/loss:.3f}",
+)
+
 callbacks = [
-    pl.callbacks.LearningRateMonitor(logging_interval="step"),
+    pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
+    # pl.callbacks.LearningRateMonitor(logging_interval="step"), # good for troubleshooting warmup
+    checkpoint_callback
 ]
 
 # QUESTION: why does validation loop become massively slower as training goes on?
@@ -150,10 +155,9 @@ trainer = pl.Trainer(
     gradient_clip_val=10,
     accumulate_grad_batches=2,
     logger=neptune_logger,
-    default_root_dir=pl_root_dir,
+    default_root_dir=output_directory,
     callbacks=callbacks,
     precision=precision,
-    enable_checkpointing=False
 )
 
 if auto_lr_find:
