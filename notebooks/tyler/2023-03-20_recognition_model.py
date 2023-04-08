@@ -54,8 +54,8 @@ log_neptune = True
 output_directory = os.path.join(os.environ["LOCAL_SCRATCH"], f"{isotime}_gaddy")
 S4 = 0
 batch_size = 32
-precision = 16
-# precision = 32
+# precision = 16
+precision = 32
 learning_rate = 3e-4
 epochs = 200
 # TODO: lr should not jump
@@ -140,8 +140,8 @@ callbacks = [
 # maybe due to bad length estimate for sampler (should be 507, not 8055)
 trainer = pl.Trainer(
     max_epochs=epochs,
-    devices=[0],
-    # devices=[1],
+    # devices=[0],
+    devices=[1],
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
