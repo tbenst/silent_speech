@@ -57,9 +57,9 @@ debug = False
 max_len = 128000 * 2
 log_neptune = True
 S4 = 0
-# batch_size = 32
+batch_size = 32
 precision = 16
-precision = 32
+# precision = 32
 learning_rate = 3e-4
 epochs = 200
 # TODO: lr should not jump
@@ -101,6 +101,7 @@ model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform,
               steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate,
               learning_rate_warmup=learning_rate_warmup)
+logging.info('made model') # why is this sooo slow?? slash freezes..?
 ##
 params = {
     "num_features": datamodule.val.num_features, "model_size": model_size,
@@ -164,6 +165,7 @@ if auto_lr_find:
     tuner = pl.tuner.Tuner(trainer)
     tuner.lr_find(model, datamodule)
         
+logging.info('about to fit')
 trainer.fit(model, datamodule.train_dataloader(),
             datamodule.val_dataloader())
 

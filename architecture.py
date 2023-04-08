@@ -177,8 +177,9 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         target_text, pred_text = self._beam_search_step(batch)
-        self.step_target.append(target_text)
-        self.step_pred.append(pred_text)
+        if len(target_text) > 0:
+            self.step_target.append(target_text)
+            self.step_pred.append(pred_text)
         self.log("val/loss", loss, prog_bar=True, batch_size=bz)
         return loss
     
@@ -191,8 +192,9 @@ class Model(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         target_text, pred_text = self._beam_search_step(batch)
-        self.step_target.append(target_text)
-        self.step_pred.append(pred_text)
+        if len(target_text) > 0:
+            self.step_target.append(target_text)
+            self.step_pred.append(pred_text)
         self.log("test/loss", loss, prog_bar=True, batch_size=bz)
         return loss
     
