@@ -58,8 +58,8 @@ max_len = 128000 * 2
 log_neptune = True
 S4 = 0
 batch_size = 32
-precision = "16-mixed"
-# precision = 32
+# precision = "16-mixed"
+precision = 32
 learning_rate = 3e-4
 epochs = 200
 # TODO: lr should not jump
