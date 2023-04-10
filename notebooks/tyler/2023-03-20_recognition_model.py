@@ -135,10 +135,10 @@ if log_neptune:
     neptune_logger.log_hyperparams(params)
 
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/loss",
+        monitor="val/wer",
         mode="min",
         dirpath=output_directory,
-        filename=model.__class__.__name__+"-{epoch:02d}-{val/loss:.3f}",
+        filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
     )
     callbacks.extend([
         checkpoint_callback,
@@ -185,7 +185,9 @@ logging.info('about to fit')
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
 
-trainer.validate(model, dataloaders=datamodule.val_dataloader(), ckpt_path='best')
+trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={epochs}.ckpt"))
+
+# trainer.validate(model, dataloaders=datamodule.val_dataloader(), ckpt_path='best')
 # trainer.test(model, dataloaders=dataloader, ckpt_path='best')
 neptune_logger.experiment.stop()
 ##
