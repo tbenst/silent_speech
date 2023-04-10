@@ -58,8 +58,8 @@ max_len = 128000 * 2
 log_neptune = True
 S4 = 0
 batch_size = 32
-# precision = "16-mixed"
-precision = 32
+precision = "16-mixed"
+# precision = 32
 learning_rate = 3e-4
 epochs = 200
 # TODO: lr should not jump
@@ -74,7 +74,7 @@ dropout = .2 # dropout
 l2 = 0
 evaluate_saved = None
 lm_directory = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
-base_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/'
+data_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/'
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 seqlen       = 600
 togglePhones = False
@@ -89,7 +89,7 @@ logging.basicConfig(handlers=[
         ], level=logging.INFO, format="%(message)s")
 
 
-datamodule = EMGDataModule(base_dir, togglePhones, normalizers_file, max_len=max_len)
+datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
 
 logging.info('output example: %s', datamodule.val.example_indices[0])
 logging.info('train / dev split: %d %d',len(datamodule.train),len(datamodule.val))
@@ -167,7 +167,7 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=precision,
-    check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
+    # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 
 if auto_lr_find:
