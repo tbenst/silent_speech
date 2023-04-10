@@ -182,6 +182,8 @@ logging.info('about to fit')
 # trainer.fit(model, datamodule.train_dataloader(),
 #             datamodule.val_dataloader())
 # trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
+# note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
+# we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
 

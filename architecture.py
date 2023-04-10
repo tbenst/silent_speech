@@ -157,18 +157,6 @@ class Model(pl.LightningModule):
 
         return target_text, pred_text
     
-        # we accumulate results here
-        self.step_target.append(target_text)
-        self.step_pred.append(pred_text)
-
-        # perhaps problem is we need to call jiwer.wer only on ALL text...?
-        # return jiwer.wer([target_text], [pred_text]), X.shape[0]
-    
-        # if len(target_text) > 0:
-        #     references.append(target_text)
-        #     predictions.append(pred_text)
-        # return jiwer.wer(references, predictions)
-    
     def training_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz)
@@ -211,6 +199,7 @@ class Model(pl.LightningModule):
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
         #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
+        # TODO: we assume a specific batch_size (32), but should allow different batch sizes
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
             milestones=[125 * 125, 150  * 125, 175 * 125], # ~125 steps @ accum gradient x 2 (249 batches)
             gamma=.5)
