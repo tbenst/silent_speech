@@ -48,6 +48,8 @@ def ensure_folder_on_scratch(src, dst):
         shutil.copytree(src, out)
     return out
 
+from magneto.preprocessing import ensure_data_on_scratch
+
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
@@ -187,7 +189,6 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=precision,
-    # profiler=profiler,
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 
