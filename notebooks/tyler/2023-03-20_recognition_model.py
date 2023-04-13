@@ -33,9 +33,20 @@ from architecture import Model, S4Model, H3Model
 from data_utils import combine_fixed_length, decollate_tensor
 from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
-import neptune
+import neptune, shutil
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
+from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler
+
+def ensure_folder_on_scratch(src, dst):
+    "Check if folder exists on scratch, otherwise copy. Return new path."
+    assert os.path.isdir(src)
+    split_path = lm_directory.split(os.sep)
+    name = split_path[-1] if split_path[-1] != '' else split_path[-2]
+    out = os.path.join(dst,name)
+    if not os.path.isdir(out):
+        shutil.copytree(src, out)
+    return out
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -46,11 +57,11 @@ assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this 
 # load our data file paths and metadata:
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
-    output_directory = os.environ["LOCAL_SCRATCH"]
+    scratch_directory = os.environ["LOCAL_SCRATCH"]
 else:
     sessions_dir = '/data/magneto/'
-    output_directory = "/scratch"
-output_directory = os.path.join(output_directory, f"{isotime}_gaddy")
+    scratch_directory = "/scratch"
+output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 ##
 auto_lr_find = False
 debug = False
@@ -79,7 +90,10 @@ normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 seqlen       = 600
 togglePhones = False
 
-
+lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
+# much faster if we intend to load data more than once during job;
+# otherwise slightly slower as we first copy to local nvme then load to RAM
+data_dir = ensure_folder_on_scratch(data_dir, data_dir)
 ##
 
 os.makedirs(output_directory, exist_ok=True)
@@ -97,10 +111,16 @@ logging.info('train / dev split: %d %d',len(datamodule.train),len(datamodule.val
 n_chars = len(datamodule.val.text_transform.chars)
 num_outs = n_chars+1
 steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this is 242
+# profiler = None
+# saves to `.neptune/fit-simple-profile.txt.txt`
+# profiler = SimpleProfiler(filename="simple-profile")
+profiler = AdvancedProfiler(dirpath=output_directory, filename="AdvancedProfiler")
+# profiler = PyTorchProfiler(filename="profile")
+
 model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
-              num_outs, datamodule.val.text_transform,
+              num_outs, datamodule.val.text_transform, lm_directory=lm_directory,
               steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate,
-              learning_rate_warmup=learning_rate_warmup)
+              learning_rate_warmup=learning_rate_warmup, profiler=profiler)
 logging.info('made model') # why is this sooo slow?? slash freezes..?
 ##
 params = {
@@ -167,6 +187,7 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=precision,
+    # profiler=profiler,
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 

@@ -11,11 +11,11 @@ from torchaudio.models.decoder import ctc_decoder
 from s4 import S4
 from data_utils import TextTransform
 
+from pytorch_lightning.profilers import PassThroughProfiler
+
 MODEL_SIZE = 768 # number of hidden dimensions
 NUM_LAYERS = 6 # number of layers
 DROPOUT = .2 # dropout
-
-LM_DIR = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/"
 
 class ResBlock(nn.Module):
     def __init__(self, num_ins, num_outs, stride=1):
@@ -48,11 +48,10 @@ class ResBlock(nn.Module):
     
 class Model(pl.LightningModule):
     def __init__(self, num_features, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
-                 steps_per_epoch, epochs, num_aux_outs=None, lr=3e-4,
-                 learning_rate_warmup = 1000,
-                 lm_directory=LM_DIR):
+                 steps_per_epoch, epochs, lm_directory, num_aux_outs=None, lr=3e-4,
+                 learning_rate_warmup = 1000, profiler = None):
         super().__init__()
-
+        self.profiler = profiler or PassThroughProfiler()
         self.conv_blocks = nn.Sequential(
             ResBlock(8, model_size, 2),
             ResBlock(model_size, model_size, 2),
@@ -78,11 +77,18 @@ class Model(pl.LightningModule):
         # val/test procedure...
         self.text_transform = text_transform
         self.n_chars = len(text_transform.chars)
-        lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+        self.lm_directory = lm_directory
+        self.lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+        self._init_ctc_decoder()
+        
+        self.step_target = []
+        self.step_pred = []
+
+    def _init_ctc_decoder(self):
         self.ctc_decoder = ctc_decoder(
-            lexicon = lexicon_file,
-            tokens  = text_transform.chars + ['_'],
-            lm      = os.path.join(lm_directory, '4gram_lm.bin'),
+            lexicon = self.lexicon_file,
+            tokens  = self.text_transform.chars + ['_'],
+            lm      = os.path.join(self.lm_directory, '4gram_lm.bin'),
             blank_token = '_',
             sil_token   = '|',
             nbest       = 1,
@@ -91,9 +97,7 @@ class Model(pl.LightningModule):
             #sil_score   = -2,
             beam_size   = 150  # SET TO 150 during inference
         )
-        
-        self.step_target = []
-        self.step_pred = []
+
 
     def forward(self, x_feat, x_raw, session_ids):
         # x shape is (batch, time, electrode)
@@ -162,6 +166,10 @@ class Model(pl.LightningModule):
         self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz)
         return loss
     
+    def on_validation_epoch_start(self):
+        self.profiler.start(f"[LightningModule]Model.on_validation_epoch_end")
+        self._init_ctc_decoder()
+    
     def validation_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         target_text, pred_text = self._beam_search_step(batch)
@@ -176,6 +184,8 @@ class Model(pl.LightningModule):
         self.step_target.clear()
         self.step_pred.clear()
         self.log("val/wer", wer, prog_bar=True)
+        self.profiler.stop(f"[LightningModule]Model.on_validation_epoch_end")
+        self.profiler.describe()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 
     def test_step(self, batch, batch_idx):
