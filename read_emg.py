@@ -168,16 +168,17 @@ def lookup_emg_length(example):
     return length
         
 class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
-    def __init__(self, emg_dataset, max_len):
+    def __init__(self, emg_dataset, max_len, shuffle=True):
         self.dataset = emg_dataset
         self.max_len = max_len
+        self.shuffle = shuffle
         
         self.lengths = [lookup_emg_length(ex) for ex in self.dataset.example_indices]
         self.approx_len = int(np.ceil(np.array(self.lengths)).sum() / max_len)
 
     def __iter__(self):
         indices = list(range(len(self.dataset)))
-        random.shuffle(indices)
+        if self.shuffle: random.shuffle(indices)
         batch = []
         batch_length = 0
         for idx in indices:
@@ -481,7 +482,7 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
     
 class EMGDataModule(pl.LightningDataModule):
     def __init__(self, base_dir, togglePhones, normalizers_file,
-                 batch_size=32, max_len=128000, num_workers=0) -> None:
+                 max_len=128000, num_workers=0) -> None:
         super().__init__()
         self.train = PreprocessedEMGDataset(base_dir = base_dir, train = True, dev = False, test = False,
                                         togglePhones = togglePhones, normalizers_file = normalizers_file)
@@ -490,18 +491,15 @@ class EMGDataModule(pl.LightningDataModule):
         
         self.test = PreprocessedEMGDataset(base_dir = base_dir, train = False, dev = False, test = True,
                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.batch_size = batch_size
         self.num_workers = num_workers
         self.max_len = max_len
         
     def train_dataloader(self):
         loader = DataLoader(
             self.train,
-            # batch_size=self.batch_size,
-            collate_fn=self.train.collate_raw,
-            # shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=True,
+            collate_fn = self.train.collate_raw,
+            num_workers = self.num_workers,
+            pin_memory = True,
             batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len)
         )
         return loader
@@ -509,20 +507,20 @@ class EMGDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         loader = DataLoader(
             self.val,
-            batch_size=1, # gaddy uses bz=1 for val/test, does this matter for WER..?
-            collate_fn=self.val.collate_raw,
-            num_workers=self.num_workers,
-            pin_memory=True
+            collate_fn = self.val.collate_raw,
+            num_workers = self.num_workers,
+            pin_memory = True,
+            batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len, shuffle=False)
         )
         return loader
 
     def test_dataloader(self):
         loader = DataLoader(
             self.test,
-            batch_size=1,
-            collate_fn=self.val.collate_raw,
+            collate_fn=self.test.collate_raw,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=True,
+            batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
         )
         return loader
 

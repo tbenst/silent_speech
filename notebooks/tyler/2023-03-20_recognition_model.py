@@ -123,7 +123,9 @@ model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform, lm_directory=lm_directory,
               steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate,
               learning_rate_warmup=learning_rate_warmup, profiler=profiler)
-logging.info('made model') # why is this sooo slow?? slash freezes..?
+ # why is this sooo slow?? slash freezes..? are we hitting oak?
+ # TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
+logging.info('made model')
 ##
 params = {
     "num_features": datamodule.val.num_features, "model_size": model_size,
@@ -179,8 +181,8 @@ else:
 # may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
     max_epochs=epochs,
-    devices=[0],
-    # devices=[1],
+    # devices=[0],
+    devices=[1],
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
@@ -214,4 +216,6 @@ trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch=
 # trainer.validate(model, dataloaders=datamodule.val_dataloader(), ckpt_path='best')
 # trainer.test(model, dataloaders=dataloader, ckpt_path='best')
 neptune_logger.experiment.stop()
+##
+# trainer.validate(model, dataloaders=datamodule.val_dataloader())
 ##

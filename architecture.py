@@ -147,17 +147,21 @@ class Model(pl.LightningModule):
         return loss, bz
     
     def _beam_search_step(self, batch):
-        "Repeatedly called by validation_step & test_step. Impure function!"
-        X     = batch['emg'][0].unsqueeze(0)
-        X_raw = batch['raw_emg'][0].unsqueeze(0)
-        sess  = batch['session_ids'][0]
+        """Run beam search and retun target & pred text.
+           Repeatedly called by validation_step & test_step."""
+        X     = combine_fixed_length(batch['emg'], self.seqlen)
+        X_raw = combine_fixed_length(batch['raw_emg'], self.seqlen*8)
+        sess  = combine_fixed_length(batch['session_ids'], self.seqlen)    
 
-        pred  = F.log_softmax(self(X, X_raw, sess), -1).cpu()
+        pred = self(X, X_raw, sess)
+        pred = F.log_softmax(pred, 2).cpu()
 
-        beam_results = self.ctc_decoder(pred)
-        pred_int     = beam_results[0][0].tokens
-        pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
-        target_text  = self.text_transform.clean_2(batch['text'][0][0])
+        beam_results = self.ctc_decoder(pred) # List of shape (B, nbest) of Hypotheses
+        # i believe nbest descends best to worst but not validated
+        assert len(beam_results[0]) == 1, "only support nbest=1, double check assumption if higher"
+        pred_int     = [b[0].tokens for b in beam_results]
+        pred_text    = [' '.join(b[0].words).strip().lower() for b in beam_results]
+        target_text  = [self.text_transform.clean_2(bt[0]) for bt in batch['text']]
 
         return target_text, pred_text
     
@@ -167,24 +171,34 @@ class Model(pl.LightningModule):
         return loss
     
     def on_validation_epoch_start(self):
-        self.profiler.start(f"[LightningModule]Model.on_validation_epoch_end")
+        self.profiler.start(f"validation loop")
         self._init_ctc_decoder()
     
     def validation_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         target_text, pred_text = self._beam_search_step(batch)
         if len(target_text) > 0:
-            self.step_target.append(target_text)
-            self.step_pred.append(pred_text)
+            self.step_target.extend(target_text)
+            self.step_pred.extend(pred_text)
         self.log("val/loss", loss, prog_bar=True, batch_size=bz)
         return loss
     
     def on_validation_epoch_end(self) -> None:
-        wer = jiwer.wer(self.step_target, self.step_pred)
+        step_target = []
+        step_pred = []
+        for t,p in zip(self.step_target, self.step_pred):
+            if len(t) > 0:
+                step_target.append(t)
+                step_pred.append(p)
+            else:
+                print("WARN: got target length of zero during validation.")
+            if len(p) == 0:
+                print("WARN: got prediction length of zero during validation.")
+        wer = jiwer.wer(step_target, step_pred)
         self.step_target.clear()
         self.step_pred.clear()
         self.log("val/wer", wer, prog_bar=True)
-        self.profiler.stop(f"[LightningModule]Model.on_validation_epoch_end")
+        self.profiler.stop(f"validation loop")
         self.profiler.describe()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 
