@@ -73,8 +73,10 @@ S4 = 0
 batch_size = 32
 precision = "16-mixed"
 # precision = 32
-learning_rate = 3e-4
-epochs = 200
+# learning_rate = 3e-4
+learning_rate = 3e-3
+# epochs = 200
+epochs = 8
 # TODO: lr should not jump
  # account for accum gradient on two batches (gaddy counts iterations not backprop steps)
 # learning_rate_warmup = 16

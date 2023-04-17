@@ -493,6 +493,7 @@ class EMGDataModule(pl.LightningDataModule):
                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
         self.num_workers = num_workers
         self.max_len = max_len
+        self.val_test_batch_sampler = False
         
     def train_dataloader(self):
         loader = DataLoader(
@@ -502,26 +503,45 @@ class EMGDataModule(pl.LightningDataModule):
             pin_memory = True,
             batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len)
         )
+            
         return loader
 
     def val_dataloader(self):
-        loader = DataLoader(
-            self.val,
-            collate_fn = self.val.collate_raw,
-            num_workers = self.num_workers,
-            pin_memory = True,
-            batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len, shuffle=False)
-        )
+        if self.val_test_batch_sampler:
+            loader = DataLoader(
+                self.val,
+                collate_fn = self.val.collate_raw,
+                num_workers = self.num_workers,
+                pin_memory = True,
+                batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len, shuffle=False)
+            )
+        else:
+            loader = DataLoader(
+                self.val,
+                collate_fn = self.val.collate_raw,
+                num_workers = self.num_workers,
+                pin_memory = True,
+                batch_size = 1
+            )
         return loader
 
     def test_dataloader(self):
-        loader = DataLoader(
-            self.test,
-            collate_fn=self.test.collate_raw,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
-        )
+        if self.val_test_batch_sampler:
+            loader = DataLoader(
+                self.test,
+                collate_fn=self.test.collate_raw,
+                num_workers=self.num_workers,
+                pin_memory=True,
+                batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
+            )
+        else:
+            loader = DataLoader(
+                self.test,
+                collate_fn=self.test.collate_raw,
+                num_workers=self.num_workers,
+                pin_memory=True,
+                batch_size = 1
+            )
         return loader
 
 
