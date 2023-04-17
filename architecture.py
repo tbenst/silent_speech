@@ -158,7 +158,8 @@ class Model(pl.LightningModule):
 
         beam_results = self.ctc_decoder(pred) # List of shape (B, nbest) of Hypotheses
         # i believe nbest descends best to worst but not validated
-        assert len(beam_results[0]) == 1, "only support nbest=1, double check assumption if higher"
+        nbest = len(beam_results[0])
+        assert nbest == 1, f"only support nbest=1, got {nbest=}, double check assumption if higher"
         pred_int     = [b[0].tokens for b in beam_results]
         pred_text    = [' '.join(b[0].words).strip().lower() for b in beam_results]
         target_text  = [self.text_transform.clean_2(bt[0]) for bt in batch['text']]

@@ -73,8 +73,7 @@ S4 = 0
 batch_size = 32
 precision = "16-mixed"
 # precision = 32
-# learning_rate = 3e-4
-learning_rate = 3e-3
+learning_rate = 3e-4
 # epochs = 200
 epochs = 8
 # TODO: lr should not jump
@@ -121,12 +120,24 @@ steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this i
 profiler = AdvancedProfiler(dirpath=output_directory, filename="AdvancedProfiler")
 # profiler = PyTorchProfiler(filename="profile")
 
+profile_create_model = False
+if profile_create_model:
+    import cProfile
+    my_profiler = cProfile.Profile()
+    my_profiler.enable()
+
 model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform, lm_directory=lm_directory,
               steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate,
               learning_rate_warmup=learning_rate_warmup, profiler=profiler)
- # why is this sooo slow?? slash freezes..? are we hitting oak?
- # TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
+
+if profile_create_model:
+    my_profiler.disable()
+    my_profiler.dump_stats(​os.path.join(output_directory,"create_model.stats"))
+
+# why is this sooo slow?? slash freezes..? are we hitting oak?
+# TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
+# not always slamming CPU/GPU...
 logging.info('made model')
 ##
 params = {
