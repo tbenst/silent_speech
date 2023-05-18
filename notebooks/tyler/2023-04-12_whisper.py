@@ -90,6 +90,7 @@ class SpectrogramDataset(PreprocessedEMGDataset):
         text = [*self.tokenizer.sot_sequence_including_notimestamps] + self.tokenizer.encode(text)
         target_tokens = text[1:] + [self.tokenizer.eot]
 
+        # TODO: how do we handle the variable length for CTC..? right now we ignore
         return {
             "mel": mel,
             "target_tokens": target_tokens,
@@ -141,8 +142,11 @@ def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
             "decoder_input_tokens": decoder_input_tokens
         }
 
+        # TODO: is this really necessary
         batch = {k: torch.tensor(np.array(v), requires_grad=False) for k, v in batch.items()}
         batch["mel"] = mels
+        batch["lengths"] = [ex.shape[1] for ex in mels]
+        batch["target_lengths"] = [ex.shape[0] for ex in target_tokens]
 
         return batch
     
@@ -174,6 +178,7 @@ class WhisperModelModule(pl.LightningModule):
         #     p.requires_grad = False
         
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
+
         self.metrics_wer = evaluate.load("wer")
         self.metrics_cer = evaluate.load("cer")
 
@@ -196,7 +201,12 @@ class WhisperModelModule(pl.LightningModule):
         audio_features = self.model.encoder(mel)
 
         out = self.model.decoder(decoder_input_tokens, audio_features)
+        pred = F.log_softmax(out, dim=-1)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
+        # TODO: do we need to have a blank arg here?
+        # print(f"{out.shape=}")
+        # loss = F.ctc_loss(out, target_tokens, batch['lengths'], batch['target_lengths'])
+        # loss = F.ctc_loss(out, target_tokens, pred.shape[1], target_tokens.shape[0])
         self.log("train/loss", loss, on_step=True, prog_bar=True, logger=True)
         return loss
     
@@ -209,8 +219,13 @@ class WhisperModelModule(pl.LightningModule):
         audio_features = self.model.encoder(mel)
         out = self.model.decoder(decoder_input_tokens, audio_features)
 
+        # pred = nn.utils.rnn.pad_sequence(F.log_softmax(out, dim=-1), batch_first=False)
+        # print(f"\n{pred.shape=}, {target_tokens.shape=}, {batch['lengths']=}, {batch['target_lengths']=}")
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
+        # loss = F.ctc_loss(pred, target_tokens, batch['lengths'], batch['target_lengths'])
+        # loss = F.ctc_loss(pred, target_tokens, pred.shape[1], target_tokens.shape[0])
 
+        # TODO: should this be earlier? should we replace -100 with eot?
         out[out == -100] = self.tokenizer.eot
         target_tokens[target_tokens == -100] = self.tokenizer.eot
 
@@ -284,13 +299,15 @@ datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max
 config.steps_per_epoch = len(datamodule.train_dataloader()) # 503
 ##
 # verify dataloader is working
-# td = datamodule.train_dataloader()
-# for b in tqdm(td):
-#     print(b.keys())
-#     print(b["target_tokens"].shape)
-#     print(b["mel"].shape)
-#     print(b["decoder_input_tokens"].shape)
-
+td = datamodule.train_dataloader()
+for b in tqdm(td):
+    print(b.keys())
+    print(b["target_tokens"].shape)
+    print(b["mel"].shape)
+    print(b["decoder_input_tokens"].shape)
+    print(len(b["lengths"]), b["lengths"][0])
+    print(len(b["target_lengths"]), b["target_lengths"][0])
+    break
 #     for token, dec in zip(b["target_tokens"], b["decoder_input_tokens"]):
 #         token[token == -100] = wtokenizer.eot
 #         # text = wtokenizer.decode(token)
@@ -438,4 +455,10 @@ trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
 
 
 
+##
+out=torch.ones([16, 78, 51865])
+target_tokens = torch.ones([16, 78]) 
+lengths=[80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80]
+target_lengths=[78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78]
+loss = F.ctc_loss(out, target_tokens, lengths, target_lengths)
 ##
