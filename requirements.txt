@@ -1,0 +1,53 @@
+jiwer
+torchaudio
+matplotlib
+scipy
+soundfile
+absl-py
+librosa
+numba
+unidecode
+praat-textgrids
+g2p_en
+einops
+opt_einsum
+hydra-core
+pytorch_lightning
+neptune-client
+ipykernel
+numpy
+matplotlib
+fire
+pandas
+scikit-learn
+scipy
+torchtext
+# https://github.com/psychopy/psychopy/issues/3429#issuecomment-768981865
+pyglet
+python_speech_features
+pytorch_lightning
+pytorch_warmup
+speechbrain
+git+https://github.com/openai/whisper
+# remove pocketsphinx for M1 compatability
+# temp hack: setup.py does not work with git link yet..
+# TODO on install: pip install git+ ...
+# git+git://github.com/tbenst/psychopy#egg=PsychoPy
+pyqt5
+zarr
+
+# s4
+einops
+opt_einsum
+
+# gaddy
+brainflow
+sounddevice
+soundfile
+nltk
+
+altair # hipster plotting
+git+https://github.com/tbenst/glia.git # functional obfuscation ;)
+
+evaluate
+transformers

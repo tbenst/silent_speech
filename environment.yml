@@ -1,0 +1,9 @@
+name: gaddy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10 # note: macos fails to install wxpython
+  - pip
+  - libsndfile
+  - pip:
+    - -r requirements.txt

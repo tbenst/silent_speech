@@ -152,10 +152,29 @@ class SizeAwareSampler(torch.utils.data.Sampler):
             batch.append(idx)
             batch_length += length
         # dropping last incomplete batch
-        
+
+_local_regex = re.compile(r'^.*(emg_data/.*)$')
+def local_path_for_audio_file(audio_file):
+    "Strip absolute path from audio file name, leaving only the local path for portability."
+    m = _local_regex.match(audio_file)
+    if m is None:
+        raise ValueError(f'Could not parse local path for {audio_file=}')
+    return m[1]
+
+_dir_regex = re.compile(r'^(.*)/processed_data/\w+/session_\d+/\d+.mat$')
+def parent_dir_for_preprocessed_mat(mat_file):
+    "Return absolute path Gaddy data dir from mat file."
+    m = _dir_regex.match(mat_file)
+    if m is None:
+        raise ValueError(f'Could not parse parent directory for {mat_file=}')
+    return m[1]
+
 def lookup_emg_length(example):
-    x = loadmat(example)['audio_file'][0]
-    json_file = x.split('_audio_clean')[0] + '_info.json'
+    audio_file = loadmat(example)['audio_file'][0]
+    fn = local_path_for_audio_file(audio_file)
+    parent = parent_dir_for_preprocessed_mat(example)
+    fp = os.path.join(parent, fn)
+    json_file = fp.split('_audio_clean')[0] + '_info.json'
 
     with open(json_file) as f:
         info = json.load(f)
@@ -173,7 +192,7 @@ class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
         self.max_len = max_len
         self.shuffle = shuffle
         
-        self.lengths = [lookup_emg_length(ex) for ex in self.dataset.example_indices]
+        self.lengths = self.dataset.lengths
         self.approx_len = int(np.ceil(np.array(self.lengths)).sum() / max_len)
 
     def __iter__(self):
@@ -356,6 +375,7 @@ class EMGDataset(torch.utils.data.Dataset):
         return result
     
     
+# TODO: remove pin_memory as dataloader should handle. make sure no performance hit
 class PreprocessedEMGDataset(torch.utils.data.Dataset):
     def __init__(self, base_dir=None, train = False, dev=False, test=False, limit_length = False,
                  pin_memory = True, no_normalizers = False, togglePhones = False, device = None,
@@ -390,9 +410,9 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
         np.random.seed(0)
         np.random.shuffle(self.example_indices)
 
-    
-        self.num_speech_features = loadmat(self.example_indices[0])['audio_features'].shape[1]
-        self.num_features        = loadmat(self.example_indices[0])['emg'].shape[1]
+        mat = loadmat(self.example_indices[0])
+        self.num_speech_features = mat['audio_features'].shape[1]
+        self.num_features        = mat['emg'].shape[1]
         self.limit_length = limit_length
         self.num_sessions = len(glob.glob(os.path.join(base_dir, 'train/') + '*session_*/'))
         
@@ -401,6 +421,8 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
         self.no_normalizers = no_normalizers
         if not self.no_normalizers:
             self.mfcc_norm, self.emg_norm = pickle.load(open(normalizers_file,'rb'))
+            
+        self.lengths = [lookup_emg_length(ex) for ex in self.example_indices]
 
     def silent_subset(self):
         result = copy(self)
@@ -437,7 +459,6 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
 
         return result
     
-
     @staticmethod
     def collate_raw(batch):
         
@@ -481,66 +502,85 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
     
     
 class EMGDataModule(pl.LightningDataModule):
-    def __init__(self, base_dir, togglePhones, normalizers_file,
-                 max_len=128000, num_workers=0) -> None:
+    def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=False,
+                 max_len=128000, num_workers=0, batch_sampler=True, shuffle=False,
+                 batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset) -> None:
         super().__init__()
-        self.train = PreprocessedEMGDataset(base_dir = base_dir, train = True, dev = False, test = False,
+        self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
                                         togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.val   = PreprocessedEMGDataset(base_dir = base_dir, train = False, dev = True, test = False,
+        self.val   = DatasetClass(base_dir = base_dir, train = False, dev = True, test = False,
                                         togglePhones = togglePhones, normalizers_file = normalizers_file)
         
-        self.test = PreprocessedEMGDataset(base_dir = base_dir, train = False, dev = False, test = True,
+        self.test = DatasetClass(base_dir = base_dir, train = False, dev = False, test = True,
                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
         self.num_workers = num_workers
         self.max_len = max_len
         self.val_test_batch_sampler = False
+        self.batch_size = batch_size
+        self.batch_sampler = batch_sampler
+        self.drop_last = drop_last
+        self.collate_fn = collate_fn
+        self.shuffle = shuffle
         
     def train_dataloader(self):
+        collate_fn = self.collate_fn if self.collate_fn is not None else self.train.collate_raw
+        batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len) if self.batch_sampler else None
+
         loader = DataLoader(
             self.train,
-            collate_fn = self.train.collate_raw,
+            collate_fn = collate_fn,
+            shuffle = self.shuffle,
+            drop_last = self.drop_last,
             num_workers = self.num_workers,
+            batch_size = self.batch_size,
             pin_memory = True,
-            batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len)
+            batch_sampler = batch_sampler
         )
             
         return loader
 
     def val_dataloader(self):
+        collate_fn = self.collate_fn if self.collate_fn is not None else self.val.collate_raw
+
         if self.val_test_batch_sampler:
+            batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len, shuffle=False) if self.batch_sampler else None
             loader = DataLoader(
                 self.val,
-                collate_fn = self.val.collate_raw,
+                collate_fn = collate_fn,
                 num_workers = self.num_workers,
+                batch_size = self.batch_size,
                 pin_memory = True,
-                batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len, shuffle=False)
+                batch_sampler = batch_sampler
             )
         else:
             loader = DataLoader(
                 self.val,
-                collate_fn = self.val.collate_raw,
+                collate_fn = collate_fn,
                 num_workers = self.num_workers,
+                batch_size = self.batch_size,
                 pin_memory = True,
-                batch_size = 1
             )
         return loader
 
     def test_dataloader(self):
+        collate_fn = self.collate_fn if self.collate_fn is not None else self.test.collate_raw
+
         if self.val_test_batch_sampler:
             loader = DataLoader(
                 self.test,
-                collate_fn=self.test.collate_raw,
+                collate_fn = collate_fn,
                 num_workers=self.num_workers,
-                pin_memory=True,
+                batch_size = self.batch_size,
+                pin_memory = True,
                 batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
             )
         else:
             loader = DataLoader(
                 self.test,
-                collate_fn=self.test.collate_raw,
+                collate_fn = collate_fn,
                 num_workers=self.num_workers,
-                pin_memory=True,
-                batch_size = 1
+                batch_size = self.batch_size,
+                pin_memory = True,
             )
         return loader
 
