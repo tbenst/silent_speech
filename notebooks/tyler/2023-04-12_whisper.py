@@ -24,6 +24,7 @@ from torch import nn
 import torch.nn.functional as F
 from torchaudio.models.decoder import ctc_decoder
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
 
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
@@ -110,6 +111,10 @@ class SpectrogramDataset(PreprocessedEMGDataset):
 # # print(longest_emg * 8) # approx 235390, so 99-percentile length is 29s
 # print(np.mean(longest_emg) * 8) # approx 235390, so 99-percentile length is 29s
 ##
+_re_special = re.compile(r"\<\|.+?\|\>")
+def strip_special_tokens(string):
+    return re.sub(_re_special, "", string)
+
 def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
         mels, target_tokens, decoder_input_tokens = [], [], []
         for f in features:
@@ -141,16 +146,20 @@ def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
 
         return batch
     
+@dataclass
 class WhisperConfig:
-    learning_rate = 0.0005
-    weight_decay = 0.01
-    adam_epsilon = 1e-8
-    warmup_steps = 2
-    batch_size = 16
-    num_worker = 0
-    num_train_epochs = 10
-    gradient_accumulation_steps = 1
-    sample_rate = 16000
+    steps_per_epoch:int = -1
+    learning_rate:float = 0.0005
+    weight_decay:float = 0.01
+    adam_epsilon:float = 1e-8
+    warmup_steps:int = 2
+    # batch_size:int = 8
+    batch_size:int = 16
+    num_worker:int = 0
+    num_train_epochs:int = 10
+    gradient_accumulation_steps:int = 1
+    sample_rate:int = 16000
+    precision:str = "16-mixed"
 
 class WhisperModelModule(pl.LightningModule):
     def __init__(self, cfg:WhisperConfig, model_name="base", lang="en", train_dataset=[], eval_dataset=[]) -> None:
@@ -158,6 +167,7 @@ class WhisperModelModule(pl.LightningModule):
         self.options = whisper.DecodingOptions(language=lang, without_timestamps=True)
         self.model = whisper.load_model(model_name)
         self.tokenizer = whisper.tokenizer.get_tokenizer(True, language=lang, task=self.options.task)
+        self.steps_per_epoch = cfg.steps_per_epoch
 
         # only decoder training
         # for p in self.model.encoder.parameters():
@@ -170,17 +180,20 @@ class WhisperModelModule(pl.LightningModule):
         self.cfg = cfg
         self.__train_dataset = train_dataset
         self.__eval_dataset = eval_dataset
+        
+        # accumulate text over epoch for validation so we can caclulate WER
+        self.step_target = []
+        self.step_pred = []
     
     def forward(self, x):
         return self.model(x)
 
     def training_step(self, batch, batch_id):
-        mels = batch["mels"]
+        mel = batch["mel"]
         target_tokens = batch["target_tokens"].long()
         decoder_input_tokens = batch["decoder_input_tokens"].long()
 
-        with torch.no_grad():
-            audio_features = self.model.encoder(mels)
+        audio_features = self.model.encoder(mel)
 
         out = self.model.decoder(decoder_input_tokens, audio_features)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
@@ -188,12 +201,12 @@ class WhisperModelModule(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_id):
-        mels = batch["mels"]
+        mel = batch["mel"]
         target_tokens = batch["target_tokens"].long()
         decoder_input_tokens = batch["decoder_input_tokens"].long()
 
 
-        audio_features = self.model.encoder(mels)
+        audio_features = self.model.encoder(mel)
         out = self.model.decoder(decoder_input_tokens, audio_features)
 
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
@@ -204,19 +217,29 @@ class WhisperModelModule(pl.LightningModule):
         o_list, l_list = [], []
         for o, l in zip(out, target_tokens):
             o = torch.argmax(o, dim=1)
-            o_list.append(self.tokenizer.decode(o))
-            l_list.append(self.tokenizer.decode(l))
-        cer = self.metrics_cer.compute(references=l_list, predictions=o_list)
-        wer = self.metrics_wer.compute(references=l_list, predictions=o_list)
+            o_list.append(strip_special_tokens(self.tokenizer.decode(o)))
+            l_list.append(strip_special_tokens(self.tokenizer.decode(l)))
+            
+        self.step_pred.extend(o_list)
+        self.step_target.extend(l_list)
 
-        self.log("val/loss", loss, on_step=True, prog_bar=True, logger=True)
-        self.log("val/cer", cer, on_step=True, prog_bar=True, logger=True)
-        self.log("val/wer", wer, on_step=True, prog_bar=True, logger=True)
+        self.log("val/loss", loss, prog_bar=True)
 
+        return {
+            "loss": loss
+        }
+        
+    def on_validation_epoch_end(self):
+        print("inside on_validation_epoch_end")
+        cer = self.metrics_cer.compute(references=self.step_target, predictions=self.step_pred)
+        wer = self.metrics_wer.compute(references=self.step_target, predictions=self.step_pred)
+        self.step_target.clear()
+        self.step_pred.clear()
+        self.log("val/cer", cer, prog_bar=True)
+        self.log("val/wer", wer, prog_bar=True)
         return {
             "cer": cer,
             "wer": wer,
-            "loss": loss
         }
 
     def configure_optimizers(self):
@@ -242,24 +265,13 @@ class WhisperModelModule(pl.LightningModule):
 
         scheduler = get_linear_schedule_with_warmup(
             optimizer, num_warmup_steps=self.cfg.warmup_steps, 
-            num_training_steps=self.t_total
+            num_training_steps = self.steps_per_epoch // self.cfg.gradient_accumulation_steps * self.cfg.num_train_epochs
         )
         self.scheduler = scheduler
-
-        return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
+        # return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
     
-    def setup(self, stage=None):
-        """Adjust linear scheduler according to number of training steps.
-        
-        not sure if setup is right place for this; copied code from Japanese notebook (discussion 64)
-        https://lightning.ai/docs/pytorch/stable/common/lightning_module.html#setup"""
-
-        if stage == 'fit' or stage is None:
-            self.t_total = (
-                (len(self.__train_dataset) // (self.cfg.batch_size))
-                // self.cfg.gradient_accumulation_steps
-                * float(self.cfg.num_train_epochs)
-            )
 
 SD = partial(SpectrogramDataset, tokenizer=wtokenizer)
 config = WhisperConfig()
@@ -268,92 +280,162 @@ datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max
                            drop_last=True, shuffle=True,
                            batch_sampler=False, collate_fn=whisper_data_collator_with_padding,
                            DatasetClass=SD)
+# TODO: why are there only 503 steps per epoch?
+config.steps_per_epoch = len(datamodule.train_dataloader()) # 503
 ##
 # verify dataloader is working
-td = datamodule.train_dataloader()
-for b in tqdm(td):
-    print(b.keys())
-    print(b["target_tokens"].shape)
-    print(b["mel"].shape)
-    print(b["decoder_input_tokens"].shape)
+# td = datamodule.train_dataloader()
+# for b in tqdm(td):
+#     print(b.keys())
+#     print(b["target_tokens"].shape)
+#     print(b["mel"].shape)
+#     print(b["decoder_input_tokens"].shape)
 
-    for token, dec in zip(b["target_tokens"], b["decoder_input_tokens"]):
-        token[token == -100] = wtokenizer.eot
-        # text = wtokenizer.decode(token)
-        text = wtokenizer.decode(token)
-        print(text)
+#     for token, dec in zip(b["target_tokens"], b["decoder_input_tokens"]):
+#         token[token == -100] = wtokenizer.eot
+#         # text = wtokenizer.decode(token)
+#         text = wtokenizer.decode(token)
+#         print(text)
 
-        dec[dec == -100] = wtokenizer.eot
-        # text = wtokenizer.decode(dec)
-        text = wtokenizer.decode(dec)
-        print(text)
+#         dec[dec == -100] = wtokenizer.eot
+#         # text = wtokenizer.decode(dec)
+#         text = wtokenizer.decode(dec)
+#         print(text)
     
-    break
-##
-_re_special = re.compile(r"\<\|.+?\|\>")
-def strip_special_tokens(string):
-    return re.sub(_re_special, "", string)
-    
+#     break
+##    
+# whisper_model_name = "medium"
+# whisper_model_name = "small"
+whisper_model_name = "tiny"
 # wmodel = whisper.load_model("large")
 whisper_model = WhisperModelModule(config,
                                 #    model_name="base")
-                                   model_name="medium")
+                                   model_name=whisper_model_name)
                                 #    model_name="large")
-with torch.no_grad():
-    audio_features = whisper_model.model.encoder(b["mel"].cuda())
-    mel = b["mel"]
-    target_tokens = b["target_tokens"].long()
-    decoder_input_tokens = b["decoder_input_tokens"].long()
+############## BELOW IS FOR TESTING ##############
+# with torch.no_grad():
+#     audio_features = whisper_model.model.encoder(b["mel"].cuda())
+#     mel = b["mel"]
+#     target_tokens = b["target_tokens"].long()
+#     decoder_input_tokens = b["decoder_input_tokens"].long()
 
         
-    audio_features = whisper_model.model.encoder(mel.cuda())
-    print(decoder_input_tokens)
-    print(mel.shape, decoder_input_tokens.shape, audio_features.shape)
-    print(audio_features.shape)
-    out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
-    pred_tokens = torch.argmax(out, dim=2)
-    for pred,true in zip(pred_tokens,target_tokens):
-        pred[pred == -100] = wtokenizer.eot
-        pred_text = wtokenizer.decode(pred)
-        true_text = wtokenizer.decode(true)
-        print(f"=============================")
-        print("Pred: ", pred_text)
-        print("Actual: ", true_text)
-##
+#     audio_features = whisper_model.model.encoder(mel.cuda())
+#     print(decoder_input_tokens)
+#     print(mel.shape, decoder_input_tokens.shape, audio_features.shape)
+#     print(audio_features.shape)
+#     out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
+#     pred_tokens = torch.argmax(out, dim=2)
+#     for pred,true in zip(pred_tokens,target_tokens):
+#         pred[pred == -100] = wtokenizer.eot
+#         pred_text = wtokenizer.decode(pred)
+#         true_text = wtokenizer.decode(true)
+#         print(f"=============================")
+#         print("Pred: ", pred_text)
+#         print("Actual: ", true_text)
+# ##
 
-o_list, l_list = [], []
-for o, l in zip(out, target_tokens):
-    o = torch.argmax(o, dim=1)
-    o_list.append(strip_special_tokens(wtokenizer.decode(o)))
-    l_list.append(strip_special_tokens(wtokenizer.decode(l)))
+# o_list, l_list = [], []
+# for o, l in zip(out, target_tokens):
+#     o = torch.argmax(o, dim=1)
+#     o_list.append(strip_special_tokens(wtokenizer.decode(o)))
+#     l_list.append(strip_special_tokens(wtokenizer.decode(l)))
     
-wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
-wer
+# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
+# wer
 
-##
-o_list, l_list = [], []
-n = 0
-with torch.no_grad():
-    for b in tqdm(td):
-        mel = b["mel"]
-        target_tokens = b["target_tokens"].long()
-        decoder_input_tokens = b["decoder_input_tokens"].long()
+# ##
+# o_list, l_list = [], []
+# n = 0
+# with torch.no_grad():
+#     for b in tqdm(td):
+#         mel = b["mel"]
+#         target_tokens = b["target_tokens"].long()
+#         decoder_input_tokens = b["decoder_input_tokens"].long()
             
-        audio_features = whisper_model.model.encoder(mel.cuda())
-        out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
+#         audio_features = whisper_model.model.encoder(mel.cuda())
+#         out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
         
-        target_tokens[target_tokens == -100] = wtokenizer.eot
-        out[out == -100] = wtokenizer.eot
+#         target_tokens[target_tokens == -100] = wtokenizer.eot
+#         out[out == -100] = wtokenizer.eot
         
-        for o, l in zip(out, target_tokens):
-            o = torch.argmax(o, dim=1)
-            o_list.append(strip_special_tokens(wtokenizer.decode(o)))
-            l_list.append(strip_special_tokens(wtokenizer.decode(l)))
-        n+=1
-        if n > 50:
-            break
+#         for o, l in zip(out, target_tokens):
+#             o = torch.argmax(o, dim=1)
+#             o_list.append(strip_special_tokens(wtokenizer.decode(o)))
+#             l_list.append(strip_special_tokens(wtokenizer.decode(l)))
+#         n+=1
+#         # if n > 50:
+#         if n > 5:
+#             break
 
-wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
-wer
+# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
+# wer
+######################################################################
+##
+model = whisper_model
+log_neptune = True
+callbacks = []
+if log_neptune:
+    neptune_logger = NeptuneLogger(
+        # need to store credentials in your shell env
+        api_key=os.environ["NEPTUNE_API_TOKEN"],
+        project="neuro/Gaddy",
+        # name=magneto.fullname(model), # from lib
+        name=model.__class__.__name__,
+        tags=[model.__class__.__name__,
+                "Whisper",
+                ],
+        log_model_checkpoints=False,
+    )
+    # neptune_logger.log_hyperparams(params)
+
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val/wer",
+        mode="min",
+        dirpath=output_directory,
+        filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
+        # save_on_train_epoch_end=False # run after validation
+    )
+    callbacks.extend([
+        checkpoint_callback,
+        # pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
+        pl.callbacks.LearningRateMonitor(logging_interval="step"), # good for troubleshooting warmup
+    ])
+else:
+    neptune_logger = None
+    callbacks = None
+
+# QUESTION: why does validation loop become massively slower as training goes on?
+# perhaps this line will resolve..?
+# export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'
+
+# TODO: at epoch 22 validation seems to massively slow down...?
+# may be due to neptune...? (saw freeze on two models at same time...)
+trainer = pl.Trainer(
+    max_epochs=config.num_train_epochs,
+    devices=[0],
+    accelerator="gpu",
+    # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
+    # are we clipping first then addiing? (prob doesn't matter...)
+    gradient_clip_val=10,
+    logger=neptune_logger,
+    default_root_dir=output_directory,
+    callbacks=callbacks,
+    precision=config.precision,
+    # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
+)
+     
+logging.info('about to fit')
+# epoch of 242 if only train...
+# trainer.fit(model, datamodule.train_dataloader(),
+#             datamodule.val_dataloader())
+# trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
+# note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
+# we should prob transfer this data to $LOCAL_SCRATCH first...
+trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
+            val_dataloaders=datamodule.val_dataloader()) 
+
+
+
 
 ##
