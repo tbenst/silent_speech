@@ -173,8 +173,12 @@ class WhisperModelModule(pl.LightningModule):
         self.tokenizer = whisper.tokenizer.get_tokenizer(True, language=lang, task=self.options.task)
         self.steps_per_epoch = cfg.steps_per_epoch
 
-        # only decoder training
-        for p in self.model.encoder.parameters():
+        # # only decoder training
+        # for p in self.model.encoder.parameters():
+        #     p.requires_grad = False
+        
+        # only encoder training
+        for p in self.model.decoder.parameters():
             p.requires_grad = False
         
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
@@ -198,10 +202,13 @@ class WhisperModelModule(pl.LightningModule):
         target_tokens = batch["target_tokens"].long()
         decoder_input_tokens = batch["decoder_input_tokens"].long()
 
-        with torch.no_grad():
-            audio_features = self.model.encoder(mel)
+        # no encoder training
+        # with torch.no_grad():
+        audio_features = self.model.encoder(mel)
 
-        out = self.model.decoder(decoder_input_tokens, audio_features)
+        # no decoder training
+        with torch.no_grad():
+            out = self.model.decoder(decoder_input_tokens, audio_features)
         pred = F.log_softmax(out, dim=-1)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
         # TODO: do we need to have a blank arg here?
