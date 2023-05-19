@@ -339,7 +339,8 @@ for b in tqdm(td):
 ##    
 # whisper_model_name = "medium"
 # whisper_model_name = "small"
-whisper_model_name = "tiny"
+# whisper_model_name = "tiny"
+whisper_model_name = "base"
 # wmodel = whisper.load_model("large")
 whisper_model = WhisperModelModule(config,
                                 #    model_name="base")
