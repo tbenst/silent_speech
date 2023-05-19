@@ -207,8 +207,8 @@ class WhisperModelModule(pl.LightningModule):
         audio_features = self.model.encoder(mel)
 
         # no decoder training
-        with torch.no_grad():
-            out = self.model.decoder(decoder_input_tokens, audio_features)
+        # with torch.no_grad():
+        out = self.model.decoder(decoder_input_tokens, audio_features)
         pred = F.log_softmax(out, dim=-1)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
         # TODO: do we need to have a blank arg here?
@@ -409,6 +409,7 @@ if log_neptune:
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
                 "Whisper",
+                "TrainEncoderOnly"
                 ],
         log_model_checkpoints=False,
     )
