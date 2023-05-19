@@ -154,14 +154,15 @@ def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
 @dataclass
 class WhisperConfig:
     steps_per_epoch:int = -1
-    learning_rate:float = 0.00025
+    # learning_rate:float = 0.00025
+    learning_rate:float = 5e-6
     weight_decay:float = 0.01
     adam_epsilon:float = 1e-8
-    warmup_steps:int = 100
+    warmup_steps:int = 500
     # batch_size:int = 8
     batch_size:int = 16
     num_worker:int = 0
-    num_train_epochs:int = 10
+    num_train_epochs:int = 200
     gradient_accumulation_steps:int = 1
     sample_rate:int = 16000
     precision:str = "16-mixed"
@@ -288,7 +289,7 @@ class WhisperModelModule(pl.LightningModule):
             optimizer, num_warmup_steps=self.hparams.warmup_steps, 
             num_training_steps = self.steps_per_epoch // self.hparams.gradient_accumulation_steps * self.hparams.num_train_epochs
         )
-        self.scheduler = scheduler
+        # self.scheduler = scheduler
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
         # return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
@@ -464,7 +465,8 @@ trainer.validate(model, dataloaders=datamodule.val_dataloader())
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
 
-
+# should have approx 12389 sentences total
+# We actually have 8048 in train, 208 in val.
 
 
 ##
