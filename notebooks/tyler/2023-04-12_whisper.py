@@ -25,6 +25,7 @@ import torch.nn.functional as F
 from torchaudio.models.decoder import ctc_decoder
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
+from pytorch_lightning.callbacks import LearningRateFinder
 
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
@@ -153,10 +154,10 @@ def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
 @dataclass
 class WhisperConfig:
     steps_per_epoch:int = -1
-    learning_rate:float = 0.0005
+    learning_rate:float = 0.00025
     weight_decay:float = 0.01
     adam_epsilon:float = 1e-8
-    warmup_steps:int = 2
+    warmup_steps:int = 100
     # batch_size:int = 8
     batch_size:int = 16
     num_worker:int = 0
@@ -186,7 +187,7 @@ class WhisperModelModule(pl.LightningModule):
         self.metrics_wer = evaluate.load("wer")
         self.metrics_cer = evaluate.load("cer")
 
-        self.cfg = cfg
+        self.hparams.update(vars(config))
         self.__train_dataset = train_dataset
         self.__eval_dataset = eval_dataset
         
@@ -206,10 +207,8 @@ class WhisperModelModule(pl.LightningModule):
         # with torch.no_grad():
         audio_features = self.model.encoder(mel)
 
-        # no decoder training
-        # with torch.no_grad():
         out = self.model.decoder(decoder_input_tokens, audio_features)
-        pred = F.log_softmax(out, dim=-1)
+        # pred = F.log_softmax(out, dim=-1)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
         # TODO: do we need to have a blank arg here?
         # print(f"{out.shape=}")
@@ -253,7 +252,6 @@ class WhisperModelModule(pl.LightningModule):
         }
         
     def on_validation_epoch_end(self):
-        print("inside on_validation_epoch_end")
         cer = self.metrics_cer.compute(references=self.step_target, predictions=self.step_pred)
         wer = self.metrics_wer.compute(references=self.step_target, predictions=self.step_pred)
         self.step_target.clear()
@@ -273,7 +271,7 @@ class WhisperModelModule(pl.LightningModule):
             {
                 "params": [p for n, p in model.named_parameters() 
                             if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.cfg.weight_decay,
+                "weight_decay": self.hparams.weight_decay,
             },
             {
                 "params": [p for n, p in model.named_parameters() 
@@ -282,13 +280,13 @@ class WhisperModelModule(pl.LightningModule):
             },
         ]
         optimizer = torch.optim.AdamW(optimizer_grouped_parameters, 
-                          lr=self.cfg.learning_rate, 
-                          eps=self.cfg.adam_epsilon)
+                          lr=self.hparams.learning_rate, 
+                          eps=self.hparams.adam_epsilon)
         self.optimizer = optimizer
 
         scheduler = get_linear_schedule_with_warmup(
-            optimizer, num_warmup_steps=self.cfg.warmup_steps, 
-            num_training_steps = self.steps_per_epoch // self.cfg.gradient_accumulation_steps * self.cfg.num_train_epochs
+            optimizer, num_warmup_steps=self.hparams.warmup_steps, 
+            num_training_steps = self.steps_per_epoch // self.hparams.gradient_accumulation_steps * self.hparams.num_train_epochs
         )
         self.scheduler = scheduler
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
@@ -399,6 +397,7 @@ whisper_model = WhisperModelModule(config,
 ##
 model = whisper_model
 log_neptune = True
+auto_lr_find = False
 callbacks = []
 if log_neptune:
     neptune_logger = NeptuneLogger(
@@ -429,14 +428,14 @@ if log_neptune:
     ])
 else:
     neptune_logger = None
+    callbacks = []
+    
+# if auto_lr_find:
+#     callbacks.append(LearningRateFinder())
+    
+if len(callbacks) == 0:
     callbacks = None
 
-# QUESTION: why does validation loop become massively slower as training goes on?
-# perhaps this line will resolve..?
-# export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'
-
-# TODO: at epoch 22 validation seems to massively slow down...?
-# may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
     devices=[0],
@@ -450,7 +449,10 @@ trainer = pl.Trainer(
     precision=config.precision,
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
-     
+if auto_lr_find:
+    tuner = pl.tuner.Tuner(trainer)
+    tuner.lr_find(model, datamodule=datamodule)
+##
 logging.info('about to fit')
 # epoch of 242 if only train...
 # trainer.fit(model, datamodule.train_dataloader(),
@@ -458,6 +460,7 @@ logging.info('about to fit')
 # trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
 # note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
 # we should prob transfer this data to $LOCAL_SCRATCH first...
+trainer.validate(model, dataloaders=datamodule.val_dataloader())
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
 
