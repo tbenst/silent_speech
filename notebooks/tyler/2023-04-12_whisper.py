@@ -121,7 +121,7 @@ _re_special = re.compile(r"\<\|.+?\|\>")
 def strip_special_tokens(string):
     return re.sub(_re_special, "", string)
 
-def filter_special_tokens(tokens, special_tokens):
+def filter_special_tokens(tokens, special_tokens=wtokenizer.encoding._special_tokens.values()):
     return [t for t in tokens if t not in special_tokens]
 
 def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
@@ -162,7 +162,8 @@ def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
 class WhisperConfig:
     steps_per_epoch:int = -1
     # learning_rate:float = 0.00025
-    learning_rate:float = 5e-6
+    learning_rate:float = 5e-4
+    # learning_rate:float = 5e-6
     weight_decay:float = 0.01
     adam_epsilon:float = 1e-8
     warmup_steps:int = 500
@@ -249,8 +250,8 @@ class WhisperModelModule(pl.LightningModule):
         o_list, l_list = [], []
         for o, l in zip(out, target_tokens):
             o = torch.argmax(o, dim=1)
-            o_list.append(self.tokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens)))
-            l_list.append(self.tokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens)))
+            o_list.append(self.tokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens.values())))
+            l_list.append(self.tokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens.values())))
             
         self.step_pred.extend(o_list)
         self.step_target.extend(l_list)
@@ -346,65 +347,7 @@ whisper_model = WhisperModelModule(config,
                                 #    model_name="base")
                                    model_name=whisper_model_name)
                                 #    model_name="large")
-############## BELOW IS FOR TESTING ##############
-# with torch.no_grad():
-#     audio_features = whisper_model.model.encoder(b["mel"].cuda())
-#     mel = b["mel"]
-#     target_tokens = b["target_tokens"].long()
-#     decoder_input_tokens = b["decoder_input_tokens"].long()
 
-        
-#     audio_features = whisper_model.model.encoder(mel.cuda())
-#     print(decoder_input_tokens)
-#     print(mel.shape, decoder_input_tokens.shape, audio_features.shape)
-#     print(audio_features.shape)
-#     out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
-#     pred_tokens = torch.argmax(out, dim=2)
-#     for pred,true in zip(pred_tokens,target_tokens):
-#         pred[pred == -100] = wtokenizer.eot
-#         pred_text = wtokenizer.decode(pred)
-#         true_text = wtokenizer.decode(true)
-#         print(f"=============================")
-#         print("Pred: ", pred_text)
-#         print("Actual: ", true_text)
-# ##
-
-# o_list, l_list = [], []
-# for o, l in zip(out, target_tokens):
-#     o = torch.argmax(o, dim=1)
-#     o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens)))
-#     l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens)))
-    
-# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
-# wer
-
-# ##
-# o_list, l_list = [], []
-# n = 0
-# with torch.no_grad():
-#     for b in tqdm(td):
-#         mel = b["mel"]
-#         target_tokens = b["target_tokens"].long()
-#         decoder_input_tokens = b["decoder_input_tokens"].long()
-            
-#         audio_features = whisper_model.model.encoder(mel.cuda())
-#         out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
-        
-#         target_tokens[target_tokens == -100] = wtokenizer.eot
-#         out[out == -100] = wtokenizer.eot
-        
-#         for o, l in zip(out, target_tokens):
-#             o = torch.argmax(o, dim=1)
-#             o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens)))
-#             l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens)))
-#         n+=1
-#         # if n > 50:
-#         if n > 5:
-#             break
-
-# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
-# wer
-######################################################################
 ##
 model = whisper_model
 log_neptune = True
@@ -485,9 +428,66 @@ trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
 
 
 ##
-out=torch.ones([16, 78, 51865])
-target_tokens = torch.ones([16, 78]) 
-lengths=[80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80]
-target_lengths=[78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78]
-loss = F.ctc_loss(out, target_tokens, lengths, target_lengths)
+############## BELOW IS FOR TESTING ##############
+td = datamodule.train_dataloader()
+for b in tqdm(td):
+    break
+with torch.no_grad():
+    audio_features = whisper_model.model.encoder(b["mel"].cuda())
+    mel = b["mel"]
+    target_tokens = b["target_tokens"].long()
+    decoder_input_tokens = b["decoder_input_tokens"].long()
+
+        
+    audio_features = whisper_model.model.encoder(mel.cuda())
+    print(decoder_input_tokens)
+    print(mel.shape, decoder_input_tokens.shape, audio_features.shape)
+    print(audio_features.shape)
+    out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
+    pred_tokens = torch.argmax(out, dim=2)
+    for pred,true in zip(pred_tokens,target_tokens):
+        pred[pred == -100] = wtokenizer.eot
+        true[true == -100] = wtokenizer.eot
+        pred_text = wtokenizer.decode(filter_special_tokens(pred))
+        true_text = wtokenizer.decode(filter_special_tokens(true))
+        print(f"=============================")
+        print("Pred: ", pred_text)
+        print("Actual: ", true_text)
 ##
+
+# o_list, l_list = [], []
+# for o, l in zip(out, target_tokens):
+#     o = torch.argmax(o, dim=1)
+#     o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens.values())))
+#     l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens.values())))
+    
+# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
+# wer
+
+# ##
+# o_list, l_list = [], []
+# n = 0
+# with torch.no_grad():
+#     for b in tqdm(td):
+#         mel = b["mel"]
+#         target_tokens = b["target_tokens"].long()
+#         decoder_input_tokens = b["decoder_input_tokens"].long()
+            
+#         audio_features = whisper_model.model.encoder(mel.cuda())
+#         out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
+        
+#         target_tokens[target_tokens == -100] = wtokenizer.eot
+#         out[out == -100] = wtokenizer.eot
+        
+#         for o, l in zip(out, target_tokens):
+#             o = torch.argmax(o, dim=1)
+#             o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens.values())))
+#             l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens.values())))
+#         n+=1
+#         # if n > 50:
+#         if n > 5:
+#             break
+
+# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
+# wer
+######################################################################
