@@ -99,16 +99,20 @@ class SpectrogramDataset(PreprocessedEMGDataset):
         }
 
 ##
-# datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
-#                            DatasetClass=SpectrogramDataset)
+datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
+)
+                        #    DatasetClass=SpectrogramDataset)
 # td = datamodule.train_dataloader()
-# # longest_emg = 0
+# longest_emg = 0
 # longest_emg = []
+# total_time = 0
 # for bat in tqdm(td):
-#     # longest_emg = max(longest_emg, np.quantile([e.shape[0] for e in bat['raw_emg']], 0.99))
-# #     longest_emg = max(longest_emg, np.max([e.shape[0] for e in bat['raw_emg']]))
-#     longest_emg.append(np.quantile([e.shape[0] for e in bat['raw_emg']], 0.5))
-    
+    # longest_emg = max(longest_emg, np.quantile([e.shape[0] for e in bat['raw_emg']], 0.99))
+#     longest_emg = max(longest_emg, np.max([e.shape[0] for e in bat['raw_emg']]))
+    # longest_emg.append(np.quantile([e.shape[0] for e in bat['raw_emg']], 0.5))
+    # total_time += sum([e.shape[0] for e in bat['raw_emg']])
+
+# print(f"We have {total_time / 1000 / 60 / 60} hours of data")
 # # assert longest_emg * 8 == 299200
 # # print(longest_emg * 8) # approx 235390, so 99-percentile length is 29s
 # print(np.mean(longest_emg) * 8) # approx 235390, so 99-percentile length is 29s
@@ -116,6 +120,9 @@ class SpectrogramDataset(PreprocessedEMGDataset):
 _re_special = re.compile(r"\<\|.+?\|\>")
 def strip_special_tokens(string):
     return re.sub(_re_special, "", string)
+
+def filter_special_tokens(tokens, special_tokens):
+    return [t for t in tokens if t not in special_tokens]
 
 def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
         mels, target_tokens, decoder_input_tokens = [], [], []
@@ -240,8 +247,8 @@ class WhisperModelModule(pl.LightningModule):
         o_list, l_list = [], []
         for o, l in zip(out, target_tokens):
             o = torch.argmax(o, dim=1)
-            o_list.append(strip_special_tokens(self.tokenizer.decode(o)))
-            l_list.append(strip_special_tokens(self.tokenizer.decode(l)))
+            o_list.append(self.tokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens)))
+            l_list.append(self.tokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens)))
             
         self.step_pred.extend(o_list)
         self.step_target.extend(l_list)
@@ -362,8 +369,8 @@ whisper_model = WhisperModelModule(config,
 # o_list, l_list = [], []
 # for o, l in zip(out, target_tokens):
 #     o = torch.argmax(o, dim=1)
-#     o_list.append(strip_special_tokens(wtokenizer.decode(o)))
-#     l_list.append(strip_special_tokens(wtokenizer.decode(l)))
+#     o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens)))
+#     l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens)))
     
 # wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
 # wer
@@ -385,8 +392,8 @@ whisper_model = WhisperModelModule(config,
         
 #         for o, l in zip(out, target_tokens):
 #             o = torch.argmax(o, dim=1)
-#             o_list.append(strip_special_tokens(wtokenizer.decode(o)))
-#             l_list.append(strip_special_tokens(wtokenizer.decode(l)))
+#             o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens)))
+#             l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens)))
 #         n+=1
 #         # if n > 50:
 #         if n > 5:

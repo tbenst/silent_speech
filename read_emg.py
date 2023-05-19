@@ -502,8 +502,8 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
     
     
 class EMGDataModule(pl.LightningDataModule):
-    def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=False,
-                 max_len=128000, num_workers=0, batch_sampler=True, shuffle=False,
+    def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=None,
+                 max_len=128000, num_workers=0, batch_sampler=True, shuffle=None,
                  batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset) -> None:
         super().__init__()
         self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
@@ -516,7 +516,7 @@ class EMGDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.max_len = max_len
         self.val_test_batch_sampler = False
-        self.batch_size = batch_size
+        self.batch_size = batch_size if batch_size is not None and batch_size > 0 else 1 # can't be None
         self.batch_sampler = batch_sampler
         self.drop_last = drop_last
         self.collate_fn = collate_fn
@@ -525,7 +525,6 @@ class EMGDataModule(pl.LightningDataModule):
     def train_dataloader(self):
         collate_fn = self.collate_fn if self.collate_fn is not None else self.train.collate_raw
         batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len) if self.batch_sampler else None
-
         loader = DataLoader(
             self.train,
             collate_fn = collate_fn,
@@ -543,7 +542,7 @@ class EMGDataModule(pl.LightningDataModule):
         collate_fn = self.collate_fn if self.collate_fn is not None else self.val.collate_raw
 
         if self.val_test_batch_sampler:
-            batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len, shuffle=False) if self.batch_sampler else None
+            batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len) if self.batch_sampler else None
             loader = DataLoader(
                 self.val,
                 collate_fn = collate_fn,
