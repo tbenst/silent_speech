@@ -412,6 +412,9 @@ if log_neptune:
                 "TrainEncoderOnly"
                 ],
         log_model_checkpoints=False,
+        capture_hardware_metrics=True,
+        capture_stderr=True,
+        capture_stdout=True,
     )
     # neptune_logger.log_hyperparams(params)
 
