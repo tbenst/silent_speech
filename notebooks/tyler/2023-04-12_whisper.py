@@ -174,8 +174,8 @@ class WhisperModelModule(pl.LightningModule):
         self.steps_per_epoch = cfg.steps_per_epoch
 
         # only decoder training
-        # for p in self.model.encoder.parameters():
-        #     p.requires_grad = False
+        for p in self.model.encoder.parameters():
+            p.requires_grad = False
         
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
 
@@ -198,7 +198,8 @@ class WhisperModelModule(pl.LightningModule):
         target_tokens = batch["target_tokens"].long()
         decoder_input_tokens = batch["decoder_input_tokens"].long()
 
-        audio_features = self.model.encoder(mel)
+        with torch.no_grad():
+            audio_features = self.model.encoder(mel)
 
         out = self.model.decoder(decoder_input_tokens, audio_features)
         pred = F.log_softmax(out, dim=-1)
