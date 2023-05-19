@@ -165,7 +165,7 @@ class WhisperConfig:
     learning_rate:float = 5e-6
     weight_decay:float = 0.01
     adam_epsilon:float = 1e-8
-    warmup_steps:int = 200
+    warmup_steps:int = 500
     # batch_size:int = 8
     batch_size:int = 16
     num_worker:int = 0
