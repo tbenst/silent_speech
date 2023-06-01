@@ -202,8 +202,8 @@ class WhisperModelModule(pl.LightningModule):
         self.steps_per_epoch = cfg.steps_per_epoch
 
         # freeze encoder training
-        for p in self.whisper.encoder.parameters():
-            p.requires_grad = False
+        # for p in self.whisper.encoder.parameters():
+        #     p.requires_grad = False
         
         # freeze decoder
         for p in self.whisper.decoder.parameters():
@@ -420,7 +420,7 @@ class WhisperModelModule(pl.LightningModule):
     
 
 SD = partial(PadAudioDataset, tokenizer=wtokenizer)
-config = WhisperConfig()
+config = WhisperConfig(gradient_accumulation_steps=2)
 # config = WhisperConfig(precision="32")
 datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
                            batch_size = config.batch_size, num_workers=config.num_worker,
@@ -456,8 +456,11 @@ whisper_model = WhisperModelModule(config, s4_config)
 model = whisper_model
 log_neptune = True
 # log_neptune = False
-auto_lr_find = False
-callbacks = []
+auto_lr_find = True
+callbacks = [
+    # starting at epoch 0, accumulate 2 batches of grads
+    GradientAccumulationScheduler(scheduling={0: config.gradient_accumulation_steps})
+]
 if log_neptune:
     neptune_logger = NeptuneLogger(
         # need to store credentials in your shell env
