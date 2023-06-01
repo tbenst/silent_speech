@@ -164,12 +164,14 @@ class WhisperConfig:
     lang:str = "en"
     steps_per_epoch:int = -1
     # learning_rate:float = 0.00025
-    learning_rate:float = 5e-4
+    # learning_rate:float = 5e-4
+    learning_rate:float = 5e-3
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
     warmup_steps:int = 500
-    batch_size:int = 16
+    # batch_size:int = 16
+    batch_size:int = 32 # for next time...
     # batch_size:int = 8
     # batch_size:int = 2
     num_worker:int = 0
@@ -510,7 +512,7 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
+    check_val_every_n_epoch=5 # should be almost twice as fast
 )
 if auto_lr_find:
     tuner = pl.tuner.Tuner(trainer)
@@ -522,7 +524,7 @@ logging.info('about to fit')
 # trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
 # note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
 # we should prob transfer this data to $LOCAL_SCRATCH first...
-# trainer.validate(model, dataloaders=datamodule.val_dataloader())
+trainer.validate(model, dataloaders=datamodule.val_dataloader())
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
 ##
