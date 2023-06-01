@@ -95,7 +95,7 @@ class PadAudioDataset(PreprocessedEMGDataset):
         # gaddy 99% is length is 235390, longest is 299200, so pad to 2**18=262144
         # padded_emg = whisper.pad_or_trim(emg, 2**18, axis=-1)
         # whisper needs spectrogram length of 3000
-        padded_emg = whisper.pad_or_trim(emg, 2**18, axis=-1)
+        # padded_emg = whisper.pad_or_trim(emg, 2**18, axis=-1)
         # TODO: this is too small...
         # padded_emg = whisper.pad_or_trim(emg, 2**17, axis=-1)
         # padded_emg = whisper.pad_or_trim(emg, 2**16, axis=-1)
@@ -104,7 +104,8 @@ class PadAudioDataset(PreprocessedEMGDataset):
         target_tokens = text[1:] + [self.tokenizer.eot]
 
         return {
-            "emg": padded_emg,
+            # "emg": padded_emg,
+            "emg": emg,
             "target_tokens": target_tokens,
             "decoder_input_tokens": text
         }
@@ -120,7 +121,9 @@ def filter_special_tokens(tokens, special_tokens=wtokenizer.encoding._special_to
 def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
         emgs, target_tokens, decoder_input_tokens = [], [], []
         for f in features:
-            emgs.append(f["emg"])
+            emg = f["emg"]
+            padded_emg = whisper.pad_or_trim(emg, 2**18, axis=-1)
+            emgs.append(padded_emg)
             target_tokens.append(f["target_tokens"])
             decoder_input_tokens.append(f["decoder_input_tokens"])
 
@@ -274,7 +277,7 @@ class WhisperModelModule(pl.LightningModule):
             # z, _ = layer(z)
             
             # Apply hyena block
-            z = layer(z)
+            z = layer(z)q
             # print(f"post-layer {z=}")
 
             # Dropout on the output of the S4 block
