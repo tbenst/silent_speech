@@ -460,7 +460,7 @@ if log_neptune:
         # name=magneto.fullname(model), # from lib
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
-                "S4Whisper",
+                "HyenaWhisper",
                 ],
         log_model_checkpoints=False,
         capture_hardware_metrics=True,
