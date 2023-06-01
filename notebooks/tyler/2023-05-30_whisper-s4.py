@@ -7,11 +7,19 @@ nep_key = "NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"
 if not nep_key in os.environ or os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] != 'TRUE':
     os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] = 'TRUE'
     
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+# https://stackoverflow.com/questions/73747731/runtimeerror-cuda-out-of-memory-how-setting-max-split-size-mb
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+
 import whisper
 import pytorch_lightning as pl
 import sys
 from functools import lru_cache, partial
+from magneto.models.s4d import S4D
+from magneto.models.s4 import S4
+from magneto.models.hyena import HyenaOperator
+from magneto.models.waveword import S4Params
 import numpy as np
 import logging
 import subprocess, re
@@ -26,6 +34,7 @@ from torchaudio.models.decoder import ctc_decoder
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from pytorch_lightning.callbacks import LearningRateFinder
+from torch.distributed.fsdp.wrap import wrap
 
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
@@ -39,7 +48,10 @@ import neptune, shutil
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler
-
+import random
+random.seed(9148)
+torch.manual_seed(5611)
+np.random.seed(1122)
 ##
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -63,7 +75,7 @@ wtokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
 ##
 
-class SpectrogramDataset(PreprocessedEMGDataset):
+class PadAudioDataset(PreprocessedEMGDataset):
     def __init__(self, tokenizer, **kwargs):
         super().__init__(**kwargs)
         self.tokenizer = tokenizer
@@ -75,47 +87,28 @@ class SpectrogramDataset(PreprocessedEMGDataset):
     def __getitem__(self, i):
         x = super().__getitem__(i)
         emg = x["raw_emg"] # samples x channels
-        # resample from 1kHz to 2kHz using torch
-        # TODO: test training on scipy..?
-        emg = torch.nn.functional.interpolate(emg.transpose(0,1).unsqueeze(0), scale_factor=2, mode="linear").squeeze(0).transpose(0,1)
-        # guessing scipy.signal.resample is better
-        # emg = torch.tensor(scipy.signal.resample(emg.numpy(), 2 * emg.shape[0], axis=0))
-        
-        flat_emg = emg.reshape(-1) # flatten to look more like audio
+        emg = emg / 38 # approximate normalization to [-1,1]
+        emg = emg.swapaxes(0, 1) # channels x samples
         assert len(x["text"]) == 1
         text = x["text"][0]
-        audio = whisper.pad_or_trim(flat_emg) # whisper expects up to 480k samples; 16kHz * 30s
-        # Gaddy paper uses 1kHz, and average is approx 4.5s of data, 99-percentile length is 29.7s
-        mel = whisper.log_mel_spectrogram(audio)
+        
+        # gaddy 99% is length is 235390, longest is 299200, so pad to 2**18=262144
+        # padded_emg = whisper.pad_or_trim(emg, 2**18, axis=-1)
+        # whisper needs spectrogram length of 3000
+        padded_emg = whisper.pad_or_trim(emg, 2**18, axis=-1)
+        # TODO: this is too small...
+        # padded_emg = whisper.pad_or_trim(emg, 2**17, axis=-1)
+        # padded_emg = whisper.pad_or_trim(emg, 2**16, axis=-1)
 
         text = [*self.tokenizer.sot_sequence_including_notimestamps] + self.tokenizer.encode(text)
         target_tokens = text[1:] + [self.tokenizer.eot]
 
-        # TODO: how do we handle the variable length for CTC..? right now we ignore
         return {
-            "mel": mel,
+            "emg": padded_emg,
             "target_tokens": target_tokens,
             "decoder_input_tokens": text
         }
 
-##
-# datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
-# )
-                        #    DatasetClass=SpectrogramDataset)
-# td = datamodule.train_dataloader()
-# longest_emg = 0
-# longest_emg = []
-# total_time = 0
-# for bat in tqdm(td):
-    # longest_emg = max(longest_emg, np.quantile([e.shape[0] for e in bat['raw_emg']], 0.99))
-#     longest_emg = max(longest_emg, np.max([e.shape[0] for e in bat['raw_emg']]))
-    # longest_emg.append(np.quantile([e.shape[0] for e in bat['raw_emg']], 0.5))
-    # total_time += sum([e.shape[0] for e in bat['raw_emg']])
-
-# print(f"We have {total_time / 1000 / 60 / 60} hours of data")
-# # assert longest_emg * 8 == 299200
-# # print(longest_emg * 8) # approx 235390, so 99-percentile length is 29s
-# print(np.mean(longest_emg) * 8) # approx 235390, so 99-percentile length is 29s
 ##
 _re_special = re.compile(r"\<\|.+?\|\>")
 def strip_special_tokens(string):
@@ -125,13 +118,13 @@ def filter_special_tokens(tokens, special_tokens=wtokenizer.encoding._special_to
     return [t for t in tokens if t not in special_tokens]
 
 def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
-        mels, target_tokens, decoder_input_tokens = [], [], []
+        emgs, target_tokens, decoder_input_tokens = [], [], []
         for f in features:
-            mels.append(f["mel"])
+            emgs.append(f["emg"])
             target_tokens.append(f["target_tokens"])
             decoder_input_tokens.append(f["decoder_input_tokens"])
 
-        mels = torch.concat([mel[None, :] for mel in mels])
+        emgs = torch.concat([emg[None, :] for emg in emgs])
         
         target_lengths = [len(lab) for lab in target_tokens]
         decoder_input_tokens_length = [len(e) for e in decoder_input_tokens]
@@ -152,45 +145,62 @@ def whisper_data_collator_with_padding(features, eot_token_id=wtokenizer.eot):
 
         # TODO: is this really necessary
         batch = {k: torch.tensor(np.array(v), requires_grad=False) for k, v in batch.items()}
-        batch["mel"] = mels
-        batch["lengths"] = [ex.shape[1] for ex in mels]
+        batch["emg"] = emgs
+        batch["lengths"] = [ex.shape[1] for ex in emgs]
         batch["target_lengths"] = [ex.shape[0] for ex in target_tokens]
 
         return batch
     
 @dataclass
 class WhisperConfig:
+    model_name:str = "tiny"
+    # "medium"
+    # "small"
+    # "base"
+    # "tiny"
+    lang:str = "en"
     steps_per_epoch:int = -1
     # learning_rate:float = 0.00025
     learning_rate:float = 5e-4
     # learning_rate:float = 5e-6
-    weight_decay:float = 0.01
+    weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
     warmup_steps:int = 500
+    batch_size:int = 32
     # batch_size:int = 8
-    batch_size:int = 16
+    # batch_size:int = 2
     num_worker:int = 0
     num_train_epochs:int = 200
     gradient_accumulation_steps:int = 1
     sample_rate:int = 16000
     precision:str = "16-mixed"
+    hyena_layers:int = 2
+    hyena_dim:int = 64
+    hyena_seq_len:int = 2**18
+    hyena_order:int = 2
+    hyena_filter_order:int = 64
+    prenorm:bool = False
+    dropout:float = 0.0
+    in_channels:int = 8
+    out_channels:int = 80
 
 class WhisperModelModule(pl.LightningModule):
-    def __init__(self, cfg:WhisperConfig, model_name="base", lang="en", train_dataset=[], eval_dataset=[]) -> None:
+    def __init__(self, cfg:WhisperConfig,
+                 train_dataset=[], eval_dataset=[]) -> None:
         super().__init__()
-        self.options = whisper.DecodingOptions(language=lang, without_timestamps=True)
+        self.options = whisper.DecodingOptions(language=cfg.lang, without_timestamps=True)
         # TODO: should we load a CPU first..?
         # eg whisper.load_model(model_name, 'cpu')
-        self.model = whisper.load_model(model_name)
-        self.tokenizer = whisper.tokenizer.get_tokenizer(True, language=lang, task=self.options.task)
+        self.whisper = whisper.load_model(cfg.model_name)
+        self.tokenizer = whisper.tokenizer.get_tokenizer(True, language=cfg.lang, task=self.options.task)
         self.steps_per_epoch = cfg.steps_per_epoch
 
-        # # only decoder training
-        # for p in self.model.encoder.parameters():
-        #     p.requires_grad = False
+        # freeze encoder training
+        for p in self.whisper.encoder.parameters():
+            p.requires_grad = False
         
-        # only encoder training
-        for p in self.model.decoder.parameters():
+        # freeze decoder
+        for p in self.whisper.decoder.parameters():
             p.requires_grad = False
         
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
@@ -205,22 +215,117 @@ class WhisperModelModule(pl.LightningModule):
         # accumulate text over epoch for validation so we can caclulate WER
         self.step_target = []
         self.step_pred = []
+        
+        ################ S4Model emg -> (audio) mel spectrogram ###############
+        self.encoder = nn.Linear(cfg.in_channels, cfg.hyena_dim)
+        
+        # Stack S4 layers as residual blocks
+        self.s4_layers = nn.ModuleList()
+        self.norms     = nn.ModuleList()
+        self.dropouts  = nn.ModuleList()
+        for _ in range(cfg.hyena_layers):
+            self.s4_layers.append(
+                # 5218MiB of VRAM
+                # S4D(s4_cfg.d_model, dropout=s4_cfg.dropout, transposed=True,
+                #     lr=s4_cfg.lr)
+                # 4964MiB of VRAM
+                # S4(s4_cfg.d_model, dropout=s4_cfg.dropout, bidirectional = True, transposed=True, 
+                #                lr=s4_cfg.lr, mode = 'diag', measure = 'diag-inv', disc='zoh', real_type='exp')  
+                HyenaOperator(
+                    d_model=cfg.hyena_dim,
+                    l_max=cfg.hyena_seq_len,
+                    order=cfg.hyena_order,
+                    filter_order=cfg.hyena_filter_order
+                )
+            )
+            # self.norms.append(nn.LayerNorm(cfg.hyena_dim))
+            self.dropouts.append(nn.Dropout1d(cfg.dropout))
+
+        # Project from d_model to num_words (80 bins for mel spectrogram)
+        self.linear_encoder = nn.Conv1d(cfg.hyena_dim, cfg.out_channels, 1)
+        # we hardcode settings such that L=262144 -> L=3000
+        self.spectrogram_pool = nn.AvgPool1d(87, 87)
+        
+        self.prenorm = cfg.prenorm
+        
+        self.input_dropout = nn.Dropout1d(0)
+            
+        #######################################################################
+
+    def encode(self, x):
+        """
+        Use S4D to encode EMG signal into a mel spectrogam
+        Input x is shape (B, d_input, L) where d_input is the number of EMG channels
+        """
+        # print("x.shape", x.shape)
+        x = self.input_dropout(x)
+        # print("x.shape (input_dropout)", x.shape)
+        x = x.swapaxes(1,2) # (B, d_input, L) -> (B, L, d_input)
+        x = self.encoder(x) # (B, L, d_input) -> (B, L, d_model)
+        
+        # x = nn.functional.softsign(x)
+
+        # x = x.transpose(-1, -2)  # (B, L, d_model) -> (B, d_model, L)
+        for layer, norm, dropout in zip(self.s4_layers, self.norms, self.dropouts):
+            # Each iteration of this loop will map (B, d_model, L) -> (B, d_model, L)
+
+            z = x
+            # Apply S4 block: we ignore the state input and output
+            # z, _ = layer(z)
+            
+            # Apply hyena block
+            z = layer(z)
+            # print(f"post-layer {z=}")
+
+            # Dropout on the output of the S4 block
+            z = dropout(z)
+            # print(f"post-dropout {z=}")
+
+            # Residual connection
+            x = z + x
+            # print(f"post-residual {x=}")
+
+        x = x.transpose(-1, -2)  # (B, L, d_model) -> (B, d_model, L)
+        x = self.linear_encoder(x) # (B, d_model, L) -> (B, num_words, L)
+        x = self.spectrogram_pool(x) # (B, num_words, L) -> (B, num_words, L')
+        # print(x.shape)
+        # whisper needs 80 x 3000 spectrogram
+        # so we throw away last 13 bins
+        # unfortunately, we need sample length that is power of 2,
+        # and whisper needs divisible by 3000
+        x = F.relu(x[...,:3000])
+        # print(f"post Relu {x=}")
+        # raise Exception("stop")
+        # x = torch.complex(x, torch.zeros_like(x))
+        # whisper expects input of batch x 80 x 3000
+        return x
     
     def forward(self, x):
-        return self.model(x)
+        return self.whisper(self.encode(x))
+
+    def configure_sharded_model(self):
+        self.encoder = wrap(self.encoder)
+        self.s4_layers = wrap(self.s4_layers)
+        self.norms = wrap(self.norms)
+        self.dropouts = wrap(self.dropouts)
+        self.linear_encoder = wrap(self.linear_encoder)
+        
 
     def training_step(self, batch, batch_id):
-        mel = batch["mel"]
+        emg = batch["emg"]
         target_tokens = batch["target_tokens"].long()
         decoder_input_tokens = batch["decoder_input_tokens"].long()
 
         # no encoder training
         # with torch.no_grad():
-        audio_features = self.model.encoder(mel)
+        mel = self.encode(emg)
+        audio_features = self.whisper.encoder(mel)
 
-        out = self.model.decoder(decoder_input_tokens, audio_features)
+        out = self.whisper.decoder(decoder_input_tokens, audio_features)
         # pred = F.log_softmax(out, dim=-1)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
+        if torch.isnan(loss):
+            raise Exception("Nan loss")
         # TODO: do we need to have a blank arg here?
         # print(f"{out.shape=}")
         # loss = F.ctc_loss(out, target_tokens, batch['lengths'], batch['target_lengths'])
@@ -229,13 +334,13 @@ class WhisperModelModule(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_id):
-        mel = batch["mel"]
+        emg = batch["emg"]
         target_tokens = batch["target_tokens"].long()
         decoder_input_tokens = batch["decoder_input_tokens"].long()
 
-
-        audio_features = self.model.encoder(mel)
-        out = self.model.decoder(decoder_input_tokens, audio_features)
+        mel = self.encode(emg)
+        audio_features = self.whisper.encoder(mel)
+        out = self.whisper.decoder(decoder_input_tokens, audio_features)
 
         # pred = nn.utils.rnn.pad_sequence(F.log_softmax(out, dim=-1), batch_first=False)
         # print(f"\n{pred.shape=}, {target_tokens.shape=}, {batch['lengths']=}, {batch['target_lengths']=}")
@@ -276,7 +381,8 @@ class WhisperModelModule(pl.LightningModule):
 
     def configure_optimizers(self):
         """Create optimizers and schedulers."""
-        model = self.model
+        # for whisper...
+        model = self.whisper
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
@@ -290,9 +396,11 @@ class WhisperModelModule(pl.LightningModule):
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, 
+        # optimizer = torch.optim.AdamW(optimizer_grouped_parameters, 
+        optimizer = torch.optim.AdamW(self.parameters(), 
                           lr=self.hparams.learning_rate, 
-                          eps=self.hparams.adam_epsilon)
+                          eps=self.hparams.adam_epsilon,
+                          betas=(0.9, 0.98))
         self.optimizer = optimizer
 
         scheduler = get_linear_schedule_with_warmup(
@@ -305,8 +413,9 @@ class WhisperModelModule(pl.LightningModule):
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
     
 
-SD = partial(SpectrogramDataset, tokenizer=wtokenizer)
+SD = partial(PadAudioDataset, tokenizer=wtokenizer)
 config = WhisperConfig()
+# config = WhisperConfig(precision="32")
 datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
                            batch_size = config.batch_size, num_workers=config.num_worker,
                            drop_last=True, shuffle=True,
@@ -320,37 +429,27 @@ td = datamodule.train_dataloader()
 for b in tqdm(td):
     print(b.keys())
     print(b["target_tokens"].shape)
-    print(b["mel"].shape)
+    print(b["emg"].shape)
     print(b["decoder_input_tokens"].shape)
     print(len(b["lengths"]), b["lengths"][0])
     print(len(b["target_lengths"]), b["target_lengths"][0])
+    print(f"max emg: {b['emg'].max()}")
     break
-#     for token, dec in zip(b["target_tokens"], b["decoder_input_tokens"]):
-#         token[token == -100] = wtokenizer.eot
-#         # text = wtokenizer.decode(token)
-#         text = wtokenizer.decode(token)
-#         print(text)
-
-#         dec[dec == -100] = wtokenizer.eot
-#         # text = wtokenizer.decode(dec)
-#         text = wtokenizer.decode(dec)
-#         print(text)
-    
-#     break
 ##    
-# whisper_model_name = "medium"
-# whisper_model_name = "small"
-# whisper_model_name = "tiny"
-whisper_model_name = "base"
 # wmodel = whisper.load_model("large")
-whisper_model = WhisperModelModule(config,
-                                #    model_name="base")
-                                   model_name=whisper_model_name)
-                                #    model_name="large")
+n_mel_bins = 80
+s4_config = S4Params(in_channels=8, lr=1e-4, fs=800,
+        d_model=32,
+        n_layers=2, bandpass=None,
+        steps_per_epoch=None, batch_size=None, samples=None, trial_duration=None,
+        num_words = n_mel_bins, num_examples = None,
+        epochs=None)
+whisper_model = WhisperModelModule(config, s4_config)
 
 ##
 model = whisper_model
 log_neptune = True
+# log_neptune = False
 auto_lr_find = False
 callbacks = []
 if log_neptune:
@@ -361,8 +460,7 @@ if log_neptune:
         # name=magneto.fullname(model), # from lib
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
-                "Whisper",
-                "TrainEncoderOnly"
+                "S4Whisper",
                 ],
         log_model_checkpoints=False,
         capture_hardware_metrics=True,
@@ -397,8 +495,11 @@ if len(callbacks) == 0:
 
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
-    devices=[0],
+    # devices=["cuda:0", "cuda:1"],
+    devices=[1],
+    # devices="auto",
     accelerator="gpu",
+    # strategy="fsdp",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
     gradient_clip_val=10,
@@ -411,7 +512,6 @@ trainer = pl.Trainer(
 if auto_lr_find:
     tuner = pl.tuner.Tuner(trainer)
     tuner.lr_find(model, datamodule=datamodule)
-##
 logging.info('about to fit')
 # epoch of 242 if only train...
 # trainer.fit(model, datamodule.train_dataloader(),
@@ -419,75 +519,17 @@ logging.info('about to fit')
 # trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
 # note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
 # we should prob transfer this data to $LOCAL_SCRATCH first...
-trainer.validate(model, dataloaders=datamodule.val_dataloader())
+# trainer.validate(model, dataloaders=datamodule.val_dataloader())
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
-
-# should have approx 12389 sentences total
-# We actually have 8048 in train, 208 in val.
-
-
 ##
-############## BELOW IS FOR TESTING ##############
-td = datamodule.train_dataloader()
-for b in tqdm(td):
-    break
-with torch.no_grad():
-    audio_features = whisper_model.model.encoder(b["mel"].cuda())
-    mel = b["mel"]
-    target_tokens = b["target_tokens"].long()
-    decoder_input_tokens = b["decoder_input_tokens"].long()
-
-        
-    audio_features = whisper_model.model.encoder(mel.cuda())
-    print(decoder_input_tokens)
-    print(mel.shape, decoder_input_tokens.shape, audio_features.shape)
-    print(audio_features.shape)
-    out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
-    pred_tokens = torch.argmax(out, dim=2)
-    for pred,true in zip(pred_tokens,target_tokens):
-        pred[pred == -100] = wtokenizer.eot
-        true[true == -100] = wtokenizer.eot
-        pred_text = wtokenizer.decode(filter_special_tokens(pred))
-        true_text = wtokenizer.decode(filter_special_tokens(true))
-        print(f"=============================")
-        print("Pred: ", pred_text)
-        print("Actual: ", true_text)
-##
-
-# o_list, l_list = [], []
-# for o, l in zip(out, target_tokens):
-#     o = torch.argmax(o, dim=1)
-#     o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens.values())))
-#     l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens.values())))
+layer = HyenaOperator(
+    d_model=512, 
+    l_max=1024, 
+    order=2, 
+    filter_order=64
+)
+x = torch.randn(1, 1024, 512)
+y = layer(x)
     
-# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
-# wer
-
-# ##
-# o_list, l_list = [], []
-# n = 0
-# with torch.no_grad():
-#     for b in tqdm(td):
-#         mel = b["mel"]
-#         target_tokens = b["target_tokens"].long()
-#         decoder_input_tokens = b["decoder_input_tokens"].long()
-            
-#         audio_features = whisper_model.model.encoder(mel.cuda())
-#         out = whisper_model.model.decoder(decoder_input_tokens.cuda(), audio_features)
-        
-#         target_tokens[target_tokens == -100] = wtokenizer.eot
-#         out[out == -100] = wtokenizer.eot
-        
-#         for o, l in zip(out, target_tokens):
-#             o = torch.argmax(o, dim=1)
-#             o_list.append(wtokenizer.decode(filter_special_tokens(o,wtokenizer.encoding._special_tokens.values())))
-#             l_list.append(wtokenizer.decode(filter_special_tokens(l,wtokenizer.encoding._special_tokens.values())))
-#         n+=1
-#         # if n > 50:
-#         if n > 5:
-#             break
-
-# wer = whisper_model.metrics_wer.compute(references=l_list, predictions=o_list)
-# wer
-######################################################################
+print(x.shape, y.shape)
