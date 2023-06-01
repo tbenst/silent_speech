@@ -455,7 +455,7 @@ whisper_model = WhisperModelModule(config, s4_config)
 ##
 model = whisper_model
 log_neptune = True
-log_neptune = False
+# log_neptune = False
 auto_lr_find = False
 callbacks = []
 if log_neptune:
