@@ -277,7 +277,7 @@ class WhisperModelModule(pl.LightningModule):
             # z, _ = layer(z)
             
             # Apply hyena block
-            z = layer(z)q
+            z = layer(z)
             # print(f"post-layer {z=}")
 
             # Dropout on the output of the S4 block
