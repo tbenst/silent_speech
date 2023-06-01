@@ -170,9 +170,10 @@ class WhisperConfig:
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
     warmup_steps:int = 500
-    # batch_size:int = 16
-    batch_size:int = 32 # for next time...
-    # batch_size:int = 8
+    # batch_size:int = 8 # 3:02 per epoch
+    batch_size:int = 16 # 2:56 per epoch
+    # batch_size:int = 24 # 4:15 per epoch
+    # batch_size:int = 32 # 4:20 per epoch
     # batch_size:int = 2
     num_worker:int = 0
     num_train_epochs:int = 200
@@ -454,7 +455,7 @@ whisper_model = WhisperModelModule(config, s4_config)
 ##
 model = whisper_model
 log_neptune = True
-# log_neptune = False
+log_neptune = False
 auto_lr_find = False
 callbacks = []
 if log_neptune:
@@ -512,7 +513,8 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    check_val_every_n_epoch=5 # should be almost twice as fast
+    check_val_every_n_epoch=5, # should be almost twice as fast
+    num_sanity_val_steps=0,
 )
 if auto_lr_find:
     tuner = pl.tuner.Tuner(trainer)
