@@ -18,7 +18,8 @@ import sys
 from functools import lru_cache, partial
 from magneto.models.s4d import S4D
 from magneto.models.s4 import S4
-from magneto.models.hyena import HyenaOperator
+# from magneto.models.hyena import HyenaOperator
+from safari.models.sequence.hyena import HyenaOperator
 from magneto.models.waveword import S4Params
 import numpy as np
 import logging
@@ -330,8 +331,8 @@ class WhisperModelModule(pl.LightningModule):
         out = self.whisper.decoder(decoder_input_tokens, audio_features)
         # pred = F.log_softmax(out, dim=-1)
         loss = self.loss_fn(out.view(-1, out.size(-1)), target_tokens.view(-1))
-        if torch.isnan(loss):
-            raise Exception("Nan loss")
+        # if torch.isnan(loss):
+        #     raise Exception("Nan loss")
         # TODO: do we need to have a blank arg here?
         # print(f"{out.shape=}")
         # loss = F.ctc_loss(out, target_tokens, batch['lengths'], batch['target_lengths'])
@@ -470,6 +471,7 @@ if log_neptune:
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
                 "HyenaWhisper",
+                "SafariHyena"
                 ],
         log_model_checkpoints=False,
         capture_hardware_metrics=True,
