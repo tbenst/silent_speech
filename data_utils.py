@@ -182,7 +182,7 @@ def decollate_tensor(tensor, lengths):
     results = []
     idx = 0
     for length in lengths:
-        assert idx + length <= b * s
+        assert idx + length <= b * s, f"{idx=}, {length=}, {b=}, {s=}"
         results.append(tensor[idx:idx+length])
         idx += length
     return results

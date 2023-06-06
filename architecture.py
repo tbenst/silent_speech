@@ -10,8 +10,12 @@ import pytorch_lightning as pl
 from torchaudio.models.decoder import ctc_decoder
 from s4 import S4
 from data_utils import TextTransform
+from magneto.models.hyena import HyenaOperator
+from flash_attn.modules.block import Block
+from magneto.models.s4d import S4D
 
 from pytorch_lightning.profilers import PassThroughProfiler
+from dataclasses import dataclass
 
 MODEL_SIZE = 768 # number of hidden dimensions
 NUM_LAYERS = 6 # number of layers
@@ -47,7 +51,7 @@ class ResBlock(nn.Module):
     
     
 class Model(pl.LightningModule):
-    def __init__(self, num_features, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
+    def __init__(self, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
                  steps_per_epoch, epochs, lm_directory, num_aux_outs=None, lr=3e-4,
                  learning_rate_warmup = 1000, profiler = None):
         super().__init__()
@@ -109,19 +113,43 @@ class Model(pl.LightningModule):
                 x_raw[:,-r:,:] = 0
         
         x_raw = x_raw.transpose(1,2) # put channel before time for conv
+        # print(f"before conv: {x_raw.shape=}")
         x_raw = self.conv_blocks(x_raw)
+        # print(f"after conv: {x_raw.shape=}")
         x_raw = x_raw.transpose(1,2)
         x_raw = self.w_raw_in(x_raw)
 
         x = x_raw
         x = x.transpose(0,1) # put time first
+        # print(f"before transformer: {x.shape=}")
         x = self.transformer(x)
         x = x.transpose(0,1)
 
         if self.has_aux_out:
             return self.w_out(x), self.w_aux(x)
         else:
-            return self.w_out(x)
+            x = self.w_out(x)
+            # print(f"after w_out: {x.shape=}")
+            return x
+        # before conv: x_raw.shape=torch.Size([4, 8, 4800])
+        # after conv: x_raw.shape=torch.Size([4, 768, 600])
+        # before transformer: x.shape=torch.Size([600, 4, 768])
+        # after w_out: x.shape=torch.Size([4, 600, 38])
+        
+        # before conv: x_raw.shape=torch.Size([1, 8, 14568])
+        # after conv: x_raw.shape=torch.Size([1, 768, 1821])
+        # before transformer: x.shape=torch.Size([1821, 1, 768])
+        # after w_out: x.shape=torch.Size([1, 1821, 38])
+        
+        # before conv: x_raw.shape=torch.Size([1, 8, 4800])
+        # after conv: x_raw.shape=torch.Size([1, 768, 600])
+        # before transformer: x.shape=torch.Size([600, 1, 768])
+        # after w_out: x.shape=torch.Size([1, 600, 38])
+        
+        # before conv: x_raw.shape=torch.Size([1, 8, 2776])
+        # after conv: x_raw.shape=torch.Size([1, 768, 347])
+        # before transformer: x.shape=torch.Size([347, 1, 768])
+        # after w_out: x.shape=torch.Size([1, 347, 38])
         
         
     def calc_loss(self, batch):
@@ -146,7 +174,7 @@ class Model(pl.LightningModule):
             
         return loss, bz
     
-    def _beam_search_step(self, batch):
+    def __beam_search_step(self, batch):
         """Run beam search and retun target & pred text.
            Repeatedly called by validation_step & test_step."""
         X     = combine_fixed_length(batch['emg'], self.seqlen)
@@ -163,6 +191,21 @@ class Model(pl.LightningModule):
         pred_int     = [b[0].tokens for b in beam_results]
         pred_text    = [' '.join(b[0].words).strip().lower() for b in beam_results]
         target_text  = [self.text_transform.clean_2(bt[0]) for bt in batch['text']]
+
+        return target_text, pred_text
+    
+    def _beam_search_step(self, batch):
+        "Repeatedly called by validation_step & test_step. Impure function!"
+        X     = batch['emg'][0].unsqueeze(0)
+        X_raw = batch['raw_emg'][0].unsqueeze(0)
+        sess  = batch['session_ids'][0]
+
+        pred  = F.log_softmax(self(X, X_raw, sess), -1).cpu()
+
+        beam_results = self.ctc_decoder(pred)
+        pred_int     = beam_results[0][0].tokens
+        pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
+        target_text  = self.text_transform.clean_2(batch['text'][0][0])
 
         return target_text, pred_text
     
@@ -254,6 +297,115 @@ class Model(pl.LightningModule):
                 scheduler.step()
             else:
                 scheduler.step(metric)
+
+@dataclass
+class S4HyenaParams():
+    n_layers: int = 4
+    dropout: float = 0.2
+    d_model: int = 256
+    prenorm: bool = False 
+                
+class S4HyenaModel(Model):
+    def __init__(self, cfg: S4HyenaParams, text_transform: TextTransform,
+                 steps_per_epoch, epochs, lm_directory, num_aux_outs=None, lr=3e-4,
+                 learning_rate_warmup = 1000, profiler = None):
+        super().super().__init__() # use pl.LightningModule's init
+        self.profiler = profiler or PassThroughProfiler()
+            
+        self.seqlen = 600
+        self.lr = lr
+        self.target_lr = lr # will not mutate
+        self.learning_rate_warmup = learning_rate_warmup
+        self.epochs = epochs
+        self.steps_per_epoch = steps_per_epoch
+        
+        # val/test procedure...
+        self.text_transform = text_transform
+        self.n_chars = len(text_transform.chars)
+        self.lm_directory = lm_directory
+        self.lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+        self._init_ctc_decoder()
+        
+        self.step_target = []
+        self.step_pred = []
+        
+        ################ S4Model emg -> (audio) mel spectrogram ###############
+        self.encoder = nn.Linear(cfg.in_channels, cfg.hyena_dim)
+        
+        # Stack S4 layers as residual blocks
+        self.s4_layers = nn.ModuleList()
+        self.hyena_layers = nn.ModuleList()
+        self.norms     = nn.ModuleList()
+        self.dropouts  = nn.ModuleList()
+        for _ in range(cfg.s4_layers):
+            self.s4_layers.append(
+                S4D(cfg.s4_d_model, dropout=cfg.s4_dropout, transposed=True,
+                    lr=cfg.lr)
+            )
+            self.norms.append(nn.LayerNorm(cfg.hyena_dim))
+            self.dropouts.append(nn.Dropout1d(cfg.dropout))
+            
+        for _ in range(cfg.hyena_layers):
+            self.hyena_layers.append(HyenaOperator(
+                d_model=cfg.hyena_dim,
+                l_max=cfg.hyena_seq_len,
+                order=cfg.hyena_order,
+                filter_order=cfg.hyena_filter_order
+            ))
+
+
+        # Project from d_model to num_words (80 bins for mel spectrogram)
+        self.linear_encoder = nn.Conv1d(cfg.hyena_dim, cfg.out_channels, 1)
+        # we hardcode settings such that L=262144 -> L=3000
+        self.spectrogram_pool = nn.AvgPool1d(87, 87)
+        
+        self.prenorm = cfg.prenorm
+        
+        self.input_dropout = nn.Dropout1d(0)
+
+    def hyena(x):
+        for layer, dropout, norm in zip(self.hyena_layers, self.dropouts, self.norms):
+            # Each iteration of this loop will map (B, d_model, L) -> (B, d_model, L)
+
+            z = x
+
+            # Apply Hyena block
+            z = layer(z)
+            
+            # Dropout on the output of the S4 block
+            z = dropout(z)
+
+            # Residual connection
+            x = z + x
+            
+            x = norm(x)
+
+        x = x.transpose(-1, -2)  # (B, L, d_model) -> (B, d_model, L)
+
+        
+    def forward(self, x_feat, x_raw, session_ids):
+        # x shape is (batch, time, electrode)
+
+        if self.training:
+            r = random.randrange(8)
+            if r > 0:
+                x_raw[:,:-r,:] = x_raw[:,r:,:] # shift left r
+                x_raw[:,-r:,:] = 0
+        
+        x_raw = x_raw.transpose(1,2) # put channel before time for conv
+        x_raw = self.conv_blocks(x_raw)
+        x_raw = x_raw.transpose(1,2)
+        x_raw = self.w_raw_in(x_raw)
+
+        x = x_raw
+        x = x.transpose(0,1) # put time first
+        x = self.transformer(x)
+        x = x.transpose(0,1)
+
+        if self.has_aux_out:
+            return self.w_out(x), self.w_aux(x)
+        else:
+            return self.w_out(x)
         
 class S4Layer(nn.Module):
     """

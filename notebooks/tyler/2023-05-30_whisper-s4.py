@@ -186,7 +186,9 @@ class WhisperConfig:
     hyena_seq_len:int = 2**18
     hyena_order:int = 2
     hyena_filter_order:int = 64
+    s4_d_model:int = 512
     prenorm:bool = False
+    s4_dropout:float = 0.2
     dropout:float = 0.0
     in_channels:int = 8
     out_channels:int = 80
@@ -233,17 +235,17 @@ class WhisperModelModule(pl.LightningModule):
         for _ in range(cfg.hyena_layers):
             self.s4_layers.append(
                 # 5218MiB of VRAM
-                # S4D(s4_cfg.d_model, dropout=s4_cfg.dropout, transposed=True,
-                #     lr=s4_cfg.lr)
+                S4D(cfg.s4_d_model, dropout=cfg.s4_dropout, transposed=True,
+                    lr=cfg.lr)
                 # 4964MiB of VRAM
                 # S4(s4_cfg.d_model, dropout=s4_cfg.dropout, bidirectional = True, transposed=True, 
                 #                lr=s4_cfg.lr, mode = 'diag', measure = 'diag-inv', disc='zoh', real_type='exp')  
-                HyenaOperator(
-                    d_model=cfg.hyena_dim,
-                    l_max=cfg.hyena_seq_len,
-                    order=cfg.hyena_order,
-                    filter_order=cfg.hyena_filter_order
-                )
+                # HyenaOperator(
+                #     d_model=cfg.hyena_dim,
+                #     l_max=cfg.hyena_seq_len,
+                #     order=cfg.hyena_order,
+                #     filter_order=cfg.hyena_filter_order
+                # )
             )
             # self.norms.append(nn.LayerNorm(cfg.hyena_dim))
             self.dropouts.append(nn.Dropout1d(cfg.dropout))

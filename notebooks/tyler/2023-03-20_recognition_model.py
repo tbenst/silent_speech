@@ -18,6 +18,7 @@ import logging
 import subprocess
 import jiwer
 import random
+from tqdm.auto import tqdm
 
 import torch
 from torch import nn
@@ -33,7 +34,8 @@ from architecture import Model, S4Model, H3Model
 from data_utils import combine_fixed_length, decollate_tensor
 from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
-import neptune, shutil
+# import neptune, shutil
+import neptune.new as neptune, shutil
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler
@@ -74,6 +76,7 @@ batch_size = 32
 precision = "16-mixed"
 # precision = 32
 learning_rate = 3e-4
+# 3e-3 leads to NaNs, prob need to have slower warmup in this case
 # epochs = 200
 epochs = 8
 # TODO: lr should not jump
@@ -120,20 +123,20 @@ steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this i
 profiler = AdvancedProfiler(dirpath=output_directory, filename="AdvancedProfiler")
 # profiler = PyTorchProfiler(filename="profile")
 
-profile_create_model = False
+profile_create_model = True
 if profile_create_model:
     import cProfile
     my_profiler = cProfile.Profile()
     my_profiler.enable()
-
-model = Model(datamodule.val.num_features, model_size, dropout, num_layers,
+##
+model = Model(model_size, dropout, num_layers,
               num_outs, datamodule.val.text_transform, lm_directory=lm_directory,
               steps_per_epoch=steps_per_epoch, epochs=epochs, lr=learning_rate,
               learning_rate_warmup=learning_rate_warmup, profiler=profiler)
 
 if profile_create_model:
     my_profiler.disable()
-    my_profiler.dump_stats(​os.path.join(output_directory,"create_model.stats"))
+    my_profiler.dump_stats(os.path.join(output_directory,"create_model.stats"))
 
 # why is this sooo slow?? slash freezes..? are we hitting oak?
 # TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
@@ -194,8 +197,8 @@ else:
 # may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
     max_epochs=epochs,
-    # devices=[0],
-    devices=[1],
+    devices=[0],
+    # devices=[1],
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
@@ -230,5 +233,79 @@ trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch=
 # trainer.test(model, dataloaders=dataloader, ckpt_path='best')
 neptune_logger.experiment.stop()
 ##
-# trainer.validate(model, dataloaders=datamodule.val_dataloader())
+trainer.logger = False
+trainer.validate(model, dataloaders=datamodule.val_dataloader())
+##
+datamodule.val_test_batch_sampler = False
+val1_dl = datamodule.val_dataloader()
+
+datamodule.val_test_batch_sampler = True
+valbs_dl = datamodule.val_dataloader()
+##
+def on_validation_epoch_start(self):
+    self._init_ctc_decoder()
+
+def on_validation_epoch_end(self):
+    step_target = []
+    step_pred = []
+    for t,p in zip(self.step_target, self.step_pred):
+        if len(t) > 0:
+            step_target.append(t)
+            step_pred.append(p)
+        else:
+            print("WARN: got target length of zero during validation.")
+        if len(p) == 0:
+            print("WARN: got prediction length of zero during validation.")
+    wer = jiwer.wer(step_target, step_pred)
+    self.step_target.clear()
+    self.step_pred.clear()
+    return wer
+
+def validation_step(self, batch, batch_idx):
+    loss, bz = self.calc_loss(batch)
+    target_text, pred_text = _beam_search_step(batch)
+    # target_text, pred_text = self._beam_search_step(batch)
+    if len(target_text) > 0:
+        self.step_target.append(target_text)
+        self.step_pred.append(pred_text)
+        # self.step_target.extend(target_text)
+        # self.step_pred.extend(pred_text)
+    self.log("val/loss", loss, prog_bar=True, batch_size=bz)
+    return loss
+
+
+def _beam_search_step(self, batch):
+    "Repeatedly called by validation_step & test_step. Impure function!"
+    X     = batch['emg'][0].unsqueeze(0)
+    X_raw = batch['raw_emg'][0].unsqueeze(0)
+    sess  = batch['session_ids'][0]
+
+    pred  = F.log_softmax(self(X, X_raw, sess), -1).cpu()
+
+    beam_results = self.ctc_decoder(pred)
+    pred_int     = beam_results[0][0].tokens
+    pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
+    target_text  = self.text_transform.clean_2(batch['text'][0][0])
+
+    return target_text, pred_text
+##
+with torch.no_grad():
+    on_validation_epoch_start(model)
+    for b,batch in enumerate(tqdm(val1_dl)):
+        model.validation_step(batch,b)
+    on_validation_epoch_end(model)
+##
+with torch.no_grad():
+    on_validation_epoch_start(model)
+    for b,batch in enumerate(tqdm(valbs_dl)):
+        model.validation_step(batch,b)
+    on_validation_epoch_end(model)
+##
+class D:
+    def __init__(self) -> None:
+        pass
+    
+    x = 3
+    
+D.x
 ##

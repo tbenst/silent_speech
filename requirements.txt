@@ -25,7 +25,7 @@ torchtext
 # https://github.com/psychopy/psychopy/issues/3429#issuecomment-768981865
 pyglet
 python_speech_features
-pytorch_lightning
+pytorch_lightning>=2.0.2
 pytorch_warmup
 speechbrain
 git+https://github.com/openai/whisper
@@ -50,4 +50,5 @@ altair # hipster plotting
 git+https://github.com/tbenst/glia.git # functional obfuscation ;)
 
 evaluate
-transformers
+transformers>=4.27.0
+flash-attn
