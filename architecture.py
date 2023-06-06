@@ -215,7 +215,7 @@ class Model(pl.LightningModule):
         return loss
     
     def on_validation_epoch_start(self):
-        self.profiler.start(f"validation loop")
+        # self.profiler.start(f"validation loop")
         self._init_ctc_decoder()
     
     def validation_step(self, batch, batch_idx):
@@ -242,8 +242,8 @@ class Model(pl.LightningModule):
         self.step_target.clear()
         self.step_pred.clear()
         self.log("val/wer", wer, prog_bar=True)
-        self.profiler.stop(f"validation loop")
-        self.profiler.describe()
+        # self.profiler.stop(f"validation loop")
+        # self.profiler.describe()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 
     def test_step(self, batch, batch_idx):

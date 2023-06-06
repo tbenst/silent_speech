@@ -118,7 +118,7 @@ class S4HyenaConfig:
     sample_rate:int = 16000
     # precision:str = "16-mixed"
     precision:str = 32
-    hyena_layers:int = 2
+    hyena_layers:int = 4
     s4_layers:int = 4
     hyena_dim:int = 64
     hyena_seq_len:int = 2**18
