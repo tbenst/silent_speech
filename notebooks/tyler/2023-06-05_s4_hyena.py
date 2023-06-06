@@ -84,10 +84,10 @@ n_chars = len(datamodule.val.text_transform.chars)
 num_outs = n_chars+1
 steps_per_epoch = len(datamodule.train_dataloader())
 
-# if ON_SHERLOCK:
-#     lm_directory = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
-# else:
-#     raise NotImplementedError
+if ON_SHERLOCK:
+    lm_directory = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
+else:
+    raise NotImplementedError
 
 # lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 # data_dir = ensure_folder_on_scratch(data_dir, data_dir)
