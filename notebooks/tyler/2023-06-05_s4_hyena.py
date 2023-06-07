@@ -300,7 +300,7 @@ model = S4TransformerModule(config, datamodule.val.text_transform, lm_directory)
 
 ##
 log_neptune = True
-log_neptune = False
+# log_neptune = False
 auto_lr_find = False
 callbacks = [
     # starting at epoch 0, accumulate 2 batches of grads
