@@ -1,8 +1,8 @@
 ##
 2
 ##
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 ##
 import os
 nep_key = "NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"
