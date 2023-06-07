@@ -96,13 +96,13 @@ else:
 ##
 
 @dataclass
-class S4HyenaConfig:
+class S4TransformerConfig:
     input_channels:int = 8
     steps_per_epoch:int = steps_per_epoch
     # learning_rate:float = 0.00025
     # learning_rate:float = 5e-4
-    learning_rate:float = 2e-5
-    # learning_rate:float = 5e-3
+    # learning_rate:float = 2e-5
+    learning_rate:float = 3e-4 # also sets initial s4 lr
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
@@ -141,7 +141,7 @@ class Block(nn.Module):
         super().__init__()
         # The standard block is: LN -> MHA -> Dropout -> Add -> LN -> MLP -> Dropout -> Add.
         # [Ref: https://arxiv.org/abs/2002.04745]
-        self.ln1 = nn.LayerNorm([seqlen, d_model])
+        self.ln1 = nn.InstanceNorm1d(d_model)
         self.layer = layer
         self.dropout1 = nn.Dropout(dropout)
         self.drop_path1 = StochasticDepth(drop_path, mode='row')
@@ -150,7 +150,7 @@ class Block(nn.Module):
         self.fc1 = nn.Linear(d_model, h_model)
         self.activation = F.gelu
         self.fc2 = nn.Linear(h_model, d_model)
-        self.ln2 = nn.LayerNorm([seqlen, d_model]) # TODO new dims
+        self.ln2 = nn.InstanceNorm1d(d_model)
         
         
     def forward(self, x):
@@ -171,7 +171,7 @@ class Block(nn.Module):
         return x
 
 
-class S4HyenaModule(Model):
+class S4TransformerModule(Model):
     _init_ctc_decoder = Model._init_ctc_decoder
     calc_loss = Model.calc_loss
     # __beam_search_step = Model.__beam_search_step
@@ -182,7 +182,7 @@ class S4HyenaModule(Model):
     test_step = Model.test_step
     on_test_epoch_end = Model.on_test_epoch_end
     
-    def __init__(self, cfg:S4HyenaConfig, text_transform: TextTransform, lm_directory,
+    def __init__(self, cfg:S4TransformerConfig, text_transform: TextTransform, lm_directory,
                  train_dataset=[], eval_dataset=[]) -> None:
         pl.LightningModule.__init__(self)
         # super().__init__()
@@ -253,7 +253,7 @@ class S4HyenaModule(Model):
         self.linear_encoder = nn.Conv1d(cfg.input_channels, cfg.d_model, 1)
         # we hardcode settings such that L=262144 -> L=3000
         self.avg_pool = nn.AvgPool1d(8, 8) # influences self.nbins
-        self.ln = nn.LayerNorm([self.nbins, cfg.d_model])
+        self.ln = nn.InstanceNorm1d(cfg.d_model)
         
         self.w_out = nn.Linear(cfg.d_model, num_outs)
             
@@ -294,14 +294,14 @@ class S4HyenaModule(Model):
     
     lr_scheduler_step = pl.LightningModule.lr_scheduler_step
 
-config = S4HyenaConfig()
+config = S4TransformerConfig()
 
-model = S4HyenaModule(config, datamodule.val.text_transform, lm_directory)
+model = S4TransformerModule(config, datamodule.val.text_transform, lm_directory)
 
 ##
 log_neptune = True
-# log_neptune = False
-auto_lr_find = True
+log_neptune = False
+auto_lr_find = False
 callbacks = [
     # starting at epoch 0, accumulate 2 batches of grads
     GradientAccumulationScheduler(scheduling={0: config.gradient_accumulation_steps})
@@ -314,8 +314,6 @@ if log_neptune:
         # name=magneto.fullname(model), # from lib
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
-                "HyenaWhisper",
-                "SafariHyena"
                 ],
         log_model_checkpoints=False,
         capture_hardware_metrics=True,
