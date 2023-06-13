@@ -9,7 +9,7 @@ nep_key = "NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"
 if not nep_key in os.environ or os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] != 'TRUE':
     os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] = 'TRUE'
     
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"1
 import whisper
 import pytorch_lightning as pl
 import sys
@@ -188,6 +188,9 @@ class S4TransformerModule(Model):
         # super().__init__()
         self.steps_per_epoch = cfg.steps_per_epoch
         self.lr = cfg.learning_rate
+        self.target_lr = self.lr # will not mutate
+        self.learning_rate_warmup = cfg.warmup_steps
+
 
         self.hparams.update(vars(cfg))
         
@@ -278,21 +281,42 @@ class S4TransformerModule(Model):
         return x
     
     def configure_optimizers(self):
-        """Create optimizers and schedulers."""
-        optimizer = torch.optim.AdamW(self.parameters(), 
-                          lr=self.hparams.learning_rate, 
-                          eps=self.hparams.adam_epsilon,
-                          betas=(0.9, 0.98))
-        self.optimizer = optimizer
+        initial_lr = self.target_lr/self.learning_rate_warmup
+        optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
 
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer, num_warmup_steps=self.hparams.warmup_steps, 
-            num_training_steps = self.steps_per_epoch // self.hparams.gradient_accumulation_steps * self.hparams.num_train_epochs
-        )
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
+        #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
+        # TODO: we assume a specific batch_size (32), but should allow different batch sizes
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+            milestones=[125 * 125, 150  * 125, 175 * 125], # ~125 steps @ accum gradient x 2 (249 batches)
+            gamma=.5)
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
+
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
     
-    lr_scheduler_step = pl.LightningModule.lr_scheduler_step
+    
+    def set_lr(self, new_lr):
+        optimizer = self.optimizers().optimizer
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = new_lr
+            
+    def lr_scheduler_step(self, scheduler, metric):
+        # warmup per Gaddy
+
+        # print(f"lr_scheduler_step: {self.global_step=}")
+        # optimizer = self.optimizers().optimizer
+        # for param_group in optimizer.param_groups:
+        #     print(f"lr: {param_group['lr']}")
+
+        if self.global_step <= self.learning_rate_warmup:
+            new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
+            self.set_lr(new_lr)
+        else:
+            if metric is None:
+                scheduler.step()
+            else:
+                scheduler.step(metric)
+    
 
 config = S4TransformerConfig()
 
