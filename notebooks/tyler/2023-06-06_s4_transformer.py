@@ -102,7 +102,7 @@ class S4TransformerConfig:
     # learning_rate:float = 0.00025
     # learning_rate:float = 5e-4
     # learning_rate:float = 2e-5
-    learning_rate:float = 3e-3 # also sets initial s4 lr
+    learning_rate:float = 3e-4 # also sets initial s4 lr
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
@@ -118,7 +118,7 @@ class S4TransformerConfig:
     sample_rate:int = 16000
     # precision:str = "16-mixed"
     precision:str = 32
-    hyena_layers:int = 4
+    attn_layers:int = 4
     s4_layers:int = 4
     hyena_dim:int = 64
     hyena_seq_len:int = 2**18
@@ -127,7 +127,7 @@ class S4TransformerConfig:
     d_model:int = 512
     d_inner:int = 2048
     prenorm:bool = False
-    dropout:float = 0.0
+    dropout:float = 0.2
     in_channels:int = 8
     out_channels:int = 80
     resid_dropout:float = 0.0
@@ -211,7 +211,7 @@ class S4TransformerModule(Model):
         
         # Stack S4 layers as residual blocks
         self.s4_layers = nn.ModuleList()
-        self.hyena_layers = nn.ModuleList()
+        self.attn_layers = nn.ModuleList()
         self.norms     = nn.ModuleList()
         self.dropouts  = nn.ModuleList()
         attn_layer_idx = [1,8]
@@ -241,15 +241,10 @@ class S4TransformerModule(Model):
             self.s4_layers.append(S4D(cfg.d_model, transposed=True,
                     lr=self.lr))
 
-
-        self.nbins = 600
-        for i in range(cfg.hyena_layers):
-            self.hyena_layers.append(Block(
-                # FlashMHA(cfg.d_model, cfg.num_heads), seqlen=self.nbins
-                # torch.nn.MultiheadAttention(cfg.d_model, cfg.num_heads), seqlen=self.nbins
-                torch.nn.TransformerEncoderLayer(cfg.d_model, cfg.num_heads,batch_first=True),
-                seqlen=self.nbins
-            ))
+            
+        encoder_layer = TransformerEncoderLayer(cfg.d_model, nhead=cfg.num_heads, relative_positional=True, 
+            relative_positional_distance=100, dim_feedforward=3072, dropout=cfg.dropout)
+        self.transformer = nn.TransformerEncoder(encoder_layer, cfg.attn_layers)
 
 
         # Project from d_model to num_words (80 bins for mel spectrogram)
@@ -272,8 +267,11 @@ class S4TransformerModule(Model):
         # print(f"post avg_pool {x.shape=}")
         x = x.transpose(-1, -2)
         # x = whisper.pad_or_trim(x, 128, axis=1)
-        for layer in self.hyena_layers:
-            x = layer(x)
+        
+        x = x.transpose(0,1) # put time first
+        x = self.transformer(x)
+        x = x.transpose(0,1) # put bach first
+
         # print(f"post attention {x.shape=}")
         x = self.ln(x)
         x = self.w_out(x)
