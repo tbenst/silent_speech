@@ -102,7 +102,7 @@ class S4TransformerConfig:
     # learning_rate:float = 0.00025
     # learning_rate:float = 5e-4
     # learning_rate:float = 2e-5
-    learning_rate:float = 3e-4 # also sets initial s4 lr
+    learning_rate:float = 3e-3 # also sets initial s4 lr
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
