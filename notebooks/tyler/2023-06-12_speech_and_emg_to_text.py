@@ -241,7 +241,6 @@ class SpeechOrEMGToText(Model):
         "Predict characters from emg (B x T x C)"
         # x = self.augment_shift(x)
         if self.training:
-            x = x.clone()
             r = random.randrange(8)
             if r > 0:
                 x[:,:-r,:] = x[:,r:,:] # shift left r
@@ -259,8 +258,8 @@ class SpeechOrEMGToText(Model):
         
         We addditionally return the latent space for each modality.
         """
+        # can't abstract this to new 
         if self.training:
-            emg = emg.clone()
             r = random.randrange(8)
             if r > 0:
                 emg[:,:-r,:] = emg[:,r:,:] # shift left r
