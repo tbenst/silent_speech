@@ -174,7 +174,6 @@ class Block(nn.Module):
 class S4TransformerModule(Model):
     _init_ctc_decoder = Model._init_ctc_decoder
     calc_loss = Model.calc_loss
-    # __beam_search_step = Model.__beam_search_step
     training_step = Model.training_step
     on_validation_epoch_start = Model.on_validation_epoch_start
     validation_step = Model.validation_step

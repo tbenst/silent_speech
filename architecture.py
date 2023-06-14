@@ -103,7 +103,7 @@ class Model(pl.LightningModule):
         )
 
 
-    def forward(self, x_feat, x_raw, session_ids):
+    def forward(self, x_raw):
         # x shape is (batch, time, electrode)
 
         if self.training:
@@ -155,10 +155,9 @@ class Model(pl.LightningModule):
     def calc_loss(self, batch):
         X     = combine_fixed_length(batch['emg'], self.seqlen)
         X_raw = combine_fixed_length(batch['raw_emg'], self.seqlen*8)
-        sess  = combine_fixed_length(batch['session_ids'], self.seqlen)        
         bz = X.shape[0]
     
-        pred = self(X, X_raw, sess)
+        pred = self(X_raw)
         pred = F.log_softmax(pred, 2)
 
         # seq first, as required by ctc
@@ -174,33 +173,12 @@ class Model(pl.LightningModule):
             
         return loss, bz
     
-    def __beam_search_step(self, batch):
-        """Run beam search and retun target & pred text.
-           Repeatedly called by validation_step & test_step."""
-        X     = combine_fixed_length(batch['emg'], self.seqlen)
-        X_raw = combine_fixed_length(batch['raw_emg'], self.seqlen*8)
-        sess  = combine_fixed_length(batch['session_ids'], self.seqlen)    
-
-        pred = self(X, X_raw, sess)
-        pred = F.log_softmax(pred, 2).cpu()
-
-        beam_results = self.ctc_decoder(pred) # List of shape (B, nbest) of Hypotheses
-        # i believe nbest descends best to worst but not validated
-        nbest = len(beam_results[0])
-        assert nbest == 1, f"only support nbest=1, got {nbest=}, double check assumption if higher"
-        pred_int     = [b[0].tokens for b in beam_results]
-        pred_text    = [' '.join(b[0].words).strip().lower() for b in beam_results]
-        target_text  = [self.text_transform.clean_2(bt[0]) for bt in batch['text']]
-
-        return target_text, pred_text
-    
     def _beam_search_step(self, batch):
         "Repeatedly called by validation_step & test_step. Impure function!"
         X     = batch['emg'][0].unsqueeze(0)
         X_raw = batch['raw_emg'][0].unsqueeze(0)
-        sess  = batch['session_ids'][0]
 
-        pred  = F.log_softmax(self(X, X_raw, sess), -1).cpu()
+        pred  = F.log_softmax(self(X_raw), -1).cpu()
 
         beam_results = self.ctc_decoder(pred)
         pred_int     = beam_results[0][0].tokens
@@ -396,7 +374,7 @@ class S4Model(nn.Module):
             self.w_aux = nn.Linear(MODEL_SIZE, num_aux_outs)
 
             
-    def forward(self, x_feat, x_raw, session_ids):
+    def forward(self, x_raw):
         # x shape is (batch, time, electrode)
 
         if self.training:
@@ -452,7 +430,7 @@ class H3Model(nn.Module):
             self.w_aux = nn.Linear(MODEL_SIZE, num_aux_outs)
 
             
-    def forward(self, x_feat, x_raw, session_ids):
+    def forward(self, x_raw):
         # x shape is (batch, time, electrode)
 
         if self.training:

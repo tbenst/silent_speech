@@ -165,6 +165,43 @@ class FeatureNormalizer(object):
 
     
 def combine_fixed_length(tensor_list, length):
+    """
+    Combine into a single tensor by padding, truncating, and/or merging
+    each tensor in tensor_list to length.
+    
+    
+    ```python
+    n = combine_fixed_length([torch.ones(4,2), 2 * torch.ones(7,2), 3* torch.ones(6,2)], 5)
+    print(n.shape)
+    print(f"{n[0]=}")
+    print(f"{n[1]=}")
+    print(f"{n[2]=}")
+    print(f"{n[3]=}")
+    ```
+    
+    output:
+    torch.Size([4, 5, 2])
+    n[0]=tensor([[1., 1.],
+            [1., 1.],
+            [1., 1.],
+            [1., 1.],
+            [2., 2.]])
+    n[1]=tensor([[2., 2.],
+            [2., 2.],
+            [2., 2.],
+            [2., 2.],
+            [2., 2.]])
+    n[2]=tensor([[2., 2.],
+            [3., 3.],
+            [3., 3.],
+            [3., 3.],
+            [3., 3.]])
+    n[3]=tensor([[3., 3.],
+            [3., 3.],
+            [0., 0.],
+            [0., 0.],
+            [0., 0.]])
+    """
     total_length = sum(t.size(0) for t in tensor_list)
     if total_length % length != 0:
         pad_length = length - (total_length % length)
