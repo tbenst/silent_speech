@@ -228,23 +228,20 @@ class SpeechOrEMGToText(Model):
         x = self.w_out(x)
         return F.log_softmax(x,2)
 
-    # def augment_shift(self, x):
-    #     if self.training:
-    #         xnew = x.clone()
-    #         r = random.randrange(8)
-    #         if r > 0:
-    #             xnew[:,:-r,:] = x[:,r:,:] # shift left r
-    #             xnew[:,-r:,:] = 0
-    #     return xnew
+    def augment_shift(self, x):
+        if self.training:
+            xnew = x.clone()
+            r = random.randrange(8)
+            if r > 0:
+                xnew[:,:-r,:] = x[:,r:,:] # shift left r
+                xnew[:,-r:,:] = 0
+            return xnew
+        else:
+            return x
         
     def emg_forward(self, x):
         "Predict characters from emg (B x T x C)"
-        # x = self.augment_shift(x)
-        if self.training:
-            r = random.randrange(8)
-            if r > 0:
-                x[:,:-r,:] = x[:,r:,:] # shift left r
-                x[:,-r:,:] = 0
+        x = self.augment_shift(x)
         x = self.emg_encoder(x)
         return self.decoder(x)
     
@@ -258,14 +255,7 @@ class SpeechOrEMGToText(Model):
         
         We addditionally return the latent space for each modality.
         """
-        # can't abstract this to new 
-        if self.training:
-            r = random.randrange(8)
-            if r > 0:
-                emg[:,:-r,:] = emg[:,r:,:] # shift left r
-                emg[:,-r:,:] = 0
-
-        # emg = self.augment_shift(emg)
+        emg = self.augment_shift(emg)
         emg_latent = self.emg_encoder(emg)
         audio_latent = self.audio_encoder(audio)
         emg_pred = self.decoder(emg_latent)
