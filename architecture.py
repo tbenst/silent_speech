@@ -49,7 +49,7 @@ class ResBlock(nn.Module):
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
         self.norm2 = layer_norm
         # self.act = nn.ReLU()
-        self.act = nn.GeLU()
+        self.act = nn.GELU()
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
