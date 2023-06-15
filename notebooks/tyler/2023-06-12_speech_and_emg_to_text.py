@@ -436,6 +436,7 @@ if log_neptune:
         # name=magneto.fullname(model), # from lib
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
+                "EMGonly",
                 "AdamW",
                 f"fp{config.precision}",
                 ],
