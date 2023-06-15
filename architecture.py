@@ -16,6 +16,7 @@ from magneto.models.s4d import S4D
 
 from pytorch_lightning.profilers import PassThroughProfiler
 from dataclasses import dataclass
+from typing import Tuple
 
 MODEL_SIZE = 768 # number of hidden dimensions
 NUM_LAYERS = 6 # number of layers
