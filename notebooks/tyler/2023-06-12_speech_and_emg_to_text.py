@@ -87,7 +87,7 @@ togglePhones = False
 
 
 # copy_metadata_command = f"rsync -am --include='*.json' --include='*/' --exclude='*' {emg_dir} {scratch_directory}/"
-sym_link_metadata = f"ln -s {emg_dir} {scratch_directory}/"
+os.symlink(emg_dir, os.path.join(scratch_directory,"emg_data")
 lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
 
@@ -230,7 +230,7 @@ class SpeechOrEMGToText(Model):
 
     def augment_shift(self, x):
         if self.training:
-            xnew = x.clone()
+            xnew = x.clone() # unclear why need this here but gaddy didn't
             r = random.randrange(8)
             if r > 0:
                 xnew[:,:-r,:] = x[:,r:,:] # shift left r
