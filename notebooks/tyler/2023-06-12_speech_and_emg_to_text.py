@@ -242,9 +242,11 @@ class SpeechOrEMGToText(Model):
         """
         emg = self.augment_shift(emg)
         emg_latent = self.emg_encoder(emg)
-        audio_latent = self.audio_encoder(audio)
+        audio_latent = None
+        # audio_latent = self.audio_encoder(audio)
         emg_pred = self.decoder(emg_latent)
-        audio_pred = self.decoder(audio_latent)
+        audio_pred = None
+        # audio_pred = self.decoder(audio_latent)
         return emg_pred, audio_pred, emg_latent, audio_latent
     
     def forward(self, tasks:List[Task], emg:List[torch.Tensor], audio:List[torch.Tensor]):
@@ -338,9 +340,12 @@ class SpeechOrEMGToText(Model):
         if both_pred is not None:
             both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = both_pred
             # audio mfccs should be length / 8 ...?
-            both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both) + \
-                            self.ctc_loss(both_audio_pred, y_both, length_both, y_length_both)
-            both_latent_match_loss = F.mse_loss(both_emg_latent, both_audio_latent)
+            # both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both) + \
+            #                 self.ctc_loss(both_audio_pred, y_both, length_both, y_length_both)
+            # no audio loss for now to compare with Gaddy
+            both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both)
+            # both_latent_match_loss = F.mse_loss(both_emg_latent, both_audio_latent)
+            both_latent_match_loss = 0
         else:
             both_ctc_loss = 0
             both_latent_match_loss = 0
