@@ -487,4 +487,5 @@ logging.info('about to fit')
 # we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
+trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
 ##
