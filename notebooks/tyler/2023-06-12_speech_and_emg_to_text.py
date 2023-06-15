@@ -459,7 +459,7 @@ else:
 # TODO: at epoch 22 validation seems to massively slow down...?
 # may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
-    max_epochs=config.max_train_epochs,
+    max_epochs=config.num_train_epochs,
     devices=[0],
     # devices=[1],
     accelerator="gpu",
