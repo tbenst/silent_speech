@@ -87,7 +87,7 @@ togglePhones = False
 
 
 # copy_metadata_command = f"rsync -am --include='*.json' --include='*/' --exclude='*' {emg_dir} {scratch_directory}/"
-os.symlink(emg_dir, os.path.join(scratch_directory,"emg_data")
+os.symlink(emg_dir, os.path.join(scratch_directory,"emg_data"))
 lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
 
