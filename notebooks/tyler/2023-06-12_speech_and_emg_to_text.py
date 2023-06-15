@@ -129,10 +129,10 @@ class SpeechOrEMGToTextConfig:
     seqlen:int = 600
     # precision:str = "32"
     attn_layers:int = 8
-    d_model:int = 256
-    # d_model:int = 768 # original Gaddy
-    d_inner:int = 1024
-    # d_inner:int = 3072 # original Gaddy
+    # d_model:int = 256
+    d_model:int = 768 # original Gaddy
+    # d_inner:int = 1024
+    d_inner:int = 3072 # original Gaddy
     prenorm:bool = False
     dropout:float = 0.2
     in_channels:int = 8
@@ -156,13 +156,13 @@ class SpeechOrEMGToText(Model):
             ResBlock(cfg.d_model, cfg.d_model, 2),
             ResBlock(cfg.d_model, cfg.d_model, 2),
         )
-        self.audio_conv_blocks = nn.Sequential(
-            ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients
-            ResBlock(cfg.d_model, cfg.d_model),
-            ResBlock(cfg.d_model, cfg.d_model),
-        )
+        # self.audio_conv_blocks = nn.Sequential(
+        #     ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients
+        #     ResBlock(cfg.d_model, cfg.d_model),
+        #     ResBlock(cfg.d_model, cfg.d_model),
+        # )
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
-        self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
+        # self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
             relative_positional_distance=100, dim_feedforward=cfg.d_inner,
