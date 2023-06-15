@@ -21,33 +21,53 @@ MODEL_SIZE = 768 # number of hidden dimensions
 NUM_LAYERS = 6 # number of layers
 DROPOUT = .2 # dropout
 
+def layer_norm(
+    x: torch.Tensor, dim: Tuple[int] = None, eps: float = 0.00001
+) -> torch.Tensor:
+    """
+    Layer normalization as described in https://arxiv.org/pdf/1607.06450.pdf.
+    
+    Supports inputs of any shape, where first dimension is the batch. Does not
+    apply elementwise affine transformation.
+    
+    https://stackoverflow.com/questions/59830168/layer-normalization-in-pytorch
+    """
+    if dim is None:
+        # all except batch
+        dim = tuple(range(1, len(x.shape)))
+    mean = torch.mean(x, dim=dim, keepdim=True)
+    var = torch.var(x, dim=dim, keepdim=True, correction=0)
+    return (x - mean) / torch.sqrt(var + eps)
+
 class ResBlock(nn.Module):
     def __init__(self, num_ins, num_outs, stride=1):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
-        self.bn1 = nn.BatchNorm1d(num_outs)
+        self.norm1 = layer_norm
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
-        self.bn2 = nn.BatchNorm1d(num_outs)
+        self.norm2 = layer_norm
+        # self.act = nn.ReLU()
+        self.act = nn.GeLU()
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
-            self.res_norm = nn.BatchNorm1d(num_outs)
+            self.res_norm = layer_norm
         else:
             self.residual_path = None
 
     def forward(self, x):
         input_value = x
 
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = self.bn2(self.conv2(x))
+        x = self.act(self.norm1(self.conv1(x)))
+        x = self.norm2(self.conv2(x))
 
         if self.residual_path is not None:
             res = self.res_norm(self.residual_path(input_value))
         else:
             res = input_value
 
-        return F.relu(x + res)
+        return self.act(x + res)
     
     
 class Model(pl.LightningModule):

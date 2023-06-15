@@ -162,13 +162,11 @@ if log_neptune:
         # name=magneto.fullname(model), # from lib
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
+                "GeLU",
+                "LayerNorm",
                 "MultiStepLR",
                 "AdamW",
                 f"fp{precision}",
-                "MultiStepLR",
-                "800Hz",
-                "8xDownsampling",
-                "FCN_embedding",
                 ],
         log_model_checkpoints=False,
     )
