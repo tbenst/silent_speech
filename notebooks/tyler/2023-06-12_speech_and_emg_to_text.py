@@ -55,34 +55,16 @@ else:
 output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 ##
 auto_lr_find = False
-debug = False
 max_len = 128000 * 2
 log_neptune = True
 # log_neptune = False
-S4 = 0
-batch_size = 32
-precision = "16-mixed"
 # precision = 32
 learning_rate = 3e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
-# epochs = 200
-epochs = 8
-# TODO: lr should not jump
- # account for accum gradient on two batches (gaddy counts iterations not backprop steps)
-# learning_rate_warmup = 16
-learning_rate_warmup = 500
-learning_rate_patience = 5
-start_training_from = None
-model_size = 768 # number of hidden dimensions
-num_layers = 6 # number of layers
-dropout = .2 # dropout
-l2 = 0
-evaluate_saved = None
 lm_directory = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
 data_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/'
 emg_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/emg_data/'
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
-seqlen       = 600
 togglePhones = False
 
 
@@ -141,8 +123,9 @@ class SpeechOrEMGToTextConfig:
     num_train_epochs:int = 200
     gradient_accumulation_steps:int = 1
     sample_rate:int = 16000
-    # precision:str = "16-mixed"
-    precision:str = 32
+    precision:str = "16-mixed"
+    seqlen:int = 600
+    # precision:str = "32"
     attn_layers:int = 8
     d_model:int = 256
     # d_model:int = 768 # original Gaddy
@@ -181,11 +164,11 @@ class SpeechOrEMGToText(Model):
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
             relative_positional_distance=100, dim_feedforward=cfg.d_inner,
-            dropout=dropout)
+            dropout=cfg.dropout)
         self.transformer = nn.TransformerEncoder(encoder_layer, cfg.attn_layers)
         self.w_out       = nn.Linear(cfg.d_model, cfg.num_outs)
             
-        self.seqlen = 600
+        self.seqlen = cfg.seqlen
         self.lr = cfg.learning_rate
         self.target_lr = cfg.learning_rate # will not mutate
         self.learning_rate_warmup = cfg.warmup_steps
@@ -433,12 +416,6 @@ model = SpeechOrEMGToText(config, datamodule.val.text_transform)
 # not always slamming CPU/GPU...
 logging.info('made model')
 ##
-params = {
-    "num_features": datamodule.val.num_features, "model_size": model_size,
-    "dropout": dropout, "num_layers": num_layers,
-    "num_outs": num_outs, "lr": learning_rate
-}
-
 callbacks = [
     # starting at epoch 0, accumulate 2 batches of grads
     GradientAccumulationScheduler(scheduling={0: 2})
@@ -452,17 +429,12 @@ if log_neptune:
         # name=magneto.fullname(model), # from lib
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
-                "MultiStepLR",
                 "AdamW",
-                f"fp{precision}",
-                "MultiStepLR",
-                "800Hz",
-                "8xDownsampling",
-                "FCN_embedding",
+                f"fp{config.precision}",
                 ],
         log_model_checkpoints=False,
     )
-    neptune_logger.log_hyperparams(params)
+    neptune_logger.log_hyperparams(vars(config))
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
@@ -477,7 +449,6 @@ if log_neptune:
     ])
 else:
     neptune_logger = None
-    callbacks = None
 
 # QUESTION: why does validation loop become massively slower as training goes on?
 # perhaps this line will resolve..?
@@ -486,7 +457,7 @@ else:
 # TODO: at epoch 22 validation seems to massively slow down...?
 # may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
-    max_epochs=epochs,
+    max_epochs=config.max_train_epochs,
     devices=[0],
     # devices=[1],
     accelerator="gpu",
@@ -496,7 +467,7 @@ trainer = pl.Trainer(
     logger=neptune_logger,
     default_root_dir=output_directory,
     callbacks=callbacks,
-    precision=precision,
+    precision=config.precision,
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 

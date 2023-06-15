@@ -359,7 +359,6 @@ if log_neptune:
     neptune_logger.log_hyperparams(vars(config))
 else:
     neptune_logger = None
-    callbacks = []
     
 # if auto_lr_find:
 #     callbacks.append(LearningRateFinder())
