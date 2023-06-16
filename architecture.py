@@ -58,8 +58,8 @@ class ResBlock(nn.Module):
         self.norm1 = LayerNorm()
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
         self.norm2 = LayerNorm()
-        # self.act = nn.ReLU()
-        self.act = nn.GELU()
+        self.act = nn.ReLU()
+        # self.act = nn.GELU()
         self.beta = beta
 
         if stride != 1 or num_ins != num_outs:
