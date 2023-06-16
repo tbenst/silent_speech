@@ -130,6 +130,10 @@ class SpeechOrEMGToTextConfig:
     attn_layers:int = 6
     # d_model:int = 256
     d_model:int = 768 # original Gaddy
+
+    # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
+    beta:float = 1 / np.sqrt(2) # adjust resnet initialization 
+
     # d_inner:int = 1024
     d_inner:int = 3072 # original Gaddy
     prenorm:bool = False
@@ -151,9 +155,9 @@ class SpeechOrEMGToText(Model):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
         self.emg_conv_blocks = nn.Sequential(
-            ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=True),
-            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True),
-            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True),
+            ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=True, cfg.beta),
+            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True, cfg.beta**2),
+            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True, cfg.beta**3),
         )
         # self.audio_conv_blocks = nn.Sequential(
         #     ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients

@@ -41,7 +41,8 @@ def layer_norm(
     return (x - mean) / torch.sqrt(var + eps)
 
 class ResBlock(nn.Module):
-    def __init__(self, num_ins, num_outs, stride=1, pre_activation=False):
+    def __init__(self, num_ins, num_outs, stride=1, pre_activation=False,
+                 beta:float=1.):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
@@ -50,42 +51,45 @@ class ResBlock(nn.Module):
         self.norm2 = layer_norm
         # self.act = nn.ReLU()
         self.act = nn.GELU()
+        self.beta = beta
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
             self.res_norm = layer_norm
+            if pre_activation:
+                self.res_block = nn.Sequential(
+                    self.res_norm, self.residual_path)
+            else:
+                self.res_block = nn.Sequential(
+                    self.residual_path, self.res_norm)
         else:
-            self.residual_path = None
+            self.res_block = nn.Identity()
             
         # ResNet v2 style pre-activation https://arxiv.org/pdf/1603.05027.pdf
         self.pre_activation = pre_activation
+        
+        if pre_activation:
+            self.block = nn.Sequential(
+                self.norm1, self.act,
+                self.conv1,
+                self.norm2, self.act,
+                self.conv2
+            )
+        else:
+            self.block = nn.Sequential(
+                self.conv1,
+                self.norm1, self.act,
+                self.conv2
+                self.norm2
+            )
 
     def forward(self, x):
-        input_value = x
-
+        res = self.res_block(x) * self.beta
+        x = self.block(x)
+        
         if self.pre_activation:
-            x = self.norm1(x)
-            x = self.act(x)
-            x = self.conv1(x)
-            x = self.norm2(x)
-            x = self.act(x)
-            x = self.conv2(x)
-
-            if self.residual_path is not None:
-                res = self.residual_path(self.res_norm(input_value))
-            else:
-                res = input_value
-
             return x + res
-        else:            
-            x = self.act(self.norm1(self.conv1(x)))
-            x = self.norm2(self.conv2(x))
-
-            if self.residual_path is not None:
-                res = self.res_norm(self.residual_path(input_value))
-            else:
-                res = input_value
-
+        else:
             return self.act(x + res)
     
     
