@@ -132,7 +132,10 @@ class SpeechOrEMGToTextConfig:
     d_model:int = 768 # original Gaddy
 
     # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
-    beta:float = 1 / np.sqrt(2) # adjust resnet initialization 
+    beta:float = 1 / np.sqrt(2) # adjust resnet initialization
+    
+    latent_lambda:float = 0.1 # how much to weight the latent loss
+    audio_lambda:float = 0.1 # how much to weight the audio->text loss
 
     # d_inner:int = 1024
     d_inner:int = 3072 # original Gaddy
@@ -162,14 +165,14 @@ class SpeechOrEMGToText(Model):
             ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
                 beta=cfg.beta**3),
         )
-        # self.audio_conv_blocks = nn.Sequential(
-        #     ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients
-        #     ResBlock(cfg.d_model, cfg.d_model),
-        #     ResBlock(cfg.d_model, cfg.d_model),
-        # )
+        self.audio_conv_blocks = nn.Sequential(
+            ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients
+            ResBlock(cfg.d_model, cfg.d_model),
+            ResBlock(cfg.d_model, cfg.d_model),
+        )
         # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
-        # self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
+        self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
             relative_positional_distance=100, dim_feedforward=cfg.d_inner,
@@ -190,6 +193,8 @@ class SpeechOrEMGToText(Model):
         self.lm_directory = cfg.lm_directory
         self.lexicon_file = os.path.join(cfg.lm_directory, 'lexicon_graphemes_noApostrophe.txt')
         self._init_ctc_decoder()
+        self.latent_lambda = cfg.latent_lambda
+        self.audio_lambda = cfg.audio_lambda
         
         self.step_target = []
         self.step_pred = []
@@ -347,12 +352,14 @@ class SpeechOrEMGToText(Model):
         if both_pred is not None:
             both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = both_pred
             # audio mfccs should be length / 8 ...?
-            # both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both) + \
-            #                 self.ctc_loss(both_audio_pred, y_both, length_both, y_length_both)
+            both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both) + \
+                self.ctc_loss(both_audio_pred, y_both, length_both, y_length_both) * self.audio_lambda
+            both_latent_match_loss = F.mse_loss(both_emg_latent, both_audio_latent) * self.latent_lambda
+            
             # no audio loss for now to compare with Gaddy
-            both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both)
-            # both_latent_match_loss = F.mse_loss(both_emg_latent, both_audio_latent)
-            both_latent_match_loss = 0
+            # both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both)
+            # both_latent_match_loss = 0
+            
         else:
             both_ctc_loss = 0
             both_latent_match_loss = 0
