@@ -40,22 +40,31 @@ def layer_norm(
     var = torch.var(x, dim=dim, keepdim=True, correction=0)
     return (x - mean) / torch.sqrt(var + eps)
 
+class LayerNorm(nn.Module):
+    def __init__(self, dim: Tuple[int] = None, eps: float = 0.00001):
+        super().__init__()
+        self.dim = dim
+        self.eps = eps
+        
+    def forward(self, x):
+        return layer_norm(x, dim=self.dim, eps=self.eps)
+
 class ResBlock(nn.Module):
     def __init__(self, num_ins, num_outs, stride=1, pre_activation=False,
                  beta:float=1.):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
-        self.norm1 = layer_norm
+        self.norm1 = LayerNorm()
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
-        self.norm2 = layer_norm
+        self.norm2 = LayerNorm()
         # self.act = nn.ReLU()
         self.act = nn.GELU()
         self.beta = beta
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
-            self.res_norm = layer_norm
+            self.res_norm = LayerNorm()
             if pre_activation:
                 self.res_block = nn.Sequential(
                     self.res_norm, self.residual_path)
