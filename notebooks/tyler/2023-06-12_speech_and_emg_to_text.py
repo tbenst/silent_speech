@@ -155,11 +155,11 @@ class SpeechOrEMGToText(Model):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
         self.emg_conv_blocks = nn.Sequential(
-            ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=True,
+            ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=False,
                 beta=cfg.beta),
-            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True,
+            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
                 beta=cfg.beta**2),
-            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True,
+            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
                 beta=cfg.beta**3),
         )
         # self.audio_conv_blocks = nn.Sequential(
@@ -360,12 +360,10 @@ class SpeechOrEMGToText(Model):
 
         loss = emg_ctc_loss + both_ctc_loss + both_latent_match_loss
         
-        if torch.isnan(loss) or torch.isinf(loss):
-            print("NaN/Inf detected in loss")
-            # print('batch:', batch_idx)
-            # print('Isnan output:',torch.any(torch.isnan(pred)))
-            # print('Isinf output:',torch.any(torch.isinf(pred)))
-            # raise ValueError("NaN/Inf detected in loss")
+        if torch.isnan(loss):
+            print(f"Loss is NaN. Isnan output: {torch.any(torch.isnan(emg_pred))}")
+        if torch.isinf(loss):
+            print(f"Loss is Inf. Isinf output: {torch.any(torch.isinf(emg_pred))}")
             
         bz = np.array([emg_bz, audio_bz, both_bz])
         return loss, (emg_ctc_loss, both_ctc_loss, both_latent_match_loss), bz
