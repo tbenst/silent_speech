@@ -91,7 +91,6 @@ logging.info('output example: %s', datamodule.val.example_indices[0])
 logging.info('train / dev split: %d %d',len(datamodule.train),len(datamodule.val))
 ##
 n_chars = len(datamodule.val.text_transform.chars)
-num_outs = n_chars+1
 steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this is 242
 
 # for i,b in enumerate(datamodule.train):
@@ -128,7 +127,7 @@ class SpeechOrEMGToTextConfig:
     precision:str = "16-mixed"
     seqlen:int = 600
     # precision:str = "32"
-    attn_layers:int = 8
+    attn_layers:int = 6
     # d_model:int = 256
     d_model:int = 768 # original Gaddy
     # d_inner:int = 1024
@@ -138,7 +137,7 @@ class SpeechOrEMGToTextConfig:
     in_channels:int = 8
     out_channels:int = 80
     resid_dropout:float = 0.0
-    num_outs:int = num_outs
+    num_outs:int = n_chars+1
     max_len:int = max_len # maybe make smaller..?
     num_heads:int = 8
     lm_directory:str = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
@@ -152,15 +151,16 @@ class SpeechOrEMGToText(Model):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
         self.emg_conv_blocks = nn.Sequential(
-            ResBlock(cfg.input_channels, cfg.d_model, 2),
-            ResBlock(cfg.d_model, cfg.d_model, 2),
-            ResBlock(cfg.d_model, cfg.d_model, 2),
+            ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=True),
+            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True),
+            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=True),
         )
         # self.audio_conv_blocks = nn.Sequential(
         #     ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients
         #     ResBlock(cfg.d_model, cfg.d_model),
         #     ResBlock(cfg.d_model, cfg.d_model),
         # )
+        # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         # self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
@@ -437,6 +437,7 @@ if log_neptune:
         name=model.__class__.__name__,
         tags=[model.__class__.__name__,
                 "EMGonly",
+                "preactivation",
                 "AdamW",
                 f"fp{config.precision}",
                 ],

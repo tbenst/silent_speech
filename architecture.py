@@ -41,7 +41,7 @@ def layer_norm(
     return (x - mean) / torch.sqrt(var + eps)
 
 class ResBlock(nn.Module):
-    def __init__(self, num_ins, num_outs, stride=1):
+    def __init__(self, num_ins, num_outs, stride=1, pre_activation=False):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
@@ -56,19 +56,37 @@ class ResBlock(nn.Module):
             self.res_norm = layer_norm
         else:
             self.residual_path = None
+            
+        # ResNet v2 style pre-activation https://arxiv.org/pdf/1603.05027.pdf
+        self.pre_activation = pre_activation
 
     def forward(self, x):
         input_value = x
 
-        x = self.act(self.norm1(self.conv1(x)))
-        x = self.norm2(self.conv2(x))
+        if self.pre_activation:
+            x = self.norm1(x)
+            x = self.act(x)
+            x = self.conv1(x)
+            x = self.norm2(x)
+            x = self.act(x)
+            x = self.conv2(x)
 
-        if self.residual_path is not None:
-            res = self.res_norm(self.residual_path(input_value))
-        else:
-            res = input_value
+            if self.residual_path is not None:
+                res = self.residual_path(self.res_norm(input_value))
+            else:
+                res = input_value
 
-        return self.act(x + res)
+            return x + res
+        else:            
+            x = self.act(self.norm1(self.conv1(x)))
+            x = self.norm2(self.conv2(x))
+
+            if self.residual_path is not None:
+                res = self.res_norm(self.residual_path(input_value))
+            else:
+                res = input_value
+
+            return self.act(x + res)
     
     
 class Model(pl.LightningModule):
