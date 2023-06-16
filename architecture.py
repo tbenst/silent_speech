@@ -466,7 +466,10 @@ class S4Model(nn.Module):
         
 sys.path.append('/home/users/ghwilson/repos/safari/src/models/sequence/')
 sys.path.append('/home/users/ghwilson/repos/safari/')
-from h3 import H3
+try:
+    from h3 import H3
+except:
+    print('Could not import H3')
         
 
 class H3Model(nn.Module):
