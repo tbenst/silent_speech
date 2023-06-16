@@ -79,7 +79,7 @@ class ResBlock(nn.Module):
             self.block = nn.Sequential(
                 self.conv1,
                 self.norm1, self.act,
-                self.conv2
+                self.conv2,
                 self.norm2
             )
 
