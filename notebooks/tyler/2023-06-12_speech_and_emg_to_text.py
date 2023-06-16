@@ -163,12 +163,12 @@ class SpeechOrEMGToText(Model):
             ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
                 beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
-                beta=cfg.beta**3),
+                beta=cfg.beta**3)
         )
         self.audio_conv_blocks = nn.Sequential(
-            ResBlock(80, cfg.d_model), # 80 mel freq cepstrum coefficients
-            ResBlock(cfg.d_model, cfg.d_model),
-            ResBlock(cfg.d_model, cfg.d_model),
+            ResBlock(80, cfg.d_model, beta=cfg.beta), # 80 mel freq cepstrum coefficients
+            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
+            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
         # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
@@ -254,11 +254,11 @@ class SpeechOrEMGToText(Model):
         """
         emg = self.augment_shift(emg)
         emg_latent = self.emg_encoder(emg)
-        audio_latent = None
-        # audio_latent = self.audio_encoder(audio)
+        # audio_latent = None
+        audio_latent = self.audio_encoder(audio)
         emg_pred = self.decoder(emg_latent)
-        audio_pred = None
-        # audio_pred = self.decoder(audio_latent)
+        # audio_pred = None
+        audio_pred = self.decoder(audio_latent)
         return emg_pred, audio_pred, emg_latent, audio_latent
     
     def forward(self, tasks:List[Task], emg:List[torch.Tensor], audio:List[torch.Tensor]):
