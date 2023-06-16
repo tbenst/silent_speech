@@ -66,13 +66,13 @@ class ResBlock(nn.Module):
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
             self.res_norm = LayerNorm()
             if pre_activation:
-                self.res_block = nn.Sequential(
+                self.skip = nn.Sequential(
                     self.res_norm, self.residual_path)
             else:
-                self.res_block = nn.Sequential(
+                self.skip = nn.Sequential(
                     self.residual_path, self.res_norm)
         else:
-            self.res_block = nn.Identity()
+            self.skip = nn.Identity()
             
         # ResNet v2 style pre-activation https://arxiv.org/pdf/1603.05027.pdf
         self.pre_activation = pre_activation
@@ -93,8 +93,8 @@ class ResBlock(nn.Module):
             )
 
     def forward(self, x):
-        res = self.res_block(x) * self.beta
-        x = self.block(x)
+        res = self.block(x) * self.beta
+        x = self.skip(x)
         
         if self.pre_activation:
             return x + res

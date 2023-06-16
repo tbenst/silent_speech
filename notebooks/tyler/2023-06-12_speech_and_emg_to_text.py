@@ -176,7 +176,9 @@ class SpeechOrEMGToText(Model):
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
             relative_positional_distance=100, dim_feedforward=cfg.d_inner,
-            dropout=cfg.dropout, beta=1/np.sqrt(2))
+            dropout=cfg.dropout,
+            # beta=1/np.sqrt(2)
+            )
         self.transformer = nn.TransformerEncoder(encoder_layer, cfg.attn_layers)
         self.w_out       = nn.Linear(cfg.d_model, cfg.num_outs)
             
