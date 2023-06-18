@@ -6,7 +6,7 @@ from datasets import load_dataset
 import os, torch, sys, pytorch_lightning as pl, numpy as np, librosa
 import subprocess
 from torch.utils.data import DataLoader, SubsetRandomSampler
-import torch.nn.Functional as F
+import torch.nn.functional as F
 
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
@@ -145,6 +145,7 @@ plt.hist(emg_speech_train[num_emg_train-1]['audio_features'].reshape(-1))
 ##
 import torchaudio
 from data_utils import normalize_volume, mel_spectrogram
+from sklearn.preprocessing import normalize, minmax_scale, power_transform, scale, robust_scale
 
 ref_audio_features = emg_speech_train[num_emg_train-1]['audio_features']
 
@@ -165,7 +166,11 @@ audio = np.clip(audio, -1, 1) # because resampling sometimes pushes things out o
 pytorch_mspec = mel_spectrogram(torch.tensor(audio, dtype=torch.float32).unsqueeze(0), 1024, 80, 22050, 256, 1024, 0, 8000, center=False)
 
 mspec = pytorch_mspec.squeeze(0).T.numpy()
-mspec = F.normalize(mspec)
+# mspec = normalize(mspec)
+mspec = minmax_scale(mspec,(-1,1))
+# mspec = scale(mspec)
+# mspec = power_transform(mspec)
+# mspec = robust_scale(mspec)
 
 fig, axs = plt.subplots(2,1,figsize=(10,5))
 cax = axs[0].matshow(ref_audio_features.T)
@@ -181,7 +186,7 @@ axs[1].axis('off')
 
 print(ref_audio_features.shape, mspec.shape)
 # plt.hist(mspec.reshape(-1))
-##
+#
 # TODO:
 # https://discuss.pytorch.org/t/how-to-balance-mini-batches-during-each-epoch/120055
 # stratified sampling https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html
@@ -205,3 +210,4 @@ print(ref_audio_features.shape, mspec.shape)
 #                       size=(num_steps_per_epoch*speech_bz,))
 #     ),
 # )
+##
