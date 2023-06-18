@@ -143,9 +143,10 @@ plt.hist(emg_speech_train[num_emg_train]['audio_features'].reshape(-1))
 plt.hist(emg_speech_train[num_emg_train-1]['audio_features'].reshape(-1))
 # plt.colorbar()
 ##
-import torchaudio
+import torchaudio, pickle
 from data_utils import normalize_volume, mel_spectrogram
 from sklearn.preprocessing import normalize, minmax_scale, power_transform, scale, robust_scale
+from matplotlib.gridspec import GridSpec
 
 ref_audio_features = emg_speech_train[num_emg_train-1]['audio_features']
 
@@ -155,6 +156,8 @@ audio    = audio.numpy().T
 
 if len(audio.shape) > 1:
     audio = audio[:,0] # select first channel of stero audio
+
+# audio = normalize_volume(audio)
 
 if r == 16000:
     audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
@@ -166,25 +169,51 @@ audio = np.clip(audio, -1, 1) # because resampling sometimes pushes things out o
 pytorch_mspec = mel_spectrogram(torch.tensor(audio, dtype=torch.float32).unsqueeze(0), 1024, 80, 22050, 256, 1024, 0, 8000, center=False)
 
 mspec = pytorch_mspec.squeeze(0).T.numpy()
+
+mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
+
+
 # mspec = normalize(mspec)
-mspec = minmax_scale(mspec,(-1,1))
+# mspec = minmax_scale(mspec,(-1,1))
 # mspec = scale(mspec)
 # mspec = power_transform(mspec)
 # mspec = robust_scale(mspec)
+mspec = mfcc_norm.normalize(mspec)
 
-fig, axs = plt.subplots(2,1,figsize=(10,5))
-cax = axs[0].matshow(ref_audio_features.T)
+# fig, axs = plt.subplots(2,2,figsize=(10,5))
+fig = plt.figure(figsize=(15,5))
+gs = GridSpec(2, 2, width_ratios=[3,1], height_ratios=[1, 1])
+axs = [[],[]]
+axs[0].append(fig.add_subplot(gs[0]))
+axs[0].append(fig.add_subplot(gs[1]))
+axs[1].append(fig.add_subplot(gs[2]))
+axs[1].append(fig.add_subplot(gs[3]))
+axs = np.array(axs)
+
+cax = axs[0,0].matshow(ref_audio_features.T)
 fig.colorbar(cax)
-# axs[0].hist(ref_audio_features.reshape(-1))
-axs[0].set_title("Reference audio features")
+axs[0,0].set_title("Reference audio features")
+axs[0,1].hist(ref_audio_features.reshape(-1))
 # axis off
-axs[0].axis('off')
-cax = axs[1].matshow(mspec.T)
+axs[0,0].axis('off')
+cax = axs[1,0].matshow(mspec.T)
 fig.colorbar(cax)
-axs[1].set_title("New audio features")
-axs[1].axis('off')
+axs[1,0].set_title("New audio features")
+axs[1,0].axis('off')
+axs[1,1].hist(mspec.reshape(-1))
 
 print(ref_audio_features.shape, mspec.shape)
+##
+plt.matshow(ref_audio_features.T - mspec[:-1].T)
+# plt.matshow(ref_audio_features.T - mspec[1:].T)
+plt.colorbar()
+##
+first_one = (ref_audio_features.T - mspec[1:].T).abs().sum()
+last_one = (ref_audio_features.T - mspec[:-1].T).abs().sum()
+print(f"first_one: {first_one}, last_one: {last_one}")
+(ref_audio_features - mspec[:-1]).abs().sum(0)
+
+##
 # plt.hist(mspec.reshape(-1))
 #
 # TODO:
