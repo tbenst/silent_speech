@@ -20,7 +20,7 @@ flags.DEFINE_string('normalizers_file', 'normalizers.pkl', 'file with pickled fe
 phoneme_inventory = ['aa','ae','ah','ao','aw','ax','axr','ay','b','ch','d','dh','dx','eh','el','em','en','er','ey','f','g','hh','hv','ih','iy','jh','k','l','m','n','nx','ng','ow','oy','p','r','s','sh','t','th','uh','uw','v','w','y','z','zh','sil']
 
 def normalize_volume(audio):
-    rms = librosa.feature.rms(audio)
+    rms = librosa.feature.rms(y=audio)
     max_rms = rms.max() + 0.01
     target_rms = 0.2
     audio = audio * (target_rms/max_rms)
@@ -47,16 +47,18 @@ def mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin,
 
     global mel_basis, hann_window
     if fmax not in mel_basis:
-        mel = librosa.filters.mel(sampling_rate, n_fft, num_mels, fmin, fmax)
+        mel = librosa.filters.mel(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels,
+                                  fmin=fmin, fmax=fmax)
         mel_basis[str(fmax)+'_'+str(y.device)] = torch.from_numpy(mel).float().to(y.device)
         hann_window[str(y.device)] = torch.hann_window(win_size).to(y.device)
 
     y = torch.nn.functional.pad(y.unsqueeze(1), (int((n_fft-hop_size)/2), int((n_fft-hop_size)/2)), mode='reflect')
     y = y.squeeze(1)
-
     spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[str(y.device)],
-                      center=center, pad_mode='reflect', normalized=False, onesided=True)
+                      center=center, pad_mode='reflect', normalized=False, onesided=True,
+                      return_complex=True) # new change for pytorch 1.8+
 
+    spec = torch.view_as_real(spec) # added by tyler to account for new complex dtype
     spec = torch.sqrt(spec.pow(2).sum(-1)+(1e-9))
     spec = torch.matmul(mel_basis[str(fmax)+'_'+str(y.device)], spec)
     spec = spectral_normalize_torch(spec)
@@ -77,7 +79,7 @@ def load_audio(filename, start=None, end=None, max_frames=None, renormalize_volu
     if renormalize_volume:
         audio = normalize_volume(audio)
     if r == 16000:
-        audio = librosa.resample(audio, 16000, 22050)
+        audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
     else:
         assert r == 22050
     #print(audio, audio.shape)

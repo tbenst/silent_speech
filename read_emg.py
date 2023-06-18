@@ -500,7 +500,7 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
         
         return result
     
-    
+
 class EMGDataModule(pl.LightningDataModule):
     def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=None,
                  max_len=128000, num_workers=0, batch_sampler=True, shuffle=None,
