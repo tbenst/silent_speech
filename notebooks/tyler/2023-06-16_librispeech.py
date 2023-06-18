@@ -3,7 +3,7 @@
 # %autoreload 2
 ##
 from datasets import load_dataset
-import os, torch, sys, pytorch_lightning as pl, numpy as np, librosa
+import os, torch, sys, pytorch_lightning as pl, numpy as np, librosa, pickle
 import subprocess
 from torch.utils.data import DataLoader, SubsetRandomSampler
 import torch.nn.functional as F
@@ -41,6 +41,7 @@ librispeech_clean_train = torch.utils.data.ConcatDataset([librispeech_datasets['
                                                     librispeech_datasets['train.clean.360']])
                                                     # librispeech_datasets['train.other.500']])
 ##
+# TODO: running this cell is sometimes very slow even when should be cached...
 max_len = 128000 * 2
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 emg_dir = os.path.join(gaddy_dir, 'emg_data/')
@@ -58,11 +59,14 @@ if ON_SHERLOCK:
 
 datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
 emg_train = datamodule.train
+
+mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
 ##
 class LibrispeechDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, text_transform):
+    def __init__(self, dataset, text_transform, mfcc_norm):
         self.dataset = dataset
         self.text_transform = text_transform
+        self.mfcc_norm = mfcc_norm
         
     def __len__(self):
         return len(self.dataset)
@@ -77,6 +81,7 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         pytorch_mspec = mel_spectrogram(torch.tensor(audio, dtype=torch.float32).unsqueeze(0),
                                         1024, 80, 22050, 256, 1024, 0, 8000, center=False)
         mfccs = pytorch_mspec.squeeze(0).T.numpy()
+        mfccs = mfcc_norm.normalize(mfccs)
         text_int = np.array(self.text_transform.text_to_int(text), dtype=np.int64)
         example = {'audio_features': mfccs,
             'text':text,
@@ -120,7 +125,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
     def train_dataloader(self):
         return torch.utils.data.DataLoader(self.speech_dataset, batch_size=self.speech_bz, shuffle=True)
     
-speech_train = LibrispeechDataset(librispeech_clean_train, emg_train.text_transform)
+speech_train = LibrispeechDataset(librispeech_clean_train, emg_train.text_transform, mfcc_norm)
 num_emg_train = len(emg_train)
 num_speech_train = len(speech_train)
 
@@ -131,16 +136,18 @@ emg_speech_train = torch.utils.data.ConcatDataset([
 len(emg_speech_train)
 
 # emg_speech_train[num_emg_train-1]
-# TODO: fix error
 emg_speech_train[num_emg_train]
 ##
 import matplotlib.pyplot as plt
 # plt.matshow(emg_speech_train[num_emg_train]['audio_features'].T)
-plt.hist(emg_speech_train[num_emg_train]['audio_features'].reshape(-1))
+plt.matshow(emg_speech_train[-1]['audio_features'].T)
+# plt.hist(emg_speech_train[num_emg_train]['audio_features'].reshape(-1))
+plt.title("librispeech sample")
 # plt.colorbar()
 ##
-# plt.matshow(emg_speech_train[num_emg_train-1]['audio_features'].T)
-plt.hist(emg_speech_train[num_emg_train-1]['audio_features'].reshape(-1))
+plt.matshow(emg_speech_train[num_emg_train-1]['audio_features'].T)
+# plt.hist(emg_speech_train[num_emg_train-1]['audio_features'].reshape(-1))
+plt.title("gaddy sample")
 # plt.colorbar()
 ##
 import torchaudio, pickle
