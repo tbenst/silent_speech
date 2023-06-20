@@ -131,7 +131,8 @@ logging.basicConfig(handlers=[
 
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
-bz = 32
+bz = 64
+# bz = 32
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
