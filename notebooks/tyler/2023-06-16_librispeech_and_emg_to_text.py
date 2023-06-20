@@ -612,8 +612,8 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    strategy='dp', # ddp may be faster but requires writing new sampler
-    # use_distributed_sampler=False # we need to make a custom distributed sampler
+    strategy='ddp', # ddp may be faster but requires writing new sampler
+    use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 
