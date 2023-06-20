@@ -172,7 +172,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
     def __init__(self, emg_data_module:pl.LightningDataModule,
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
-            bz:int=64, num_workers:int=0
+            bz:int=64, num_workers:int=0,
             batch_class_proportions:np.ndarray=np.array([0.08, 0.42, 0.5])
             ):
         """Given an EMG data module and a speech dataset, create a new data module.
