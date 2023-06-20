@@ -450,7 +450,16 @@ class SpeechOrEMGToText(Model):
             print(f"Loss is Inf. Isinf output: {torch.any(torch.isinf(emg_pred))}")
             
         bz = np.array([emg_bz, audio_bz, both_bz])
-        return loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz
+        return {
+            'loss': loss,
+            'emg_ctc_loss': emg_ctc_loss,
+            'audio_ctc_loss': audio_ctc_loss,
+            'both_ctc_loss': both_ctc_loss,
+            'both_latent_match_loss': both_latent_match_loss,
+            'both_emg_latent': both_emg_latent,
+            'both_audio_latent': both_audio_latent,
+            'bz': bz
+        }
     
     def _beam_search_step(self, batch):
         "Repeatedly called by validation_step & test_step. Impure function!"
@@ -465,7 +474,18 @@ class SpeechOrEMGToText(Model):
         return target_text, pred_text
     
     def training_step(self, batch, batch_idx):
-        loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
+        c = self.calc_loss(batch)
+        loss = c['loss']
+        emg_ctc_loss = c['emg_ctc_loss']
+        audio_ctc_loss = c['audio_ctc_loss']
+        both_ctc_loss = c['both_ctc_loss']
+        both_latent_match_loss = c['both_latent_match_loss']
+        bz = c['bz']
+        both_emg_latent = c['both_emg_latent']
+        both_audio_latent = c['both_audio_latent']
+        avg_emg_latent = torch.mean(both_emg_latent)
+        avg_audio_latent = torch.mean(both_audio_latent)
+        
         self.log("train/loss", loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum())
         self.log("train/emg_ctc_loss", emg_ctc_loss,
@@ -476,10 +496,21 @@ class SpeechOrEMGToText(Model):
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
         self.log("train/both_latent_match_loss", both_latent_match_loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
+        self.log("train/avg_emg_latent", avg_emg_latent,
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
+        self.log("train/avg_audio_latent", avg_audio_latent,
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
+        c = self.calc_loss(batch)
+        loss = c['loss']
+        emg_ctc_loss = c['emg_ctc_loss']
+        audio_ctc_loss = c['audio_ctc_loss']
+        both_ctc_loss = c['both_ctc_loss']
+        both_latent_match_loss = c['both_latent_match_loss']
+        bz = c['bz']
+
         target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
         assert len(batch['raw_emg']) == 1, "Currently only support batch size of 1 for validation"
         if len(target_text) > 0:
@@ -494,7 +525,14 @@ class SpeechOrEMGToText(Model):
         return loss
     
     def test_step(self, batch, batch_idx):
-        loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
+        c = self.calc_loss(batch)
+        loss = c['loss']
+        emg_ctc_loss = c['emg_ctc_loss']
+        audio_ctc_loss = c['audio_ctc_loss']
+        both_ctc_loss = c['both_ctc_loss']
+        both_latent_match_loss = c['both_latent_match_loss']
+        bz = c['bz']
+
         target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
         if len(target_text) > 0:
             self.step_target.append(target_text)
