@@ -600,7 +600,7 @@ else:
 # may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
-    devices=[0],
+    devices="auto",
     # devices=[1],
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
