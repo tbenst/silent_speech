@@ -417,13 +417,13 @@ class SpeechOrEMGToText(Model):
             length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
             emg_ctc_loss = self.ctc_loss(emg_pred, y_emg, length_emg, y_length_emg)
         else:
-            logging.warn("emg_pred is None")
+            logging.info("emg_pred is None")
             emg_ctc_loss = 0
         
         if audio_pred is not None:
             audio_ctc_loss = self.ctc_loss(audio_pred, y_audio, length_audio, y_length_audio)
         else:
-            logging.warn("audio_pred is None")
+            logging.info("audio_pred is None")
             audio_ctc_loss = 0
             
         both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = None, None, None, None
@@ -440,7 +440,7 @@ class SpeechOrEMGToText(Model):
             # both_latent_match_loss = 0
             
         else:
-            logging.warn("both_pred is None")
+            logging.info("both_pred is None")
             both_ctc_loss = 0
             both_latent_match_loss = 0
         # assert audio_pred is None, f'Audio only not implemented, got {audio_pred=}'
@@ -519,12 +519,18 @@ class SpeechOrEMGToText(Model):
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
+            if batch_idx % 40 == 0:
+                # log approx 5 examples
+                self.logger.experiment["val/sentence_target"].append(target_text)
+                self.logger.experiment["val/sentence_pred"].append(pred_text)
             
         self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
         self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("val/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
+        
+
         return loss
     
     def test_step(self, batch, batch_idx):
@@ -606,7 +612,7 @@ trainer = pl.Trainer(
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
-    # gradient_clip_val=10,
+    # gradient_clip_val=0.5,
     gradient_clip_val=0.5,
     logger=neptune_logger,
     default_root_dir=output_directory,
