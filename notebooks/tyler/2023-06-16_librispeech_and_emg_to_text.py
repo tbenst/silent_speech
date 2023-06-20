@@ -1,9 +1,11 @@
 ##
+2
+##
 # %load_ext autoreload
 # %autoreload 2
 ##
 import pytorch_lightning as pl
-import os
+import os, pickle
 import sys
 import numpy as np
 import logging
@@ -38,7 +40,8 @@ from typing import List
 from collections import defaultdict
 from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
-import datasets
+from dataloaders import LibrispeechDataset, EMGAndSpeechModule
+from datasets import load_dataset
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -50,32 +53,73 @@ assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this 
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
     scratch_directory = os.environ["LOCAL_SCRATCH"]
+    gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
 else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
-output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
-##
-auto_lr_find = False
+    gaddy_dir = '/scratch/GaddyPaper/'
+
+# This approach is massively slow, at least 1+ hours.
+# we should figure out how to better cache...
+# (may need to expand the $LOCAL_SCRATCH variable first)
+# ln -s $LOCAL_SCRATCH/huggingface ~/.cache/huggingface
+# rsync -avP /oak/stanford/projects/babelfish/magneto/huggingface $LOCAL_SCRATCH/
+librispeech_datasets = load_dataset("librispeech_asr")
+librispeech_clean_train = torch.utils.data.ConcatDataset([librispeech_datasets['train.clean.100'],
+                                                    librispeech_datasets['train.clean.360']])
+                                                    # librispeech_datasets['train.other.500']])
+librispeech_clean_val = librispeech_datasets['validation.clean']
+librispeech_clean_test = librispeech_datasets['test.clean']
+
 max_len = 128000 * 2
-log_neptune = True
-# log_neptune = False
-# precision = 32
-learning_rate = 3e-4
-# 3e-3 leads to NaNs, prob need to have slower warmup in this case
-lm_directory = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
-data_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/'
-emg_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/emg_data/'
+data_dir = os.path.join(gaddy_dir, 'processed_data/')
+emg_dir = os.path.join(gaddy_dir, 'emg_data/')
+lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 togglePhones = False
 
 
 # copy_metadata_command = f"rsync -am --include='*.json' --include='*/' --exclude='*' {emg_dir} {scratch_directory}/"
 scratch_emg = os.path.join(scratch_directory,"emg_data")
-if not os.path.exists(scratch_emg):
-    os.symlink(emg_dir, scratch_emg)
-lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
-data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
+if ON_SHERLOCK:
+    if not os.path.exists(scratch_emg):
+        os.symlink(emg_dir, scratch_emg)
+    data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
+    lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 
+emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
+emg_train = emg_datamodule.train
+
+mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
+
+speech_train = LibrispeechDataset(librispeech_clean_train, emg_train.text_transform, mfcc_norm)
+speech_val = LibrispeechDataset(librispeech_clean_val, emg_train.text_transform, mfcc_norm)
+speech_test = LibrispeechDataset(librispeech_clean_test, emg_train.text_transform, mfcc_norm)
+num_emg_train = len(emg_train)
+num_speech_train = len(speech_train)
+
+num_emg_train, num_speech_train
+emg_speech_train = torch.utils.data.ConcatDataset([
+    emg_train, speech_train
+])
+len(emg_speech_train)
+
+emg_speech_train[num_emg_train-1]
+emg_speech_train[num_emg_train]
+
+
+output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
+
+##
+auto_lr_find = False
+max_len = 128000 * 2
+log_neptune = True
+# log_neptune = False
+# log_neptune = False
+# precision = 32
+learning_rate = 3e-4
+# 3e-3 leads to NaNs, prob need to have slower warmup in this case
+togglePhones = False
 
 ##
 
@@ -85,15 +129,12 @@ logging.basicConfig(handlers=[
         logging.StreamHandler()
         ], level=logging.INFO, format="%(message)s")
 
-
-datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
-
-logging.info('output example: %s', datamodule.val.example_indices[0])
-logging.info('train / dev split: %d %d',len(datamodule.train),len(datamodule.val))
 ##
-n_chars = len(datamodule.val.text_transform.chars)
-steps_per_epoch = len(datamodule.train_dataloader()) # todo: double check this is 242
-
+n_chars = len(emg_datamodule.val.text_transform.chars)
+bz = 24
+datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test, bz=bz)
+steps_per_epoch = len(datamodule.train_dataloader())
+print(steps_per_epoch)
 # for i,b in enumerate(datamodule.train):
 #     print(b["silent"])
 #     if i>10: break
@@ -117,7 +158,7 @@ class SpeechOrEMGToTextConfig:
     adam_epsilon:float = 1e-8
     warmup_steps:int = 500
     # batch_size:int = 8
-    batch_size:int = 16
+    batch_size:int = bz
     # batch_size:int = 24
     # batch_size:int = 32
     # batch_size:int = 2
@@ -288,11 +329,12 @@ class SpeechOrEMGToText(Model):
         audio_bz = 0
         both_bz = 0
         if len(task_emg) > 0:
+            # print(f"{task_emg[0].shape=}")
             task_emg = combine_fixed_length(task_emg, self.seqlen*8)
+            # print(f"{task_emg.shape=}")
             emg_pred = self.emg_forward(task_emg)
             emg_bz += len(task_emg) # batch size not known until after combine_fixed_length
         if len(task_audio) > 0:
-            print(f"WARN: task_audio (len {len(task_audio)} not implemented yet")
             task_audio = combine_fixed_length(task_audio, self.seqlen)
             audio_pred = self.audio_forward(task_audio)
             audio_bz += len(task_audio)
@@ -309,8 +351,15 @@ class SpeechOrEMGToText(Model):
         # INFO: Gaddy passes emg length, but shouldn't this actually be divided by 8?
         # TODO: try padding length / 8. must be integers though...
         # print(f"ctc_loss: {pred_len=}, {target_len=}")
+        
+        # TODO FIXME
+        # ctc_loss: [p.shape for p in pred]=[torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38])], [t.shape for t in target]=[torch.Size([306])]
+        # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
         pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, pred_len), batch_first=False) 
+        # pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
         target    = nn.utils.rnn.pad_sequence(target, batch_first=True)
+        # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
+        # print(f"ctc_loss: {[p.shape for p in pred]=}, {[t.shape for t in target]=}")
         loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars)
         return loss
 
@@ -321,40 +370,57 @@ class SpeechOrEMGToText(Model):
         audio = []
         length_emg = []
         y_length_emg = []
-        # length_audio = []
-        # y_length_audio = []
+        length_audio = []
+        y_length_audio = []
         length_both = []
         y_length_both = []
         y_emg = []
-        # y_audio = [] # TODO: implement audio only using LibriSpeech dataset
+        y_audio = []
         y_both = []
-        for i, s in enumerate(batch['silent']):
+        for i, (s,a) in enumerate(zip(batch['silent'], batch['audio_only'])):
             if s:
                 tasks.append(Task.EMG)
                 emg.append(batch['raw_emg'][i])
                 audio.append(None)
-                length_emg.append(batch['lengths'][i])
+                length_emg.append(batch['raw_emg_lengths'][i])
                 y_length_emg.append(batch['text_int_lengths'][i])
                 y_emg.append(batch['text_int'][i])
+            elif a:
+                tasks.append(Task.AUDIO)
+                emg.append(None)
+                audio.append(batch['audio_features'][i])
+                length_audio.append(batch['audio_feature_lengths'][i])
+                y_length_audio.append(batch['text_int_lengths'][i])
+                y_audio.append(batch['text_int'][i])
             else:
                 tasks.append(Task.AUDIO_EMG)
                 emg.append(batch['raw_emg'][i])
                 audio.append(batch['audio_features'][i])
-                length_both.append(batch['lengths'][i])
+                length_both.append(batch['raw_emg_lengths'][i])
                 y_length_both.append(batch['text_int_lengths'][i])
                 y_both.append(batch['text_int'][i])
     
         emg_pred, audio_pred, both_pred, (emg_bz, audio_bz, both_bz) = self(tasks, emg, audio)
+        # print(f"{emg_pred.shape=}")
         
         # TODO: finish this!! need to implement loss funcion for each task
         if emg_pred is not None:
+            length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
             emg_ctc_loss = self.ctc_loss(emg_pred, y_emg, length_emg, y_length_emg)
         else:
+            logging.warn("emg_pred is None")
             emg_ctc_loss = 0
+        
+        if audio_pred is not None:
+            audio_ctc_loss = self.ctc_loss(audio_pred, y_audio, length_audio, y_length_audio)
+        else:
+            logging.warn("audio_pred is None")
+            audio_ctc_loss = 0
             
         if both_pred is not None:
             both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = both_pred
             # audio mfccs should be length / 8 ...?
+            length_both = [l//8 for l in length_both]
             both_ctc_loss = self.ctc_loss(both_emg_pred, y_both, length_both, y_length_both) + \
                 self.ctc_loss(both_audio_pred, y_both, length_both, y_length_both) * self.audio_lambda
             both_latent_match_loss = F.mse_loss(both_emg_latent, both_audio_latent) * self.latent_lambda
@@ -364,11 +430,12 @@ class SpeechOrEMGToText(Model):
             # both_latent_match_loss = 0
             
         else:
+            logging.warn("both_pred is None")
             both_ctc_loss = 0
             both_latent_match_loss = 0
-        assert audio_pred is None, f'Audio only not implemented, got {audio_pred=}'
+        # assert audio_pred is None, f'Audio only not implemented, got {audio_pred=}'
 
-        loss = emg_ctc_loss + both_ctc_loss + both_latent_match_loss
+        loss = emg_ctc_loss + audio_ctc_loss + both_ctc_loss + both_latent_match_loss
         
         if torch.isnan(loss):
             print(f"Loss is NaN. Isnan output: {torch.any(torch.isnan(emg_pred))}")
@@ -376,7 +443,7 @@ class SpeechOrEMGToText(Model):
             print(f"Loss is Inf. Isinf output: {torch.any(torch.isinf(emg_pred))}")
             
         bz = np.array([emg_bz, audio_bz, both_bz])
-        return loss, (emg_ctc_loss, both_ctc_loss, both_latent_match_loss), bz
+        return loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz
     
     def _beam_search_step(self, batch):
         "Repeatedly called by validation_step & test_step. Impure function!"
@@ -391,10 +458,12 @@ class SpeechOrEMGToText(Model):
         return target_text, pred_text
     
     def training_step(self, batch, batch_idx):
-        loss, (emg_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
+        loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
         self.log("train/loss", loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum())
         self.log("train/emg_ctc_loss", emg_ctc_loss,
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0])
+        self.log("train/audio_ctc_loss", audio_ctc_loss,
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0])
         self.log("train/both_ctc_loss", both_ctc_loss,
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
@@ -403,41 +472,43 @@ class SpeechOrEMGToText(Model):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, (emg_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
-        target_text, pred_text = self._beam_search_step(batch)
-        assert len(batch['emg']) == 1, "Currently only support batch size of 1 for validation"
+        loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
+        target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
+        assert len(batch['raw_emg']) == 1, "Currently only support batch size of 1 for validation"
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
             
         self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum())
         self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0])
+        self.log("val/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0])
         self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2])
         self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2])
         return loss
     
     def test_step(self, batch, batch_idx):
-        loss, (emg_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
-        target_text, pred_text = self._beam_search_step(batch)
+        loss, (emg_ctc_loss, audio_ctc_loss, both_ctc_loss, both_latent_match_loss), bz = self.calc_loss(batch)
+        target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
         self.log("test/loss", loss, prog_bar=True, batch_size=bz.sum())
         self.log("test/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0])
+        self.log("testaudiog_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0])
         self.log("test/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2])
         self.log("test/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2])
         return loss
     
-##
+
 config = SpeechOrEMGToTextConfig()
 
-model = SpeechOrEMGToText(config, datamodule.val.text_transform)
+model = SpeechOrEMGToText(config, emg_datamodule.val.text_transform)
 
 # why is this sooo slow?? slash freezes..? are we hitting oak?
 # TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
 # not always slamming CPU/GPU...
 logging.info('made model')
-##
+
 callbacks = [
     # starting at epoch 0, accumulate 2 batches of grads
     GradientAccumulationScheduler(scheduling={0: 2})
@@ -511,5 +582,5 @@ logging.info('about to fit')
 # we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
-trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
+# trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
 ##

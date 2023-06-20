@@ -102,7 +102,7 @@ def collate_gaddy_or_speech(batch):
         'audio_feature_lengths':audio_feature_lengths,
         'raw_emg': raw_emg,
         # 'phonemes':phonemes,
-        'lengths': raw_emg_lengths,
+        'raw_emg_lengths': raw_emg_lengths,
         'silent': silent,
         'audio_only': audio_only,
         'text': text,
@@ -193,15 +193,17 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         ])
         train_emg_len = len(emg_train)
         
-        self.val = torch.utils.data.ConcatDataset([
-            emg_data_module.val, speech_val
-        ])
-        self.val_emg_len = len(emg_data_module.val)
-        
-        self.test = torch.utils.data.ConcatDataset([
-            emg_data_module.test, speech_test
-        ])
-        self.test_emg_len = len(emg_data_module.test)
+        self.val = emg_data_module.val
+        # self.val = torch.utils.data.ConcatDataset([
+        #     emg_data_module.val, speech_val
+        # ])
+        self.val_emg_len = len(self.val)
+
+        self.test  = emg_data_module.test        
+        # self.test = torch.utils.data.ConcatDataset([
+        #     emg_data_module.test, speech_test
+        # ])
+        self.test_emg_len = len(self.test)
         
         # 0: EMG only (silent), 1: EMG & Audio, 2: Audio only
         classes = np.concatenate([np.zeros(train_emg_len), 2 * np.ones(len(speech_train))])
