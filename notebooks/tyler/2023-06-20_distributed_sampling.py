@@ -19,8 +19,13 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         if not dist.is_available():
             raise RuntimeError("Requires distributed package to be available")
         
-        self.num_replicas = dist.get_world_size()
-        self.rank = dist.get_rank()
+        # self.num_replicas = dist.get_world_size()
+        if "WORLD_SIZE" not in os.environ:
+            print("WARNING: WORLD_SIZE not in environment, setting to 1")
+        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+        # self.rank = dist.get_rank()
+        # self.rank = os.environ["NODE_RANK"]
+        self.rank = int(os.environ["RANK"]) if "RANK" in os.environ else 0
         self.epoch = 0
         self.seed = seed
         
@@ -58,7 +63,7 @@ def main():
     
 """torchrun --standalone --nnodes=1 --nproc_per_node=2 scratch.py"""
 if __name__ == "__main__":
-    dist.init_process_group()
+    # dist.init_process_group()
     print(f"Rank {os.environ['RANK']} of {os.environ['WORLD_SIZE']}")
     main()
 ##

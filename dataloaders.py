@@ -184,8 +184,16 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         if not dist.is_available():
             raise RuntimeError("Requires distributed package to be available")
         
-        self.num_replicas = dist.get_world_size()
-        self.rank = dist.get_rank()
+        # self.num_replicas = dist.get_world_size()
+        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+        # self.rank = dist.get_rank()
+        # self.rank = os.environ["NODE_RANK"]
+        if "RANK" not in os.environ:
+            print("WARNING: RANK not in environment, setting to 0")
+        else:
+            print(f"HURRAY! Got rank {os.environ['RANK']}")
+
+        self.rank = int(os.environ["RANK"]) if "RANK" in os.environ else 0
         self.epoch = 0
         self.seed = seed
         
