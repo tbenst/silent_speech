@@ -425,6 +425,7 @@ class SpeechOrEMGToText(Model):
             logging.warn("audio_pred is None")
             audio_ctc_loss = 0
             
+        both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = None, None, None, None
         if both_pred is not None:
             both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = both_pred
             # audio mfccs should be length / 8 ...?
