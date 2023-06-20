@@ -1,5 +1,6 @@
 import torch, numpy as np, librosa, pickle, torchaudio, os, pytorch_lightning as pl
 from data_utils import mel_spectrogram
+import torch.distributed as dist
 
 class LibrispeechDataset(torch.utils.data.Dataset):
     """
@@ -170,11 +171,51 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
     def __len__(self):
         return self.num_batches
 
+class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
+    """"Given the class of each example, sample batches without replacement
+    with desired proportions of each class.
+    
+    If we run out of examples of a given class, we stop yielding batches.
+    """
+    def __init__(self, classes:np.ndarray, class_proportion:np.ndarray,
+                 batch_size:int, shuffle:bool=True, drop_last:bool=False, seed:int=61923):        
+        super().__init__(classes, class_proportion, batch_size, shuffle, drop_last)
+        
+        if not dist.is_available():
+            raise RuntimeError("Requires distributed package to be available")
+        
+        self.num_replicas = dist.get_world_size()
+        self.rank = dist.get_rank()
+        self.epoch = 0
+        self.seed = seed
+        
+    def __iter__(self):
+        if self.shuffle:
+            g = torch.Generator()
+            g.manual_seed(self.seed + self.epoch)
+            self.class_indices = [x[torch.randperm(len(x), generator=g).tolist()]
+                                    for x in self.class_indices]
+        for batch in range(self.rank,self.num_batches,self.num_replicas):
+            batch_indices = []
+            for i in range(self.class_n_per_batch.shape[0]):
+                s = batch * self.class_n_per_batch[i]
+                e = (batch+1) * self.class_n_per_batch[i]
+                idxs = self.class_indices[i][s:e]
+                batch_indices.extend(idxs)
+            batch_indices = [int(x) for x in batch_indices]
+            # not needed for our purposes as model doesn't care about order
+            # if self.shuffle:
+            #     batch_indices = np.random.permutation(batch_indices)
+            yield batch_indices
+            
+    def __len__(self):
+        return self.num_batches
+
 class EMGAndSpeechModule(pl.LightningDataModule):
     def __init__(self, emg_data_module:pl.LightningDataModule,
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
-            bz:int=64, num_workers:int=0,
+            bz:int=64, num_workers:int=0, BatchSamplerClass=StratifiedBatchSampler,
             batch_class_proportions:np.ndarray=np.array([0.08, 0.42, 0.5])
             ):
         """Given an EMG data module and a speech dataset, create a new data module.
@@ -214,7 +255,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             if not b['silent']:
                 classes[i] = 1
     
-        self.batch_sampler = StratifiedBatchSampler(classes, batch_class_proportions, bz)
+        self.batch_sampler = BatchSamplerClass(classes, batch_class_proportions, bz)
         self.collate_fn = collate_gaddy_or_speech
         self.bz = bz
         self.num_workers = num_workers

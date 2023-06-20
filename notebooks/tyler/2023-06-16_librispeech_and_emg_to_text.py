@@ -40,7 +40,7 @@ from typing import List
 from collections import defaultdict
 from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
-from dataloaders import LibrispeechDataset, EMGAndSpeechModule
+from dataloaders import LibrispeechDataset, EMGAndSpeechModule, DistributedStratifiedBatchSampler
 from datasets import load_dataset
 
 isotime = datetime.now().isoformat()
@@ -140,7 +140,7 @@ num_workers=14
 # TODO: try prefetch_factor=4 for dataloader
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz,
-    num_workers=num_workers,
+    num_workers=num_workers, BatchSamplerClass=DistributedStratifiedBatchSampler
 )
 steps_per_epoch = len(datamodule.train_dataloader())
 print(steps_per_epoch)
@@ -612,7 +612,7 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    distributed_backend='dp',
+    strategy='dp', # ddp may be faster but requires writing new sampler
     # use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
