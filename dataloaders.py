@@ -121,6 +121,7 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
         class_proportion: array of desired proportion of each class in each batch
         batch_size: number of examples in each batch
         shuffle: whether to shuffle the examples before sampling
+        drop_last: not used
         
     >>> x = np.arange(17)
     >>> classes = np.array([0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1])
@@ -130,7 +131,7 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
     x[i]=array([2, 3, 7, 8]) classes[i]=array([0, 0, 1, 1])
     """
     def __init__(self, classes:np.ndarray, class_proportion:np.ndarray,
-                 batch_size:int, shuffle:bool=True):        
+                 batch_size:int, shuffle:bool=True, drop_last:bool=False):        
         assert np.allclose(np.sum(class_proportion), 1)
         assert np.all(class_proportion >= 0)
         assert np.all(class_proportion <= 1)
