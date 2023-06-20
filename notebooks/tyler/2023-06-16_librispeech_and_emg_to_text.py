@@ -132,7 +132,11 @@ logging.basicConfig(handlers=[
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 bz = 24
-datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test, bz=bz)
+datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
+    bz=bz,
+    # num_workers=0, # 11:42 epoch 0, ~10:14 epoch 1
+    num_workers=8,
+)
 steps_per_epoch = len(datamodule.train_dataloader())
 print(steps_per_epoch)
 # for i,b in enumerate(datamodule.train):
@@ -162,7 +166,7 @@ class SpeechOrEMGToTextConfig:
     # batch_size:int = 24
     # batch_size:int = 32
     # batch_size:int = 2
-    num_worker:int = 0
+    num_workers:int = num_workers
     num_train_epochs:int = 200
     gradient_accumulation_steps:int = 1
     sample_rate:int = 16000

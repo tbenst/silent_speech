@@ -146,7 +146,8 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
         self.num_examples_per_class = np.array([len(x) for x in self.class_indices])
         self.class_n_per_batch = np.round(self.class_proportion * batch_size).astype(int)
         assert self.class_n_per_batch.sum() == batch_size, "Class proportion must evenly divide batch size"
-        self.num_batches = int(np.min(self.num_examples_per_class // (batch_size * class_proportion)))
+
+        self.num_batches = int(np.floor(np.min(self.num_examples_per_class / self.class_n_per_batch)))
         
     def __iter__(self):
         if self.shuffle:
@@ -171,7 +172,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
     def __init__(self, emg_data_module:pl.LightningDataModule,
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
-            bz:int=64,
+            bz:int=64, num_workers:int=0
             batch_class_proportions:np.ndarray=np.array([0.08, 0.42, 0.5])
             ):
         """Given an EMG data module and a speech dataset, create a new data module.
@@ -220,6 +221,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             self.train,
             collate_fn=self.collate_fn,
             pin_memory=True,
+            num_workers=self.num_workers,
             batch_sampler=self.batch_sampler
         )
         
@@ -228,6 +230,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             self.val,
             collate_fn=self.collate_fn,
             pin_memory=True,
+            num_workers=self.num_workers,
             batch_size=1
         )
         
