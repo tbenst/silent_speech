@@ -215,6 +215,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         self.batch_sampler = StratifiedBatchSampler(classes, batch_class_proportions, bz)
         self.collate_fn = collate_gaddy_or_speech
         self.bz = bz
+        self.num_workers = num_workers
         
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
