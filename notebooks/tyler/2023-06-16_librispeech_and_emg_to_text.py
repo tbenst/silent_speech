@@ -413,13 +413,13 @@ class SpeechOrEMGToText(Model):
             length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
             emg_ctc_loss = self.ctc_loss(emg_pred, y_emg, length_emg, y_length_emg)
         else:
-            logging.warn("emg_pred is None")
+            logging.info("emg_pred is None")
             emg_ctc_loss = 0
         
         if audio_pred is not None:
             audio_ctc_loss = self.ctc_loss(audio_pred, y_audio, length_audio, y_length_audio)
         else:
-            logging.warn("audio_pred is None")
+            logging.info("audio_pred is None")
             audio_ctc_loss = 0
             
         if both_pred is not None:
@@ -483,12 +483,18 @@ class SpeechOrEMGToText(Model):
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
+            if batch_idx % 40 == 0:
+                # log approx 5 examples
+                self.logger.experiment["val/sentence_target"].append(target_text)
+                self.logger.experiment["val/sentence_pred"].append(pred_text)
             
         self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum())
         self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0])
         self.log("val/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0])
         self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2])
         self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2])
+        
+
         return loss
     
     def test_step(self, batch, batch_idx):
@@ -587,5 +593,5 @@ logging.info('about to fit')
 # we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
-# trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
+trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
 ##
