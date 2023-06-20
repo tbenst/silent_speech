@@ -1,4 +1,6 @@
 ##
+2
+##
 # %load_ext autoreload
 # %autoreload 2
 ##
@@ -13,6 +15,8 @@ SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
 from data_utils import mel_spectrogram
 from read_emg import load_audio, EMGDataModule, ensure_folder_on_scratch
+
+from dataloaders import LibrispeechDataset, EMGAndSpeechModule
 
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
@@ -36,10 +40,18 @@ else:
     gaddy_dir = '/scratch/GaddyPaper/'
 
 
+##
+# This approach is massively slow, at least 1+ hours.
+# we should figure out how to better cache...
+# (may need to expand the $LOCAL_SCRATCH variable first)
+# ln -s $LOCAL_SCRATCH/huggingface ~/.cache/huggingface
+# rsync -avP /oak/stanford/projects/babelfish/magneto/huggingface $LOCAL_SCRATCH/
 librispeech_datasets = load_dataset("librispeech_asr")
 librispeech_clean_train = torch.utils.data.ConcatDataset([librispeech_datasets['train.clean.100'],
                                                     librispeech_datasets['train.clean.360']])
                                                     # librispeech_datasets['train.other.500']])
+librispeech_clean_val = librispeech_datasets['validation.clean']
+librispeech_clean_test = librispeech_datasets['test.clean']
 ##
 # TODO: running this cell is sometimes very slow even when should be cached...
 max_len = 128000 * 2
@@ -57,75 +69,15 @@ if ON_SHERLOCK:
     data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
 
 
-datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
-emg_train = datamodule.train
+emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
+emg_train = emg_datamodule.train
 
 mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
 ##
-class LibrispeechDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, text_transform, mfcc_norm):
-        self.dataset = dataset
-        self.text_transform = text_transform
-        self.mfcc_norm = mfcc_norm
-        
-    def __len__(self):
-        return len(self.dataset)
-        
-    def __getitem__(self, index):
-        audio = self.dataset[index]['audio']['array']
-        text = self.dataset[index]['text']
-        audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
-        audio = np.clip(audio, -1, 1) # because resampling sometimes pushes things out of range
-        # window is 1024, hop is 256, so length of output is (len(audio) - 1024) // 256 + 1
-        # (or at least that's what co-pilot says)
-        pytorch_mspec = mel_spectrogram(torch.tensor(audio, dtype=torch.float32).unsqueeze(0),
-                                        1024, 80, 22050, 256, 1024, 0, 8000, center=False)
-        mfccs = pytorch_mspec.squeeze(0).T.numpy()
-        mfccs = mfcc_norm.normalize(mfccs)
-        text_int = np.array(self.text_transform.text_to_int(text), dtype=np.int64)
-        example = {'audio_features': mfccs,
-            'text':text,
-            'text_int':text_int,
-            }
-        return example
-    
-    @staticmethod
-    def collate_raw(batch):
-        batch_size = len(batch)
-        audio_features = []
-        audio_feature_lengths = []
-        text_int = []
-        text_int_lengths = []
-        text = []
-        for example in batch:
-            audio_features.append(example['audio_features'])
-            audio_feature_lengths.append(example['audio_features'].shape[0])
-            text_int.append(example['text_int'])
-            text_int_lengths.append(example['text_int'].shape[0])
-            text.append(example['text'])
-        return {
-            'audio_features': audio_features,
-            'audio_feature_lengths':audio_feature_lengths,
-            'raw_emg': None,
-            'text_int': text_int,
-            'text_int_lengths': text_int_lengths,
-            'text': text,
-            'silent': False,
-        }
-
-    
-class EMGAndSpeechModule(pl.LightningDataModule):
-    def __init__(self, emg_data_module:pl.LightningDataModule,
-                 speech_dataset:torch.utils.data.Dataset,
-                 speech_bz:int=32):
-        self.emg_data_module = emg_data_module
-        self.speech_dataset = speech_dataset
-        self.speech_bz = speech_bz
-        
-    def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.speech_dataset, batch_size=self.speech_bz, shuffle=True)
     
 speech_train = LibrispeechDataset(librispeech_clean_train, emg_train.text_transform, mfcc_norm)
+speech_val = LibrispeechDataset(librispeech_clean_val, emg_train.text_transform, mfcc_norm)
+speech_test = LibrispeechDataset(librispeech_clean_test, emg_train.text_transform, mfcc_norm)
 num_emg_train = len(emg_train)
 num_speech_train = len(speech_train)
 
@@ -135,21 +87,28 @@ emg_speech_train = torch.utils.data.ConcatDataset([
 ])
 len(emg_speech_train)
 
-# emg_speech_train[num_emg_train-1]
+emg_speech_train[num_emg_train-1]
 emg_speech_train[num_emg_train]
+
+datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test)
+
+for bat in datamodule.train_dataloader():
+    print(bat.keys())
+    break
+##
+# [ex.shape for ex in bat['audio_features']]
+
+# gaddy dataloader gives array([[0]], dtype=uint8), librispeech gives False
+# does this matter?
+# [ex for ex in bat['silent']]
+
+[ex for ex in bat['text']]
+# [ex.shape for ex in bat['text']]
+# [type(ex) for ex in bat['text']]
+# [emg_train.text_transform.int_to_text(emg_train.text_transform.text_to_int(ex[0])) for ex in bat['text']]
 ##
 import matplotlib.pyplot as plt
-# plt.matshow(emg_speech_train[num_emg_train]['audio_features'].T)
-plt.matshow(emg_speech_train[-1]['audio_features'].T)
-# plt.hist(emg_speech_train[num_emg_train]['audio_features'].reshape(-1))
-plt.title("librispeech sample")
-# plt.colorbar()
-##
-plt.matshow(emg_speech_train[num_emg_train-1]['audio_features'].T)
-# plt.hist(emg_speech_train[num_emg_train-1]['audio_features'].reshape(-1))
-plt.title("gaddy sample")
-# plt.colorbar()
-##
+
 import torchaudio, pickle
 from data_utils import normalize_volume, mel_spectrogram
 from sklearn.preprocessing import normalize, minmax_scale, power_transform, scale, robust_scale
@@ -221,29 +180,10 @@ print(f"first_one: {first_one}, last_one: {last_one}")
 (ref_audio_features - mspec[:-1]).abs().sum(0)
 
 ##
-# plt.hist(mspec.reshape(-1))
-#
-# TODO:
-# https://discuss.pytorch.org/t/how-to-balance-mini-batches-during-each-epoch/120055
-# stratified sampling https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html
+num_silent = 0
+n = len(emg_train)
+for b in emg_train:
+    if b['silent']:
+        num_silent += 1
 
-# and reload every epoch
-# pl.trainer(
-#     reload_dataloaders_every_epoch=True
-# )
-
-# speech_bz = 32
-# num_steps_per_epoch = 242
-# train_loader = DataLoader(
-#     librispeech_clean_train,
-#     batch_size=speech_bz,
-#     shuffle=False,
-#     num_workers=1,
-#     pin_memory=True,
-#     drop_last=True,
-#     sampler=SubsetRandomSampler(
-#         torch.randint(high=len(librispeech_clean_train),
-#                       size=(num_steps_per_epoch*speech_bz,))
-#     ),
-# )
-##
+print(f"n: {n}, num_silent: {num_silent}, {num_silent/n*100:.1f}%")
