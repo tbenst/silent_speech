@@ -14,17 +14,22 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
     """
     def __init__(self, classes:np.ndarray, class_proportion:np.ndarray,
                  batch_size:int, shuffle:bool=True, drop_last:bool=False, seed:int=61923):        
-        super().__init__(classes, class_proportion, batch_size, shuffle, drop_last)
+        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+        assert batch_size % self.num_replicas == 0, "Batch size must be divisible by number of GPUs"
+        internal_bz = batch_size // self.num_replicas
+        super().__init__(classes, class_proportion, internal_bz, shuffle, drop_last)
+        mod = self.num_batches % self.num_replicas
+        if mod != 0:
+            self.num_batches -= mod
         
         if not dist.is_available():
             raise RuntimeError("Requires distributed package to be available")
-        
-        # self.num_replicas = dist.get_world_size()
-        if "WORLD_SIZE" not in os.environ:
-            print("WARNING: WORLD_SIZE not in environment, setting to 1")
-        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-        # self.rank = dist.get_rank()
-        # self.rank = os.environ["NODE_RANK"]
+
+        if "RANK" not in os.environ:
+            print("WARNING: RANK not in environment, setting to 0")
+        else:
+            print(f"HURRAY! Got rank {os.environ['RANK']}")
+
         self.rank = int(os.environ["RANK"]) if "RANK" in os.environ else 0
         self.epoch = 0
         self.seed = seed
@@ -49,7 +54,7 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
             yield batch_indices
             
     def __len__(self):
-        return self.num_batches
+        return int(np.floor(self.num_batches / self.num_replicas))
     
     
 def main():
@@ -58,10 +63,10 @@ def main():
     sampler = DistributedStratifiedBatchSampler(classes, np.array([0.5, 0.5]), 4, shuffle=False)
     for i in sampler:
         print(f"({i}) Rank {os.environ['RANK']}: {x[i]=} {classes[i]=}")
-    print(f"{sampler.num_batches=}, {sampler.num_replicas=}, {sampler.rank=}")
+    print(f"{len(sampler)=}, {sampler.num_batches=}, {sampler.num_replicas=}, {sampler.rank=}")
     
     
-"""torchrun --standalone --nnodes=1 --nproc_per_node=2 scratch.py"""
+"""torchrun --standalone --nnodes=1 --nproc_per_node=2 2023-06-20_distributed_sampling.py"""
 if __name__ == "__main__":
     # dist.init_process_group()
     print(f"Rank {os.environ['RANK']} of {os.environ['WORLD_SIZE']}")

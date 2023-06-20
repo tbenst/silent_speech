@@ -131,13 +131,12 @@ logging.basicConfig(handlers=[
 
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
-# bz = 64
-# bz = 48 # OOM after 25 steps
-bz = 32 # with ddp, looked like was going to take 10min per epoch, slower than 1 GPU, although was index count off?
+# bz = 96 # OOM after 25 steps
+bz = 64 # with ddp, 4:52 (bz is per GPU...)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
-num_workers=14
+num_workers=8 # I think that's 8 per GPU..?
 # TODO: try prefetch_factor=4 for dataloader
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz,

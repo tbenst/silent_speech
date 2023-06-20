@@ -179,15 +179,17 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
     """
     def __init__(self, classes:np.ndarray, class_proportion:np.ndarray,
                  batch_size:int, shuffle:bool=True, drop_last:bool=False, seed:int=61923):        
-        super().__init__(classes, class_proportion, batch_size, shuffle, drop_last)
+        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+        assert batch_size % self.num_replicas == 0, "Batch size must be divisible by number of GPUs"
+        internal_bz = batch_size // self.num_replicas
+        super().__init__(classes, class_proportion, internal_bz, shuffle, drop_last)
+        mod = self.num_batches % self.num_replicas
+        if mod != 0:
+            self.num_batches -= mod
         
         if not dist.is_available():
             raise RuntimeError("Requires distributed package to be available")
-        
-        # self.num_replicas = dist.get_world_size()
-        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-        # self.rank = dist.get_rank()
-        # self.rank = os.environ["NODE_RANK"]
+
         if "RANK" not in os.environ:
             print("WARNING: RANK not in environment, setting to 0")
         else:
@@ -217,7 +219,7 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
             yield batch_indices
             
     def __len__(self):
-        return self.num_batches
+        return int(np.floor(self.num_batches / self.num_replicas))
 
 class EMGAndSpeechModule(pl.LightningDataModule):
     def __init__(self, emg_data_module:pl.LightningDataModule,
