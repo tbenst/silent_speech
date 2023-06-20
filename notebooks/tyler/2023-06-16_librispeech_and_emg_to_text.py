@@ -131,11 +131,13 @@ logging.basicConfig(handlers=[
 
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
-bz = 24
-num_workers=8
+bz = 32
+# num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
+# TODO: why do I get a warning about only having 1 CPU...?
+num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
+# TODO: try prefetch_factor=4 for dataloader
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz,
-    # num_workers=0, # 11:42 epoch 0, ~10:14 epoch 1
     num_workers=num_workers,
 )
 steps_per_epoch = len(datamodule.train_dataloader())
@@ -587,5 +589,5 @@ logging.info('about to fit')
 # we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
-# trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
+trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
 ##
