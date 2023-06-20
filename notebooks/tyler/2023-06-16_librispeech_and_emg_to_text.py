@@ -127,12 +127,13 @@ os.makedirs(output_directory, exist_ok=True)
 logging.basicConfig(handlers=[
         logging.FileHandler(os.path.join(output_directory, 'log.txt'), 'w'),
         logging.StreamHandler()
-        ], level=logging.INFO, format="%(message)s")
+        ], level=logging.WARNING, format="%(message)s")
 
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 64
-bz = 32
+bz = 48
+# bz = 32
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
@@ -505,6 +506,13 @@ class SpeechOrEMGToText(Model):
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         return loss
 
+    # def on_after_backward(self) -> None:
+    #     print("on_after_backward enter")
+    #     for p in self.trainable_params: # no such thing trainable_params
+    #         if p.grad is None:
+    #             print(p)
+    #     print("on_after_backward exit")
+
     def validation_step(self, batch, batch_idx):
         c = self.calc_loss(batch)
         loss = c['loss']
@@ -565,7 +573,7 @@ logging.info('made model')
 
 callbacks = [
     # starting at epoch 0, accumulate 2 batches of grads
-    GradientAccumulationScheduler(scheduling={0: 2})
+    GradientAccumulationScheduler(scheduling={0: 4})
 ]
 
 if log_neptune:
@@ -618,7 +626,8 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    strategy='ddp', # ddp may be faster but requires writing new sampler
+    strategy='ddp_find_unused_parameters_true',
+    # strategy='ddp',
     use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
