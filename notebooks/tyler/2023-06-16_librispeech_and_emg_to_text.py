@@ -516,7 +516,7 @@ logging.info('made model')
 
 callbacks = [
     # starting at epoch 0, accumulate 2 batches of grads
-    GradientAccumulationScheduler(scheduling={0: 2})
+    GradientAccumulationScheduler(scheduling={0: 8})
 ]
 
 if log_neptune:
