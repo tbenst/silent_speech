@@ -606,11 +606,14 @@ trainer = pl.Trainer(
     accelerator="gpu",
     # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
     # are we clipping first then addiing? (prob doesn't matter...)
-    gradient_clip_val=10,
+    # gradient_clip_val=10,
+    gradient_clip_val=0.5,
     logger=neptune_logger,
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
+    distributed_backend='dp',
+    # use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 

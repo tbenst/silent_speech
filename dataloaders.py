@@ -149,6 +149,7 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
         assert self.class_n_per_batch.sum() == batch_size, "Class proportion must evenly divide batch size"
 
         self.num_batches = int(np.floor(np.min(self.num_examples_per_class / self.class_n_per_batch)))
+        self.drop_last = drop_last # not used
         
     def __iter__(self):
         if self.shuffle:

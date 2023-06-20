@@ -273,7 +273,7 @@ class Model(pl.LightningModule):
         wer = jiwer.wer(step_target, step_pred)
         self.step_target.clear()
         self.step_pred.clear()
-        self.log("val/wer", wer, prog_bar=True)
+        self.log("val/wer", wer, prog_bar=True, sync_dist=True)
         # self.profiler.stop(f"validation loop")
         # self.profiler.describe()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
