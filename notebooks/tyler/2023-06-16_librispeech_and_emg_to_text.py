@@ -490,19 +490,19 @@ class SpeechOrEMGToText(Model):
         avg_audio_latent = torch.mean(both_audio_latent)
         
         self.log("train/loss", loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum())
+                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
         self.log("train/emg_ctc_loss", emg_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0])
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("train/audio_ctc_loss", audio_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0])
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("train/both_ctc_loss", both_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("train/both_latent_match_loss", both_latent_match_loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("train/avg_emg_latent", avg_emg_latent,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("train/avg_audio_latent", avg_audio_latent,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2])
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -520,11 +520,11 @@ class SpeechOrEMGToText(Model):
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
             
-        self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum())
-        self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0])
-        self.log("val/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0])
-        self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2])
-        self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2])
+        self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
+        self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log("val/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
+        self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
         return loss
     
     def test_step(self, batch, batch_idx):
@@ -540,11 +540,11 @@ class SpeechOrEMGToText(Model):
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
-        self.log("test/loss", loss, prog_bar=True, batch_size=bz.sum())
-        self.log("test/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0])
-        self.log("testaudiog_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0])
-        self.log("test/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2])
-        self.log("test/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2])
+        self.log("test/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
+        self.log("test/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log("testaudiog_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log("test/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
+        self.log("test/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
         return loss
     
 
