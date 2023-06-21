@@ -136,7 +136,8 @@ logging.basicConfig(handlers=[
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
-bz = 128
+# bz = 128 # OOM on 4 GPU
+bz = 96
 # bz = 48  # OOM at epoch 36
 # bz = 32 # 6:30 for epoch 1 (1 GPUs)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
@@ -543,7 +544,8 @@ class SpeechOrEMGToText(Model):
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
-            if batch_idx % 20 == 0 and type(self.logger) == pl.loggers.NeptuneLogger:
+            # TODO: fix the type checking to actually work
+            if batch_idx % 20 == 0 and type(self.logger) == NeptuneLogger:
                 # log approx 10 examples
                 self.logger.experiment["val/sentence_target"].append(target_text)
                 self.logger.experiment["val/sentence_pred"].append(pred_text)
