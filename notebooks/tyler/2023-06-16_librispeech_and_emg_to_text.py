@@ -57,13 +57,16 @@ if DEBUG:
     n_epochs = 2
     # precision = "32"
     precision = "16-mixed"
+    num_sanity_val_steps = 2
 else:
     NUM_GPUS = 4
     limit_train_batches = None
     limit_val_batches = None
     log_neptune = True
+    # log_neptune = False
     n_epochs = 200
     precision = "16-mixed"
+    num_sanity_val_steps = 0 # may prevent crashing of distributed training
 
 
 isotime = datetime.now().isoformat()
@@ -181,16 +184,21 @@ if NUM_GPUS > 1:
     bz = 32 * NUM_GPUS
     if rank_key not in os.environ:
         rank = 0
-        print("WARNING: RANK not in environment, setting to 0. If you are running single GPU, this is fine.")
     else:
-        print(f"Setting CUDA Device on Rank: {os.environ[rank_key]}")
         rank = int(os.environ[rank_key])
+    logging.info(f"SETTING CUDA DEVICE ON RANK: {rank}")
 
     torch.cuda.set_device(rank)
     torch.cuda.empty_cache()
-    TrainBatchSampler = partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS)
-    ValSampler = DistributedSampler(emg_datamodule.val, shuffle=False)
-    TestSampler = DistributedSampler(emg_datamodule.test, shuffle=False)
+    # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
+    # or we get this error:
+    # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
+    TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
+        num_replicas=NUM_GPUS)
+    ValSampler = lambda: DistributedSampler(emg_datamodule.val,
+        shuffle=False, num_replicas=NUM_GPUS)
+    TestSampler = lambda: DistributedSampler(emg_datamodule.test,
+        shuffle=False, num_replicas=NUM_GPUS)
 else:
     TrainBatchSampler = StratifiedBatchSampler
     num_workers=32
@@ -202,14 +210,14 @@ else:
 datamodule =  EMGAndSpeechModule(emg_datamodule.train,
     emg_datamodule.val, emg_datamodule.test,
     speech_train, speech_val, speech_test,
-    bz=bz, pin_memory=(not DEBUG),
+    bz=bz, num_replicas=NUM_GPUS, pin_memory=(not DEBUG),
     num_workers=num_workers,
     TrainBatchSampler=TrainBatchSampler,
     ValSampler=ValSampler,
     TestSampler=TestSampler,
 )
-steps_per_epoch = len(datamodule.train_dataloader())
-print(steps_per_epoch)
+# steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
+# print(steps_per_epoch)
 # for i,b in enumerate(datamodule.train):
 #     print(b["silent"])
 #     if i>10: break
@@ -223,7 +231,7 @@ print(steps_per_epoch)
 @dataclass
 class SpeechOrEMGToTextConfig:
     input_channels:int = 8
-    steps_per_epoch:int = steps_per_epoch
+    # steps_per_epoch:int = steps_per_epoch
     # learning_rate:float = 0.00025
     # learning_rate:float = 5e-4
     # learning_rate:float = 2e-5
@@ -303,7 +311,6 @@ class SpeechOrEMGToText(Model):
         self.target_lr = cfg.learning_rate # will not mutate
         self.learning_rate_warmup = cfg.warmup_steps
         self.epochs = cfg.num_train_epochs
-        self.steps_per_epoch = cfg.steps_per_epoch
         
         # val/test procedure...
         self.text_transform = text_transform
@@ -550,7 +557,7 @@ class SpeechOrEMGToText(Model):
         # target_text  = self.text_transform.clean_2(batch['text'][0])
         target_text  = [self.text_transform.clean_2(b) for b in batch['text']]
         
-        print(f"{target_text=}, {pred_text=}")
+        # print(f"{target_text=}, {pred_text=}")
         return target_text, pred_text
     
     def training_step(self, batch, batch_idx):
@@ -713,8 +720,8 @@ trainer = pl.Trainer(
     limit_train_batches=limit_train_batches,
     limit_val_batches=limit_val_batches,
     strategy=strategy,
-    use_distributed_sampler=False # we need to make a custom distributed sampler
-    
+    use_distributed_sampler=False, # we need to make a custom distributed sampler
+    num_sanity_val_steps=num_sanity_val_steps
     # strategy='fsdp', # errors on CTC loss being used on half-precision.
     # also model only ~250MB of params, so fsdp may be overkill
     
@@ -735,8 +742,9 @@ logging.info('about to fit')
 # trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
 # note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
 # we should prob transfer this data to $LOCAL_SCRATCH first...
-trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
-            val_dataloaders=datamodule.val_dataloader()) 
+trainer.fit(model, datamodule=datamodule) 
+# trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
+#             val_dataloaders=datamodule.val_dataloader()) 
 
 if log_neptune:
     trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt"))

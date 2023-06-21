@@ -196,12 +196,10 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         
         rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
 
-        if rank_key not in os.environ:
-            print("WARNING: RANK not in environment, setting to 0. If you are running single GPU, this is fine.")
-        else:
-            print(f"Launching dataloader on Rank: {os.environ[rank_key]}")
-
         self.rank = int(os.environ[rank_key]) if rank_key in os.environ else 0
+        
+        print(f"Initializing dataloader on Rank: {self.rank}")
+
         self.epoch = 0
         self.seed = seed
         
@@ -232,7 +230,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             emg_val:torch.utils.data.Dataset, emg_test:torch.utils.data.Dataset,
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
-            bz:int=64, num_workers:int=0,
+            bz:int=64, num_replicas:int=1, num_workers:int=0,
             TrainBatchSampler:torch.utils.data.Sampler=StratifiedBatchSampler,
             ValSampler:torch.utils.data.Sampler=None,
             TestSampler:torch.utils.data.Sampler=None,
@@ -251,7 +249,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             
         Gaddy's data has 1289 EMG-only examples (16%), and 6766 EMG & Audio examples (84%).
         """
-
+        super().__init__()
         self.train = torch.utils.data.ConcatDataset([
             emg_train, speech_train
         ])
@@ -280,9 +278,13 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         self.ValSampler = ValSampler
         self.TestlSampler = TestSampler
         self.collate_fn = collate_gaddy_or_speech
-        self.bz = bz
+        self.val_bz = bz // num_replicas
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        
+        # self.prepare_data_per_node = False # we don't prepare data here
+        # # https://github.com/Lightning-AI/lightning/pull/16712#discussion_r1237629807
+        # self._log_hyperparams = False
         
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -299,14 +301,14 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             collate_fn=self.collate_fn,
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
-            batch_size=self.bz,
-            sampler=self.ValSampler
+            batch_size=self.val_bz,
+            sampler=self.ValSampler()
         )
         
     def test_dataloader(self):
         return torch.utils.data.DataLoader(
             self.test,
             collate_fn=self.collate_fn,
-            batch_size=self.bz,
-            sampler=self.TestSampler
+            batch_size=self.val_bz,
+            sampler=self.TestSampler()
         )
