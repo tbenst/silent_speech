@@ -34,6 +34,7 @@ import neptune.new as neptune, shutil
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler, PassThroughProfiler
+from pytorch_lightning.strategies import DDPStrategy
 from data_utils import TextTransform
 from typing import List
 from collections import defaultdict
@@ -138,7 +139,8 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
 # bz = 128 # OOM on 4 GPU
 # bz = 96 # OOM on 4 GPU
-bz = 64 # OOM on 4 GPU
+# bz = 64 # OOM on 4 GPU
+bz = 48
 # bz = 32
 # bz = 48  # OOM at epoch 36
 # bz = 32 # 6:30 for epoch 1 (1 GPUs)
@@ -648,7 +650,11 @@ trainer = pl.Trainer(
     # limit_train_batches=2,
     # limit_val_batches=2,
     # strategy='ddp_find_unused_parameters_true',
-    strategy='fsdp',
+    strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
+    
+    # strategy='fsdp', # errors on CTC loss being used on half-precision.
+    # also model only ~250MB of params, so fsdp may be overkill
+    
     use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
