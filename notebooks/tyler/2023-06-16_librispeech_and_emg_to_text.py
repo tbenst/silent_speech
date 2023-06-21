@@ -662,10 +662,18 @@ else:
 
 # TODO: at epoch 22 validation seems to massively slow down...?
 # may be due to neptune...? (saw freeze on two models at same time...)
+if NUM_GPUS > 1:
+    devices = 'auto'
+    strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True)
+elif NUM_GPUS == 1:
+    devices = [0]
+    strategy = 'auto'
+else:
+    devices = 'auto'
+    strategy = 'auto'
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
-    # devices="auto",
-    devices=[0],
+    devices=devices,
     accelerator="gpu",
     # accelerator="cpu",
     gradient_clip_val=0.5,
@@ -675,8 +683,8 @@ trainer = pl.Trainer(
     precision=config.precision,
     # limit_train_batches=2,
     # limit_val_batches=2,
-    # strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
-    # use_distributed_sampler=False # we need to make a custom distributed sampler
+    strategy=strategy,
+    use_distributed_sampler=False # we need to make a custom distributed sampler
     
     # strategy='fsdp', # errors on CTC loss being used on half-precision.
     # also model only ~250MB of params, so fsdp may be overkill
