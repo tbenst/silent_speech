@@ -433,13 +433,13 @@ class SpeechOrEMGToText(Model):
             emg_ctc_loss = self.ctc_loss(emg_pred, y_emg, length_emg, y_length_emg)
         else:
             logging.info("emg_pred is None")
-            emg_ctc_loss = 0
+            emg_ctc_loss = 0.
         
         if audio_pred is not None:
             audio_ctc_loss = self.ctc_loss(audio_pred, y_audio, length_audio, y_length_audio)
         else:
             logging.info("audio_pred is None")
-            audio_ctc_loss = 0
+            audio_ctc_loss = 0.
             
         both_emg_pred, both_audio_pred, both_emg_latent, both_audio_latent = None, None, None, None
         if both_pred is not None:
@@ -456,8 +456,8 @@ class SpeechOrEMGToText(Model):
             
         else:
             logging.info("both_pred is None")
-            both_ctc_loss = 0
-            both_latent_match_loss = 0
+            both_ctc_loss = 0.
+            both_latent_match_loss = 0.
         # assert audio_pred is None, f'Audio only not implemented, got {audio_pred=}'
 
         loss = emg_ctc_loss + audio_ctc_loss + both_ctc_loss + both_latent_match_loss
