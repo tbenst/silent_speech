@@ -148,9 +148,11 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 48  # OOM at epoch 36
 # bz = 32 # ~15:30 for epoch 1 (1 GPUs w/ num_workers=0 )
 # bz = 32 # 7:30 for epoch 1 (1 GPUs w/ num_workers=32)
-bz = 128 # 6:20 per epoch
+bz = 128 # 6:20 per epoch (0 workers)
+# bz = 128 # 11:14 epoch 0, 4:47 epoch 1 (8 workers)
+# TODO: validation is really slow with distributed, maybe we should just do it on one GPU, somehow..?
+# OR better, let's actually use all 4 GPUs with not-shitty batch size ;)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
-# TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 # num_workers=8 # I think that's 8 per GPU..?
 NUM_GPUS = 4
@@ -362,7 +364,12 @@ class SpeechOrEMGToText(Model):
         return emg_pred, audio_pred, emg_latent, audio_latent
     
     def forward(self, tasks:List[Task], emg:List[torch.Tensor], audio:List[torch.Tensor]):
-        "Group x by task and predict characters for the batch."
+        """Group x by task and predict characters for the batch.
+        
+        Note that forward will call combine_fixed_length, re-splitting the batch into
+        self.seqlen chunks. I believe this is done to avoid having to pad the batch to the max,
+        which also may quadratically reduce memory usage due to attention. This is prob okay for
+        training, but for inference we want to use the full sequence length."""
         # group by task
         task_emg = []
         task_audio = []
@@ -562,6 +569,8 @@ class SpeechOrEMGToText(Model):
     #     print("on_after_backward exit")
 
     def validation_step(self, batch, batch_idx):
+        # TODO: we should support batch size > 1 for validation
+        # can roughly double train speed if we implement this
         assert len(batch['raw_emg']) == 1, "Currently only support batch size of 1 for validation"
         c = self.calc_loss(batch)
         loss = c['loss']
@@ -711,6 +720,6 @@ trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
 
 if log_neptune:
-    trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
+    trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt"))
 ##
 # TODO: run again now that we fixed num_replicas in DistributedStratifiedBatchSampler
