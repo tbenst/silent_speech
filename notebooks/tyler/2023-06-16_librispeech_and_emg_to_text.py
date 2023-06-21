@@ -141,10 +141,12 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 128
 # bz = 96
 # bz = 64
-bz = 48
+
+# OOM w/ 4 GPUs
+# bz = 48 # memory usage is massive on GPU 0 (32GB), but not on GPU 1 (13GB) or 2 (12GB) or 3 (11GB)
 # bz = 32
 # bz = 48  # OOM at epoch 36
-# bz = 32 # 6:30 for epoch 1 (1 GPUs)
+bz = 32 # 6:30 for epoch 1 (1 GPUs)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
@@ -155,7 +157,7 @@ NUM_GPUS = 4
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz, pin_memory=(not DEBUG),
     num_workers=num_workers,
-    BatchSamplerClass=partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS),
+    # BatchSamplerClass=partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS),
 )
 steps_per_epoch = len(datamodule.train_dataloader())
 print(steps_per_epoch)
@@ -641,8 +643,8 @@ else:
 # may be due to neptune...? (saw freeze on two models at same time...)
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
-    devices="auto",
-    # devices=[0],
+    # devices="auto",
+    devices=[0],
     accelerator="gpu",
     # accelerator="cpu",
     gradient_clip_val=0.5,
@@ -652,13 +654,12 @@ trainer = pl.Trainer(
     precision=config.precision,
     # limit_train_batches=2,
     # limit_val_batches=2,
-    # strategy='ddp_find_unused_parameters_true',
-    strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
+    # strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True),
+    # use_distributed_sampler=False # we need to make a custom distributed sampler
     
     # strategy='fsdp', # errors on CTC loss being used on half-precision.
     # also model only ~250MB of params, so fsdp may be overkill
     
-    use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
 
