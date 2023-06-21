@@ -190,7 +190,7 @@ if NUM_GPUS > 1:
     # num_workers=0 # nccl backend doesn't support num_workers>0
     num_workers=8
     rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
-    bz = 32 * NUM_GPUS
+    bz = 24 * NUM_GPUS
     if rank_key not in os.environ:
         rank = 0
     else:
@@ -211,7 +211,7 @@ if NUM_GPUS > 1:
 else:
     TrainBatchSampler = StratifiedBatchSampler
     num_workers=32
-    bz = 32
+    bz = 24
     ValSampler = None
     TestSampler = None
 
