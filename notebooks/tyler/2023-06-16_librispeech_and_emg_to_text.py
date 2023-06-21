@@ -146,14 +146,30 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 48 # memory usage is massive on GPU 0 (32GB), but not on GPU 1 (13GB) or 2 (12GB) or 3 (11GB)
 # bz = 32
 # bz = 48  # OOM at epoch 36
-bz = 32 # 6:30 for epoch 1 (1 GPUs)
+bz = 32 # 15:30 for epoch 1 (1 GPUs)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 # num_workers=8 # I think that's 8 per GPU..?
-num_workers=0 # nccl backend doesn't support num_workers>0
-NUM_GPUS = 4
+NUM_GPUS = 1
 # TODO: try prefetch_factor=4 for dataloader
+# TODO:
+if NUM_GPUS > 1:
+    num_workers=0 # nccl backend doesn't support num_workers>0
+    rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
+
+    if rank_key not in os.environ:
+        rank = 0
+        print("WARNING: RANK not in environment, setting to 0. If you are running single GPU, this is fine.")
+    else:
+        print(f"Setting CUDA Device on Rank: {os.environ[rank_key]}")
+        rank = int(os.environ[rank_key])
+
+    torch.cuda.set_device(rank)
+    torch.cuda.empty_cache()
+else:
+    num_workers=32
+
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz, pin_memory=(not DEBUG),
     num_workers=num_workers,
