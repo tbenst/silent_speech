@@ -6,7 +6,6 @@
 ##
 import pytorch_lightning as pl
 import os, pickle
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import sys
 import numpy as np
 import logging
@@ -137,9 +136,9 @@ logging.basicConfig(handlers=[
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
-# bz = 64
+bz = 128
 # bz = 48  # OOM at epoch 36
-bz = 32
+# bz = 32 # 6:30 for epoch 1 (1 GPUs)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
