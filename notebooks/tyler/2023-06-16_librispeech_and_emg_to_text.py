@@ -43,7 +43,7 @@ from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, DistributedStratifiedBatchSampler
 from datasets import load_dataset
 
-DEBUG = True
+DEBUG = False
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -486,7 +486,7 @@ class SpeechOrEMGToText(Model):
         pred  = self.emg_forward(X).cpu()
 
         beam_results = self.ctc_decoder(pred)
-        print(f"{beam_results=}")
+        # print(f"{beam_results=}")
         pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
         
         target_text  = self.text_transform.clean_2(batch['text'][0])
@@ -540,12 +540,12 @@ class SpeechOrEMGToText(Model):
         bz = c['bz']
 
         target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
-        print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
+        # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
-            if batch_idx % 40 == 0 and type(self.logger) == pl.loggers.NeptuneLogger:
-                # log approx 5 examples
+            if batch_idx % 20 == 0 and type(self.logger) == pl.loggers.NeptuneLogger:
+                # log approx 10 examples
                 self.logger.experiment["val/sentence_target"].append(target_text)
                 self.logger.experiment["val/sentence_pred"].append(pred_text)
             
