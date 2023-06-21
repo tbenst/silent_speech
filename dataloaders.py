@@ -226,7 +226,8 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
             bz:int=64, num_workers:int=0, BatchSamplerClass=StratifiedBatchSampler,
-            batch_class_proportions:np.ndarray=np.array([0.08, 0.42, 0.5])
+            batch_class_proportions:np.ndarray=np.array([0.08, 0.42, 0.5]),
+            pin_memory:bool=True
             ):
         """Given an EMG data module and a speech dataset, create a new data module.
 
@@ -269,12 +270,13 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         self.collate_fn = collate_gaddy_or_speech
         self.bz = bz
         self.num_workers = num_workers
+        self.pin_memory = pin_memory
         
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
             self.train,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=self.pin_memory,
             num_workers=self.num_workers,
             batch_sampler=self.batch_sampler
         )
@@ -283,7 +285,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         return torch.utils.data.DataLoader(
             self.val,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=self.pin_memory,
             num_workers=self.num_workers,
             batch_size=1
         )

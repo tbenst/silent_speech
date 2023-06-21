@@ -504,7 +504,8 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
 class EMGDataModule(pl.LightningDataModule):
     def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=None,
                  max_len=128000, num_workers=0, batch_sampler=True, shuffle=None,
-                 batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset) -> None:
+                 batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
+                 pin_memory=True) -> None:
         super().__init__()
         self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
                                         togglePhones = togglePhones, normalizers_file = normalizers_file)
@@ -521,6 +522,7 @@ class EMGDataModule(pl.LightningDataModule):
         self.drop_last = drop_last
         self.collate_fn = collate_fn
         self.shuffle = shuffle
+        self.pin_memory = pin_memory
         
     def train_dataloader(self):
         collate_fn = self.collate_fn if self.collate_fn is not None else self.train.collate_raw
@@ -532,7 +534,7 @@ class EMGDataModule(pl.LightningDataModule):
             drop_last = self.drop_last,
             num_workers = self.num_workers,
             batch_size = self.batch_size,
-            pin_memory = True,
+            pin_memory = self.pin_memory,
             batch_sampler = batch_sampler
         )
             
@@ -548,7 +550,7 @@ class EMGDataModule(pl.LightningDataModule):
                 collate_fn = collate_fn,
                 num_workers = self.num_workers,
                 batch_size = self.batch_size,
-                pin_memory = True,
+                pin_memory = self.pin_memory,
                 batch_sampler = batch_sampler
             )
         else:
@@ -557,7 +559,7 @@ class EMGDataModule(pl.LightningDataModule):
                 collate_fn = collate_fn,
                 num_workers = self.num_workers,
                 batch_size = self.batch_size,
-                pin_memory = True,
+                pin_memory = self.pin_memory,
             )
         return loader
 
@@ -570,7 +572,7 @@ class EMGDataModule(pl.LightningDataModule):
                 collate_fn = collate_fn,
                 num_workers=self.num_workers,
                 batch_size = self.batch_size,
-                pin_memory = True,
+                pin_memory = self.pin_memory,
                 batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
             )
         else:
@@ -579,7 +581,7 @@ class EMGDataModule(pl.LightningDataModule):
                 collate_fn = collate_fn,
                 num_workers=self.num_workers,
                 batch_size = self.batch_size,
-                pin_memory = True,
+                pin_memory = self.pin_memory,
             )
         return loader
 

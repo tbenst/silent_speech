@@ -6,6 +6,7 @@
 ##
 import pytorch_lightning as pl
 import os, pickle
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import sys
 import numpy as np
 import logging
@@ -18,7 +19,6 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torchaudio.models.decoder import ctc_decoder
 
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
@@ -42,6 +42,8 @@ from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, DistributedStratifiedBatchSampler
 from datasets import load_dataset
+
+DEBUG = True
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -87,7 +89,8 @@ if ON_SHERLOCK:
     data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 
-emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
+emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
+    pin_memory=(not DEBUG))
 emg_train = emg_datamodule.train
 
 mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
@@ -113,14 +116,16 @@ output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 ##
 auto_lr_find = False
 max_len = 128000 * 2
-log_neptune = True
-# log_neptune = False
-# log_neptune = False
+
 # precision = 32
 learning_rate = 3e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False
 
+if DEBUG:
+    log_neptune = False
+else:
+    log_neptune = True
 ##
 
 os.makedirs(output_directory, exist_ok=True)
@@ -132,14 +137,16 @@ logging.basicConfig(handlers=[
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
-bz = 64 # with ddp, 4:52 (bz is per GPU...)
+# bz = 64
+# bz = 48  # OOM at epoch 36
+bz = 32
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 num_workers=8 # I think that's 8 per GPU..?
 # TODO: try prefetch_factor=4 for dataloader
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
-    bz=bz,
+    bz=bz, pin_memory=(not DEBUG),
     num_workers=num_workers, BatchSamplerClass=DistributedStratifiedBatchSampler
 )
 steps_per_epoch = len(datamodule.train_dataloader())
@@ -153,6 +160,15 @@ print(steps_per_epoch)
 # steps_per_epoch, epochs, lm_directory, lr=3e-4,
 #                 learning_rate_warmup = 1000, 
 # model_size, dropout, num_layers, num_outs, 
+
+if DEBUG:
+    n_epochs = 2
+    # precision = "32"
+else:
+    n_epochs = 200
+    precision = "16-mixed"
+
+precision = "16-mixed"
 
 @dataclass
 class SpeechOrEMGToTextConfig:
@@ -172,12 +188,11 @@ class SpeechOrEMGToTextConfig:
     # batch_size:int = 32
     # batch_size:int = 2
     num_workers:int = num_workers
-    num_train_epochs:int = 200
+    num_train_epochs:int = n_epochs
     gradient_accumulation_steps:int = 1
     sample_rate:int = 16000
-    precision:str = "16-mixed"
+    precision:str = precision
     seqlen:int = 600
-    # precision:str = "32"
     attn_layers:int = 6
     # d_model:int = 256
     d_model:int = 768 # original Gaddy
@@ -466,13 +481,15 @@ class SpeechOrEMGToText(Model):
     
     def _beam_search_step(self, batch):
         "Repeatedly called by validation_step & test_step. Impure function!"
-        X = batch['raw_emg'][0].unsqueeze(0)
+        X = batch['raw_emg'][0].unsqueeze(0) 
+
         pred  = self.emg_forward(X).cpu()
 
         beam_results = self.ctc_decoder(pred)
-        pred_int     = beam_results[0][0].tokens
+        print(f"{beam_results=}")
         pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
-        target_text  = self.text_transform.clean_2(batch['text'][0][0])
+        
+        target_text  = self.text_transform.clean_2(batch['text'][0])
 
         return target_text, pred_text
     
@@ -513,6 +530,7 @@ class SpeechOrEMGToText(Model):
     #     print("on_after_backward exit")
 
     def validation_step(self, batch, batch_idx):
+        assert len(batch['raw_emg']) == 1, "Currently only support batch size of 1 for validation"
         c = self.calc_loss(batch)
         loss = c['loss']
         emg_ctc_loss = c['emg_ctc_loss']
@@ -522,11 +540,11 @@ class SpeechOrEMGToText(Model):
         bz = c['bz']
 
         target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
-        assert len(batch['raw_emg']) == 1, "Currently only support batch size of 1 for validation"
+        print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
-            if batch_idx % 40 == 0:
+            if batch_idx % 40 == 0 and type(self.logger) == pl.loggers.NeptuneLogger:
                 # log approx 5 examples
                 self.logger.experiment["val/sentence_target"].append(target_text)
                 self.logger.experiment["val/sentence_pred"].append(pred_text)
@@ -615,18 +633,17 @@ else:
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
     devices="auto",
-    # devices=[1],
+    # devices=[0],
     accelerator="gpu",
-    # QUESTION: Gaddy accumulates grads from two batches, then does clip_grad_norm_
-    # are we clipping first then addiing? (prob doesn't matter...)
-    # gradient_clip_val=0.5,
+    # accelerator="cpu",
     gradient_clip_val=0.5,
     logger=neptune_logger,
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    strategy='ddp_find_unused_parameters_true',
-    # strategy='ddp',
+    # limit_train_batches=2,
+    # limit_val_batches=2,
+    strategy='ddp_find_unused_parameters_true', # crashes after validation finishes
     use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
@@ -647,5 +664,7 @@ logging.info('about to fit')
 # we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
-trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
+
+if log_neptune:
+    trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
 ##

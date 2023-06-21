@@ -178,10 +178,12 @@ class Model(pl.LightningModule):
         x = x.transpose(0,1)
 
         if self.has_aux_out:
-            return self.w_out(x), self.w_aux(x)
+            aux_out = self.w_aux(x)
+        
+        x = F.log_softmax(self.w_out(x), -1)
+        if self.has_aux_out:
+            return x, aux_out
         else:
-            x = self.w_out(x)
-            # print(f"after w_out: {x.shape=}")
             return x
         # before conv: x_raw.shape=torch.Size([4, 8, 4800])
         # after conv: x_raw.shape=torch.Size([4, 768, 600])
@@ -210,7 +212,6 @@ class Model(pl.LightningModule):
         bz = X.shape[0]
     
         pred = self(X_raw)
-        pred = F.log_softmax(pred, 2)
 
         # seq first, as required by ctc
         pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, batch['lengths']), batch_first=False) 
@@ -227,15 +228,14 @@ class Model(pl.LightningModule):
     
     def _beam_search_step(self, batch):
         "Repeatedly called by validation_step & test_step. Impure function!"
-        X     = batch['emg'][0].unsqueeze(0)
         X_raw = batch['raw_emg'][0].unsqueeze(0)
 
-        pred  = F.log_softmax(self(X_raw), -1).cpu()
+        pred  = self(X_raw).cpu()
 
         beam_results = self.ctc_decoder(pred)
-        pred_int     = beam_results[0][0].tokens
         pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
-        target_text  = self.text_transform.clean_2(batch['text'][0][0])
+        # Only index once. 
+        target_text  = self.text_transform.clean_2(batch['text'][0])
 
         return target_text, pred_text
     
