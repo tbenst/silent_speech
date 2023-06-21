@@ -42,6 +42,7 @@ from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, DistributedStratifiedBatchSampler
 from datasets import load_dataset
+from functools import partial
 
 DEBUG = False
 
@@ -137,10 +138,10 @@ logging.basicConfig(handlers=[
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
-# bz = 128 # OOM on 4 GPU
-# bz = 96 # OOM on 4 GPU
-# bz = 64 # OOM on 4 GPU
-bz = 48
+bz = 128
+# bz = 96
+# bz = 64
+# bz = 48
 # bz = 32
 # bz = 48  # OOM at epoch 36
 # bz = 32 # 6:30 for epoch 1 (1 GPUs)
@@ -149,10 +150,12 @@ bz = 48
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 # num_workers=8 # I think that's 8 per GPU..?
 num_workers=0 # nccl backend doesn't support num_workers>0
+NUM_GPUS = 4
 # TODO: try prefetch_factor=4 for dataloader
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz, pin_memory=(not DEBUG),
-    num_workers=num_workers, BatchSamplerClass=DistributedStratifiedBatchSampler
+    num_workers=num_workers,
+    BatchSamplerClass=partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS),
 )
 steps_per_epoch = len(datamodule.train_dataloader())
 print(steps_per_epoch)

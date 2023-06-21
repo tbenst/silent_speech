@@ -178,7 +178,10 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
     If we run out of examples of a given class, we stop yielding batches.
     """
     def __init__(self, classes:np.ndarray, class_proportion:np.ndarray,
-                 batch_size:int, shuffle:bool=True, drop_last:bool=False, seed:int=61923):        
+                 batch_size:int, shuffle:bool=True, drop_last:bool=False, seed:int=61923,
+                 num_replicas:int=None):        
+        if num_replicas is None:
+            raise ValueError("num_replicas must be specified")
         self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
         assert batch_size % self.num_replicas == 0, "Batch size must be divisible by number of GPUs"
         internal_bz = batch_size // self.num_replicas
