@@ -46,7 +46,7 @@ from datasets import load_dataset
 from functools import partial
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 
 if DEBUG:
     NUM_GPUS = 1
