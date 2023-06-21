@@ -239,6 +239,14 @@ class Model(pl.LightningModule):
 
         return target_text, pred_text
     
+    def on_train_epoch_start(self):
+        # bad separation of concerns / composability,
+        # but this seems forced by pytorch lightning
+        # maybe should use Fabric in the future..
+        if self.trainer.datamodule is not None:
+            if hasattr(self.trainer.datamodule, 'TrainSampler'):
+                self.trainer.datamodule.TrainSampler.set_epoch(self.current_epoch)
+    
     def training_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz)

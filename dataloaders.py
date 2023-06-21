@@ -151,6 +151,11 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
 
         self.num_batches = int(np.floor(np.min(self.num_examples_per_class / self.class_n_per_batch)))
         self.drop_last = drop_last # not used
+
+        self.epoch = 0 # not used by base class
+    
+    def set_epoch(self, epoch:int):
+        self.epoch = epoch
         
     def __iter__(self):
         if self.shuffle:
@@ -200,7 +205,6 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         
         print(f"Initializing dataloader on Rank: {self.rank}")
 
-        self.epoch = 0
         self.seed = seed
         
     def __iter__(self):
@@ -276,7 +280,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         # TODO: could make this more general when need arises
         self.TrainSampler = TrainBatchSampler(classes, batch_class_proportions, bz)
         self.ValSampler = ValSampler
-        self.TestlSampler = TestSampler
+        self.TestSampler = TestSampler
         self.collate_fn = collate_gaddy_or_speech
         self.val_bz = bz // num_replicas
         self.num_workers = num_workers
@@ -285,6 +289,17 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         # self.prepare_data_per_node = False # we don't prepare data here
         # # https://github.com/Lightning-AI/lightning/pull/16712#discussion_r1237629807
         # self._log_hyperparams = False
+        
+    def setup(self, stage=None):
+        if self.ValSampler is None:
+            self.val_sampler = None
+        else:
+            self.val_sampler = self.ValSampler()
+
+        if self.TestSampler is None:
+            self.test_sampler = None
+        else:
+            self.test_sampler = self.TestSampler()
         
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -302,7 +317,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
             batch_size=self.val_bz,
-            sampler=self.ValSampler()
+            sampler=self.val_sampler
         )
         
     def test_dataloader(self):
@@ -310,5 +325,5 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             self.test,
             collate_fn=self.collate_fn,
             batch_size=self.val_bz,
-            sampler=self.TestSampler()
+            sampler=self.test_sampler
         )
