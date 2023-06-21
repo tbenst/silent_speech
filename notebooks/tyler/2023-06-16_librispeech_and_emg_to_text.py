@@ -48,6 +48,11 @@ from functools import partial
 DEBUG = False
 # DEBUG = True
 
+# When using 4 GPUs, bz=128, grad_accum=1,
+# one epoch takes 4:57 and validation takes 2:51
+# unfortunately there is a ton of downtime between epoch so total time is 8:30
+# also, we got OOM on GPU 2 at the end of epoch 6
+
 if DEBUG:
     NUM_GPUS = 1
     limit_train_batches = 2
@@ -58,6 +63,7 @@ if DEBUG:
     # precision = "32"
     precision = "16-mixed"
     num_sanity_val_steps = 2
+    grad_accum = 1
 else:
     NUM_GPUS = 4
     limit_train_batches = None
@@ -67,7 +73,10 @@ else:
     n_epochs = 200
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
+    grad_accum = 1
 
+NUM_GPUS = 1
+grad_accum = 4
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -247,7 +256,7 @@ class SpeechOrEMGToTextConfig:
     # batch_size:int = 2
     num_workers:int = num_workers
     num_train_epochs:int = n_epochs
-    gradient_accumulation_steps:int = 1
+    gradient_accumulation_steps:int = grad_accum
     sample_rate:int = 16000
     precision:str = precision
     seqlen:int = 600
