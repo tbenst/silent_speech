@@ -148,7 +148,7 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 48  # OOM at epoch 36
 # bz = 32 # ~15:30 for epoch 1 (1 GPUs w/ num_workers=0 )
 # bz = 32 # 7:30 for epoch 1 (1 GPUs w/ num_workers=32)
-bz = 128
+bz = 128 # 6:20 per epoch
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
@@ -157,7 +157,8 @@ NUM_GPUS = 4
 # TODO: try prefetch_factor=4 for dataloader
 # TODO:
 if NUM_GPUS > 1:
-    num_workers=0 # nccl backend doesn't support num_workers>0
+    # num_workers=0 # nccl backend doesn't support num_workers>0
+    num_workers=8
     rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
 
     if rank_key not in os.environ:
