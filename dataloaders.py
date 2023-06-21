@@ -182,7 +182,8 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
                  num_replicas:int=None):        
         if num_replicas is None:
             raise ValueError("num_replicas must be specified")
-        self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+        # self.num_replicas = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+        self.num_replicas = num_replicas
         assert batch_size % self.num_replicas == 0, "Batch size must be divisible by number of GPUs"
         internal_bz = batch_size // self.num_replicas
         super().__init__(classes, class_proportion, internal_bz, shuffle, drop_last)

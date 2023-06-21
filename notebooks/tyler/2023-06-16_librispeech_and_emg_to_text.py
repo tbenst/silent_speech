@@ -40,7 +40,7 @@ from typing import List
 from collections import defaultdict
 from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
-from dataloaders import LibrispeechDataset, EMGAndSpeechModule, DistributedStratifiedBatchSampler
+from dataloaders import LibrispeechDataset, EMGAndSpeechModule, DistributedStratifiedBatchSampler, StratifiedBatchSampler
 from datasets import load_dataset
 from functools import partial
 
@@ -146,12 +146,14 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 48 # memory usage is massive on GPU 0 (32GB), but not on GPU 1 (13GB) or 2 (12GB) or 3 (11GB)
 # bz = 32
 # bz = 48  # OOM at epoch 36
-bz = 32 # 15:30 for epoch 1 (1 GPUs)
+# bz = 32 # ~15:30 for epoch 1 (1 GPUs w/ num_workers=0 )
+# bz = 32 # 7:30 for epoch 1 (1 GPUs w/ num_workers=32)
+bz = 128
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 # num_workers=8 # I think that's 8 per GPU..?
-NUM_GPUS = 1
+NUM_GPUS = 4
 # TODO: try prefetch_factor=4 for dataloader
 # TODO:
 if NUM_GPUS > 1:
@@ -167,13 +169,16 @@ if NUM_GPUS > 1:
 
     torch.cuda.set_device(rank)
     torch.cuda.empty_cache()
+    sampler = partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS)
 else:
+    sampler = StratifiedBatchSampler
     num_workers=32
+
 
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz, pin_memory=(not DEBUG),
     num_workers=num_workers,
-    # BatchSamplerClass=partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS),
+    BatchSamplerClass=sampler,
 )
 steps_per_epoch = len(datamodule.train_dataloader())
 print(steps_per_epoch)
@@ -529,8 +534,8 @@ class SpeechOrEMGToText(Model):
         bz = c['bz']
         both_emg_latent = c['both_emg_latent']
         both_audio_latent = c['both_audio_latent']
-        avg_emg_latent = torch.mean(both_emg_latent)
-        avg_audio_latent = torch.mean(both_audio_latent)
+        avg_emg_latent = torch.mean(torch.abs(both_emg_latent))
+        avg_audio_latent = torch.mean(torch.abs(both_audio_latent))
         
         self.log("train/loss", loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
@@ -699,3 +704,4 @@ trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
 if log_neptune:
     trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
 ##
+# TODO: run again now that we fixed num_replicas in DistributedStratifiedBatchSampler
