@@ -228,10 +228,14 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         return int(np.floor(self.num_batches / self.num_replicas))
 
 class EMGAndSpeechModule(pl.LightningDataModule):
-    def __init__(self, emg_data_module:pl.LightningDataModule,
+    def __init__(self, emg_train:torch.utils.data.Dataset,
+            emg_val:torch.utils.data.Dataset, emg_test:torch.utils.data.Dataset,
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
-            bz:int=64, num_workers:int=0, BatchSamplerClass=StratifiedBatchSampler,
+            bz:int=64, num_workers:int=0,
+            TrainBatchSampler:torch.utils.data.Sampler=StratifiedBatchSampler,
+            ValSampler:torch.utils.data.Sampler=None,
+            TestSampler:torch.utils.data.Sampler=None,
             batch_class_proportions:np.ndarray=np.array([0.08, 0.42, 0.5]),
             pin_memory:bool=True
             ):
@@ -248,19 +252,18 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         Gaddy's data has 1289 EMG-only examples (16%), and 6766 EMG & Audio examples (84%).
         """
 
-        emg_train = emg_data_module.train
         self.train = torch.utils.data.ConcatDataset([
             emg_train, speech_train
         ])
         train_emg_len = len(emg_train)
         
-        self.val = emg_data_module.val
+        self.val = emg_val
         # self.val = torch.utils.data.ConcatDataset([
         #     emg_data_module.val, speech_val
         # ])
         self.val_emg_len = len(self.val)
 
-        self.test  = emg_data_module.test        
+        self.test  = emg_test
         # self.test = torch.utils.data.ConcatDataset([
         #     emg_data_module.test, speech_test
         # ])
@@ -272,7 +275,10 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             if not b['silent']:
                 classes[i] = 1
     
-        self.batch_sampler = BatchSamplerClass(classes, batch_class_proportions, bz)
+        # TODO: could make this more general when need arises
+        self.TrainSampler = TrainBatchSampler(classes, batch_class_proportions, bz)
+        self.ValSampler = ValSampler
+        self.TestlSampler = TestSampler
         self.collate_fn = collate_gaddy_or_speech
         self.bz = bz
         self.num_workers = num_workers
@@ -284,7 +290,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             collate_fn=self.collate_fn,
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
-            batch_sampler=self.batch_sampler
+            batch_sampler=self.TrainSampler
         )
         
     def val_dataloader(self):
@@ -293,12 +299,14 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             collate_fn=self.collate_fn,
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
-            batch_size=1
+            batch_size=self.bz,
+            sampler=self.ValSampler
         )
         
     def test_dataloader(self):
         return torch.utils.data.DataLoader(
             self.test,
             collate_fn=self.collate_fn,
-            batch_size=1
+            batch_size=self.bz,
+            sampler=self.TestSampler
         )

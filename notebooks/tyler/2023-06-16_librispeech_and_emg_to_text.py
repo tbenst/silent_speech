@@ -17,6 +17,7 @@ from typing import List
 from dataclasses import dataclass
 import torch
 from torch import nn
+from torch.utils.data import DistributedSampler
 import torch.nn.functional as F
 
 # horrible hack to get around this repo not being a proper python package
@@ -45,6 +46,25 @@ from datasets import load_dataset
 from functools import partial
 
 DEBUG = False
+DEBUG = True
+
+if DEBUG:
+    NUM_GPUS = 1
+    limit_train_batches = 2
+    # limit_val_batches = 2 # will not run on_validation_epoch_end
+    limit_val_batches = None
+    log_neptune = False
+    n_epochs = 2
+    # precision = "32"
+    precision = "16-mixed"
+else:
+    NUM_GPUS = 4
+    limit_train_batches = None
+    limit_val_batches = None
+    log_neptune = True
+    n_epochs = 200
+    precision = "16-mixed"
+
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
@@ -90,8 +110,9 @@ if ON_SHERLOCK:
     data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 
+val_bz = 32
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
-    pin_memory=(not DEBUG))
+    pin_memory=(not DEBUG), batch_size=val_bz)
 emg_train = emg_datamodule.train
 
 mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
@@ -123,10 +144,6 @@ learning_rate = 3e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False
 
-if DEBUG:
-    log_neptune = False
-else:
-    log_neptune = True
 ##
 
 os.makedirs(output_directory, exist_ok=True)
@@ -148,21 +165,20 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 48  # OOM at epoch 36
 # bz = 32 # ~15:30 for epoch 1 (1 GPUs w/ num_workers=0 )
 # bz = 32 # 7:30 for epoch 1 (1 GPUs w/ num_workers=32)
-bz = 128 # 6:20 per epoch (0 workers)
+# bz = 128 # 6:20 per epoch (0 workers)
 # bz = 128 # 11:14 epoch 0, 4:47 epoch 1 (8 workers)
 # TODO: validation is really slow with distributed, maybe we should just do it on one GPU, somehow..?
 # OR better, let's actually use all 4 GPUs with not-shitty batch size ;)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 # num_workers=8 # I think that's 8 per GPU..?
-NUM_GPUS = 4
 # TODO: try prefetch_factor=4 for dataloader
 # TODO:
 if NUM_GPUS > 1:
     # num_workers=0 # nccl backend doesn't support num_workers>0
     num_workers=8
     rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
-
+    bz = 32 * NUM_GPUS
     if rank_key not in os.environ:
         rank = 0
         print("WARNING: RANK not in environment, setting to 0. If you are running single GPU, this is fine.")
@@ -172,16 +188,25 @@ if NUM_GPUS > 1:
 
     torch.cuda.set_device(rank)
     torch.cuda.empty_cache()
-    sampler = partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS)
+    TrainBatchSampler = partial(DistributedStratifiedBatchSampler, num_replicas=NUM_GPUS)
+    ValSampler = DistributedSampler(emg_datamodule.val, shuffle=False)
+    TestSampler = DistributedSampler(emg_datamodule.test, shuffle=False)
 else:
-    sampler = StratifiedBatchSampler
+    TrainBatchSampler = StratifiedBatchSampler
     num_workers=32
+    bz = 32
+    ValSampler = None
+    TestSampler = None
 
 
-datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
+datamodule =  EMGAndSpeechModule(emg_datamodule.train,
+    emg_datamodule.val, emg_datamodule.test,
+    speech_train, speech_val, speech_test,
     bz=bz, pin_memory=(not DEBUG),
     num_workers=num_workers,
-    BatchSamplerClass=sampler,
+    TrainBatchSampler=TrainBatchSampler,
+    ValSampler=ValSampler,
+    TestSampler=TestSampler,
 )
 steps_per_epoch = len(datamodule.train_dataloader())
 print(steps_per_epoch)
@@ -194,15 +219,6 @@ print(steps_per_epoch)
 # steps_per_epoch, epochs, lm_directory, lr=3e-4,
 #                 learning_rate_warmup = 1000, 
 # model_size, dropout, num_layers, num_outs, 
-
-if DEBUG:
-    n_epochs = 2
-    # precision = "32"
-else:
-    n_epochs = 200
-    precision = "16-mixed"
-
-precision = "16-mixed"
 
 @dataclass
 class SpeechOrEMGToTextConfig:
@@ -518,18 +534,23 @@ class SpeechOrEMGToText(Model):
             'bz': bz
         }
     
-    def _beam_search_step(self, batch):
-        "Repeatedly called by validation_step & test_step. Impure function!"
-        X = batch['raw_emg'][0].unsqueeze(0) 
+    def _beam_search_batch(self, batch):
+        "Repeatedly called by validation_step & test_step."
+        X = nn.utils.rnn.pad_sequence(batch['raw_emg'], batch_first=True)
+        # X = batch['raw_emg'][0].unsqueeze(0) 
 
         pred  = self.emg_forward(X).cpu()
 
         beam_results = self.ctc_decoder(pred)
         # print(f"{beam_results=}")
-        pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
+        # pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
+        # use top hypothesis from beam search
+        pred_text = [' '.join(b[0].words).strip().lower() for b in beam_results]
         
-        target_text  = self.text_transform.clean_2(batch['text'][0])
-
+        # target_text  = self.text_transform.clean_2(batch['text'][0])
+        target_text  = [self.text_transform.clean_2(b) for b in batch['text']]
+        
+        print(f"{target_text=}, {pred_text=}")
         return target_text, pred_text
     
     def training_step(self, batch, batch_idx):
@@ -569,9 +590,6 @@ class SpeechOrEMGToText(Model):
     #     print("on_after_backward exit")
 
     def validation_step(self, batch, batch_idx):
-        # TODO: we should support batch size > 1 for validation
-        # can roughly double train speed if we implement this
-        assert len(batch['raw_emg']) == 1, "Currently only support batch size of 1 for validation"
         c = self.calc_loss(batch)
         loss = c['loss']
         emg_ctc_loss = c['emg_ctc_loss']
@@ -580,16 +598,17 @@ class SpeechOrEMGToText(Model):
         both_latent_match_loss = c['both_latent_match_loss']
         bz = c['bz']
 
-        target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
+        target_texts, pred_texts = self._beam_search_batch(batch) # TODO: also validate on audio
         # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
-        if len(target_text) > 0:
-            self.step_target.append(target_text)
-            self.step_pred.append(pred_text)
-            # TODO: fix the type checking to actually work
-            if batch_idx % 20 == 0 and type(self.logger) == NeptuneLogger:
-                # log approx 10 examples
-                self.logger.experiment["val/sentence_target"].append(target_text)
-                self.logger.experiment["val/sentence_pred"].append(pred_text)
+        for i, (target_text, pred_text) in enumerate(zip(target_texts, pred_texts)):
+            if len(target_text) > 0:
+                self.step_target.append(target_text)
+                self.step_pred.append(pred_text)
+                # TODO: fix the type checking to actually work
+                if i % 16 == 0 and type(self.logger) == NeptuneLogger:
+                    # log approx 10 examples
+                    self.logger.experiment["val/sentence_target"].append(target_text)
+                    self.logger.experiment["val/sentence_pred"].append(pred_text)
             
         self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
         self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
@@ -609,7 +628,7 @@ class SpeechOrEMGToText(Model):
         both_latent_match_loss = c['both_latent_match_loss']
         bz = c['bz']
 
-        target_text, pred_text = self._beam_search_step(batch) # TODO: also validate on audio
+        target_text, pred_text = self._beam_search_batch(batch) # TODO: also validate on audio
         if len(target_text) > 0:
             self.step_target.append(target_text)
             self.step_pred.append(pred_text)
@@ -691,8 +710,8 @@ trainer = pl.Trainer(
     default_root_dir=output_directory,
     callbacks=callbacks,
     precision=config.precision,
-    # limit_train_batches=2,
-    # limit_val_batches=2,
+    limit_train_batches=limit_train_batches,
+    limit_val_batches=limit_val_batches,
     strategy=strategy,
     use_distributed_sampler=False # we need to make a custom distributed sampler
     
