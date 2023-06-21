@@ -194,6 +194,8 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
 
         if rank_key not in os.environ:
             print("WARNING: RANK not in environment, setting to 0. If you are running single GPU, this is fine.")
+        else:
+            print(f"Launching dataloader on Rank: {os.environ[rank_key]}")
 
         self.rank = int(os.environ[rank_key]) if rank_key in os.environ else 0
         self.epoch = 0
