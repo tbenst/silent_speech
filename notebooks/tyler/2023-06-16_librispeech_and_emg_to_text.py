@@ -138,7 +138,8 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
 # bz = 128 # OOM on 4 GPU
 # bz = 96 # OOM on 4 GPU
-bz = 64
+bz = 64 # OOM on 4 GPU
+# bz = 32
 # bz = 48  # OOM at epoch 36
 # bz = 32 # 6:30 for epoch 1 (1 GPUs)
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
@@ -645,7 +646,8 @@ trainer = pl.Trainer(
     precision=config.precision,
     # limit_train_batches=2,
     # limit_val_batches=2,
-    strategy='ddp_find_unused_parameters_true', # crashes after validation finishes
+    # strategy='ddp_find_unused_parameters_true',
+    strategy='fsdp',
     use_distributed_sampler=False # we need to make a custom distributed sampler
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
 )
