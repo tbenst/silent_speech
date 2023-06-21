@@ -295,7 +295,10 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(self):
         initial_lr = self.target_lr/self.learning_rate_warmup
-        optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
+        # optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
+        
+        # for FSDP
+        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr)
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
         #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)

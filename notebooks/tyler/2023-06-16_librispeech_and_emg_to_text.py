@@ -145,7 +145,8 @@ bz = 64 # OOM on 4 GPU
 # num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
 # TODO: why do I get a warning about only having 1 CPU...?
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
-num_workers=8 # I think that's 8 per GPU..?
+# num_workers=8 # I think that's 8 per GPU..?
+num_workers=0 # nccl backend doesn't support num_workers>0
 # TODO: try prefetch_factor=4 for dataloader
 datamodule =  EMGAndSpeechModule(emg_datamodule, speech_train, speech_val, speech_test,
     bz=bz, pin_memory=(not DEBUG),
