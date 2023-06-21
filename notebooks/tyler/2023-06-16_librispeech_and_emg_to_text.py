@@ -138,10 +138,10 @@ logging.basicConfig(handlers=[
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
 # bz = 96 # OOM after 25 steps
-bz = 128
+# bz = 128
 # bz = 96
 # bz = 64
-# bz = 48
+bz = 48
 # bz = 32
 # bz = 48  # OOM at epoch 36
 # bz = 32 # 6:30 for epoch 1 (1 GPUs)
