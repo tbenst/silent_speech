@@ -189,13 +189,13 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         
         if not dist.is_available():
             raise RuntimeError("Requires distributed package to be available")
+        
+        rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
 
-        if "RANK" not in os.environ:
-            print("WARNING: RANK not in environment, setting to 0")
-        else:
-            print(f"HURRAY! Got rank {os.environ['RANK']}")
+        if rank_key not in os.environ:
+            print("WARNING: RANK not in environment, setting to 0. If you are running single GPU, this is fine.")
 
-        self.rank = int(os.environ["RANK"]) if "RANK" in os.environ else 0
+        self.rank = int(os.environ[rank_key]) if rank_key in os.environ else 0
         self.epoch = 0
         self.seed = seed
         
