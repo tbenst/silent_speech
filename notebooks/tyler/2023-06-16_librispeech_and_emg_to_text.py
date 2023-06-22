@@ -53,6 +53,8 @@ DEBUG = False
 # unfortunately there is a ton of downtime between epoch so total time is 8:30
 # also, we got OOM on GPU 2 at the end of epoch 6
 
+# 1 GPU, bz=24, grad_accum=4, 1 epoch takes 7:40, validation takes 1:50
+
 if DEBUG:
     NUM_GPUS = 1
     limit_train_batches = 2
@@ -629,8 +631,9 @@ class SpeechOrEMGToText(Model):
         self.log("val/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
         self.log("val/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("val/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
-        self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
-        self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
+        # not validating on audio right now
+        # self.log("val/both_ctc_loss", both_ctc_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
+        # self.log("val/both_latent_match_loss", both_latent_match_loss, prog_bar=False, batch_size=bz[2], sync_dist=True)
         
 
         return loss

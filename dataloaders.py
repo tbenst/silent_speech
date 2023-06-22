@@ -1,6 +1,7 @@
 import torch, numpy as np, librosa, pickle, torchaudio, os, pytorch_lightning as pl
 from data_utils import mel_spectrogram
-import torch.distributed as dist
+import torch.distributed as dist, sys
+from tqdm import tqdm
 
 class LibrispeechDataset(torch.utils.data.Dataset):
     """
@@ -12,6 +13,7 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         mfcc_norm: an MFCCNormalizer object that normalizes MFCCs
     """
     def __init__(self, dataset, text_transform, mfcc_norm):
+        super().__init__()
         self.dataset = dataset
         self.text_transform = text_transform
         self.mfcc_norm = mfcc_norm
@@ -110,7 +112,33 @@ def collate_gaddy_or_speech(batch):
         'text_int': text_int,
         'text_int_lengths': text_int_lengths,
     }
-
+    
+class CachedDataset(torch.utils.data.Dataset):
+    def __init__(self, Dataset, cache_file, *args, **kwargs):
+        super().__init__()
+        self.cache_file = cache_file
+        
+        if os.path.exists(cache_file):
+            self.cache = pickle.load(open(cache_file, 'rb'))
+        else:
+            dset = Dataset(*args, **kwargs)
+            self.cache = []
+            self.populate_cache(dset)
+        
+    def populate_cache(self, dset):
+        N = len(dset)
+        sz = len(pickle.dumps(dset[0], protocol=pickle.HIGHEST_PROTOCOL))
+        print("Approximate memory usage of dataset: {} GB".format(N * sz / 1e9))
+        for data in tqdm(dset, desc='Caching dataset', total=N):
+            self.cache.append(data)
+        pickle.dump(self.cache, open(self.cache_file, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
+    
+    def __len__(self):
+        return len(self.cache)
+        
+    def __getitem__(self, index):
+        return self.cache[index]
+        
 class StratifiedBatchSampler(torch.utils.data.Sampler):
     """"Given the class of each example, sample batches without replacement
     with desired proportions of each class.

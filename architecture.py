@@ -268,6 +268,7 @@ class Model(pl.LightningModule):
         return loss
     
     def on_validation_epoch_end(self) -> None:
+        # TODO: this may not be implemented correctly for DDP
         step_target = []
         step_pred = []
         for t,p in zip(self.step_target, self.step_pred):
