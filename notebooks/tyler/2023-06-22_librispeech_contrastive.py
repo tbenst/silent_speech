@@ -122,6 +122,7 @@ if ON_SHERLOCK:
     data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 
+# TODO: should we go back to bz=1? need to benchmark. or maybe batch val by length
 val_bz = 32
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
     pin_memory=(not DEBUG), batch_size=val_bz)
