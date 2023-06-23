@@ -152,3 +152,46 @@ class DataAugmenter:
                     raise NotImplementedError("curr_augmentation == "+str(curr_augmentation)+" not recognized for application")
         
         return x
+    
+def pairwise_cos_sim(x, y):
+    """Batched cosine similarity matrix.
+    
+    Args:
+        x: B x N x D
+        y: B x M x D
+        returns: B x N x M matrix of cosine similarities between all pairs
+    """
+    x = F.normalize(x, dim=2)
+    y = F.normalize(y, dim=2)
+    return torch.bmm(x,y.permute(0,2,1))
+
+def cross_contrastive_loss(x,y, k=0.1, device='cpu'):
+    """Compute cross contrastive loss between two batches of embeddings.
+    
+    This diverges from the SimCLR paper in that we consider y_i to be a positive example of x_i, and vice versa,
+    such that we have 1 positive examples, and 2L-2 negative examples for each x_i and y_i.
+    
+    Args:
+        x: B x L x D
+        y: B x L x D
+        
+    """
+    B, L, D = x.shape
+    representations = torch.cat([x,y], dim=1)
+    
+    positives_mask = torch.zeros(L*2, L*2, dtype=bool, device=device)
+    torch.diagonal(positives_mask, offset=L).fill_(True) # x_i is a positive example of y_i
+    torch.diagonal(positives_mask, offset=-L).fill_(True) # y_i is a positive example of x_i
+    
+    negatives_mask = positives_mask.clone()
+    torch.diagonal(negatives_mask).fill_(True) # ignore self-similarity
+    negatives_mask = (~negatives_mask).float()
+    
+    similarity_matrix = pairwise_cos_sim(representations,representations) / k
+    positives = similarity_matrix[positives_mask.expand(B,-1,-1)] # now B*L*2
+    nominator = torch.exp(positives)
+    denominator = negatives_mask * torch.exp(similarity_matrix)
+    denominator = torch.sum(denominator, dim=1).reshape(B*L*2)
+    loss_partial = -torch.log(nominator / denominator)
+    loss = torch.mean(loss_partial)
+    return loss

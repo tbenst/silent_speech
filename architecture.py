@@ -311,9 +311,11 @@ class Model(pl.LightningModule):
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
         #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
-        # TODO: we assume a specific batch_size (32), but should allow different batch sizes
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-            milestones=[125 * 125, 150  * 125, 175 * 125], # ~125 steps @ accum gradient x 2 (249 batches)
+            milestones=[
+                125 * self.steps_per_epoch,
+                150  * self.steps_per_epoch,
+                175 * self.steps_per_epoch],
             gamma=.5)
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
 
