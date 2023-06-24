@@ -132,9 +132,13 @@ class SpeechOrEMGToTextConfig:
     precision:str = "16-mixed"
     seqlen:int = 600
     # precision:str = "32"
-    attn_layers:int = 8
+    attn_layers:int = 6
     # d_model:int = 256
     d_model:int = 768 # original Gaddy
+
+    # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
+    beta:float = 1 / np.sqrt(2) # adjust resnet initialization 
+
     # d_inner:int = 1024
     d_inner:int = 3072 # original Gaddy
     prenorm:bool = False
@@ -146,6 +150,7 @@ class SpeechOrEMGToTextConfig:
     max_len:int = max_len # maybe make smaller..?
     num_heads:int = 8
     lm_directory:str = lm_directory
+    output_directory:str = output_directory
 
 Task = Enum('Task', ['EMG', 'AUDIO', 'AUDIO_EMG'])
 
@@ -456,7 +461,7 @@ if log_neptune:
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
         mode="min",
-        dirpath=output_directory,
+        dirpath=config.output_directory,
         filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
     )
     callbacks.extend([
@@ -482,7 +487,7 @@ trainer = pl.Trainer(
     # are we clipping first then addiing? (prob doesn't matter...)
     gradient_clip_val=10,
     logger=neptune_logger,
-    default_root_dir=output_directory,
+    default_root_dir=config.output_directory,
     callbacks=callbacks,
     precision=config.precision,
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
@@ -504,5 +509,5 @@ logging.info('about to fit')
 # we should prob transfer this data to $LOCAL_SCRATCH first...
 trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
             val_dataloaders=datamodule.val_dataloader()) 
-trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.epochs}.ckpt"))
+trainer.save_checkpoint(os.path.join(config.output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt"))
 ##

@@ -53,3 +53,4 @@ evaluate
 transformers>=4.27.0
 flash-attn
 flashlight-text
+vector-quantize-pytorch
