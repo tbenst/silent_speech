@@ -212,7 +212,11 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
 # num_workers=8 # I think that's 8 per GPU..?
 # TODO: try prefetch_factor=4 for dataloader
-# TODO:
+
+# 2022/06/25: 2 GPUs ddp num_workers=0,8 is same w/ cached Librispeech
+# about 4:52 per epoch, 30s validation, <5:30 total
+# TODO: figure out what Gaddy batch size is by averaging dataloader
+# I think bz=20.6 with accum_grad=2 on average assuming 4.5s per example
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
@@ -226,7 +230,8 @@ else:
 
 if NUM_GPUS > 1:
     # num_workers=0 # nccl backend doesn't support num_workers>0
-    num_workers=8
+    # num_workers=8
+    num_workers=0
     rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
     bz = base_bz * NUM_GPUS
     if rank_key not in os.environ:

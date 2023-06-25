@@ -270,7 +270,8 @@ class EMGDataset(torch.utils.data.Dataset):
 
         self.no_normalizers = no_normalizers
         if not self.no_normalizers:
-            self.mfcc_norm, self.emg_norm = pickle.load(open(normalizers_file,'rb'))
+            with open(normalizers_file,'rb') as f:
+                self.mfcc_norm, self.emg_norm = pickle.load(f)
 
         sample_mfccs, sample_emg, _, _, _, _ = load_utterance(self.example_indices[0][0].directory, self.example_indices[0][1])
         self.num_speech_features = sample_mfccs.shape[1]
@@ -597,7 +598,8 @@ def make_normalizers(normalizers_file):
             break
     mfcc_norm = FeatureNormalizer(mfcc_samples, share_scale=True)
     emg_norm = FeatureNormalizer(emg_samples, share_scale=False)
-    pickle.dump((mfcc_norm, emg_norm), open(normalizers_file, 'wb'))
+    with open(normalizers_file, 'wb') as f:
+        pickle.dump((mfcc_norm, emg_norm), f)
 
 def ensure_folder_on_scratch(src, dst):
     "Check if folder exists on scratch, otherwise copy. Return new path."
