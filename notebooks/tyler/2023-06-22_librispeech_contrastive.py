@@ -48,6 +48,9 @@ from contrastive import cross_contrastive_loss
 DEBUG = False
 # DEBUG = True
 
+per_index_cache = True # read each index from disk separately
+# per_index_cache = False # read entire dataset from disk
+
 # When using 4 GPUs, bz=128, grad_accum=1,
 # one epoch takes 4:57 and validation takes 2:51
 # unfortunately there is a ton of downtime between epoch so total time is 8:30
@@ -77,7 +80,7 @@ else:
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     grad_accum = 1
 
-NUM_GPUS = 1
+NUM_GPUS = 2
 grad_accum = 4
 
 isotime = datetime.now().isoformat()
@@ -87,22 +90,33 @@ ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this in shell: export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'"
 
 # load our data file paths and metadata:
+
+if per_index_cache:
+    cache_suffix = "_per_index"
+else:
+    cache_suffix = ""
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["LOCAL_SCRATCH"]
     gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
-    librispeech_train_cache = os.path.join(os.environ["SCRATCH"], "librispeech_train_cache")
-    librispeech_val_cache = os.path.join(os.environ["SCRATCH"], "librispeech_val_cache")
-    librispeech_test_cache = os.path.join(os.environ["SCRATCH"], "librispeech_test_cache")
+    librispeech_train_cache = os.path.join(os.environ["SCRATCH"],
+        f"librispeech_train_cache{cache_suffix}")
+    librispeech_val_cache = os.path.join(os.environ["SCRATCH"],
+        f"librispeech_val_cache{cache_suffix}")
+    librispeech_test_cache = os.path.join(os.environ["SCRATCH"],
+        f"librispeech_test_cache{cache_suffix}")
 
 else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_cache")
-    librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_cache")
-    librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_cache")
+    librispeech_train_cache = os.path.join(scratch_directory,
+        f"librispeech_train_cache{cache_suffix}")
+    librispeech_val_cache = os.path.join(scratch_directory,
+        f"librispeech_val_cache{cache_suffix}")
+    librispeech_test_cache = os.path.join(scratch_directory,
+        f"librispeech_test_cache{cache_suffix}")
 
 
 
@@ -134,9 +148,12 @@ mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
 # right now actually need to run 2023-06-21_cache_librispeech.py to create the cache
 ##
 # after loading this + EMG, using 100GB of RAM
-speech_train = CachedDataset(LibrispeechDataset, librispeech_train_cache)
-speech_val = CachedDataset(LibrispeechDataset, librispeech_val_cache)
-speech_test =  CachedDataset(LibrispeechDataset, librispeech_test_cache)
+speech_train = CachedDataset(LibrispeechDataset, librispeech_train_cache,
+    per_index_cache=per_index_cache)
+speech_val = CachedDataset(LibrispeechDataset, librispeech_val_cache,
+    per_index_cache=per_index_cache)
+speech_test =  CachedDataset(LibrispeechDataset, librispeech_test_cache,
+    per_index_cache=per_index_cache)
 
 num_emg_train = len(emg_train)
 num_speech_train = len(speech_train)
@@ -196,11 +213,22 @@ n_chars = len(emg_datamodule.val.text_transform.chars)
 # num_workers=8 # I think that's 8 per GPU..?
 # TODO: try prefetch_factor=4 for dataloader
 # TODO:
+gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+
+if gpu_ram < 24:
+    # Titan RTX
+    base_bz = 16
+elif gpu_ram > 30:
+    # V100
+    base_bz = 24
+else:
+    raise ValueError("Unknown GPU")
+
 if NUM_GPUS > 1:
     # num_workers=0 # nccl backend doesn't support num_workers>0
     num_workers=8
     rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
-    bz = 24 * NUM_GPUS
+    bz = base_bz * NUM_GPUS
     if rank_key not in os.environ:
         rank = 0
     else:
@@ -222,7 +250,7 @@ else:
     TrainBatchSampler = StratifiedBatchSampler
     # num_workers=32
     num_workers=0 # prob better now that we're caching
-    bz = 24
+    bz = base_bz
     ValSampler = None
     TestSampler = None
 
@@ -259,8 +287,6 @@ class SpeechOrEMGToTextConfig:
     # learning_rate:float = 5e-4
     # learning_rate:float = 2e-5
     learning_rate:float = 3e-4 # also sets initial s4 lr
-    # scheduler_milestones:List[int] = [125 * 125, 150  * 125, 175 * 125], # ~125 steps @ accum gradient x 2 (249 batches)
-    scheduler_milestones:List[int] = [125 * 125, 150  * 125, 175 * 125], # ~125 steps @ accum gradient x 2 (249 batches)
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
@@ -296,7 +322,7 @@ class SpeechOrEMGToTextConfig:
     num_outs:int = n_chars+1
     max_len:int = max_len # maybe make smaller..?
     num_heads:int = 8
-    lm_directory:str = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
+    lm_directory:str = lm_directory
 
 Task = Enum('Task', ['EMG', 'AUDIO', 'AUDIO_EMG'])
 

@@ -114,30 +114,72 @@ def collate_gaddy_or_speech(batch):
     }
     
 class CachedDataset(torch.utils.data.Dataset):
-    def __init__(self, Dataset, cache_file, *args, **kwargs):
+    """Cache a dataset to disk via pickle."""
+    def __init__(self, Dataset, cache_path, per_index_cache=False, *args, **kwargs):
+        """
+        If per_index_cache is True, cache each index individually.
+        Otherwise, cache the whole dataset.
+        """
         super().__init__()
-        self.cache_file = cache_file
+        self.cache_path = cache_path
+        self.per_index_cache = per_index_cache
         
-        if os.path.exists(cache_file):
-            self.cache = pickle.load(open(cache_file, 'rb'))
+        if per_index_cache:
+            if os.path.isdir(cache_path):
+                self.len = len(os.listdir(cache_path))
+            else:
+                # cache each index individually to disk
+                dset = Dataset(*args, **kwargs)
+                self.len = len(dset)
+                self.cache_each_index(dset)           
         else:
-            dset = Dataset(*args, **kwargs)
-            self.cache = []
-            self.populate_cache(dset)
+            if os.path.isfile(cache_path):
+                # read entire dataset into memory
+                with open(cache_path, 'rb') as f:
+                    self.cache = pickle.load(f)
+            else:
+                # populate cache and save to file
+                dset = Dataset(*args, **kwargs)
+                self.cache = []
+                self.populate_cache(dset)
+            self.len = len(self.cache)
+
+    def approximate_memory_usage(self, dset):
+        sz = len(pickle.dumps(dset[0], protocol=pickle.HIGHEST_PROTOCOL))
+        gb = len(self.cache) * sz / 1e9
+        print("Approximate memory usage of dataset: {} GB".format(gb))
+        return gb
+
         
     def populate_cache(self, dset):
         N = len(dset)
-        sz = len(pickle.dumps(dset[0], protocol=pickle.HIGHEST_PROTOCOL))
-        print("Approximate memory usage of dataset: {} GB".format(N * sz / 1e9))
+        self.approximate_memory_usage(dset)
         for data in tqdm(dset, desc='Caching dataset', total=N):
             self.cache.append(data)
-        pickle.dump(self.cache, open(self.cache_file, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
+        
+        # save to file
+        with open(self.cache_file, 'wb') as f:
+            pickle.dump(self.cache, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def cache_each_index(self, dset):
+        N = len(dset)
+        self.approximate_memory_usage(dset)
+        for i in tqdm(range(N), desc='Caching each index', total=N):
+            data = dset[i]
+            idx_path = os.path.join(self.cache_path, f"{i}.pickle")
+            with open(idx_path, 'wb') as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
     
     def __len__(self):
-        return len(self.cache)
+        return self.len
         
     def __getitem__(self, index):
-        return self.cache[index]
+        if self.per_index_cache:
+            idx_path = os.path.join(self.cache_path, f"{index}.pickle")
+            with open(idx_path, 'rb') as f:
+                return pickle.load(f)
+        else:
+            return self.cache[index]
         
 class StratifiedBatchSampler(torch.utils.data.Sampler):
     """"Given the class of each example, sample batches without replacement

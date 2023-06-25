@@ -8,7 +8,7 @@ sys.path.append(SCRIPT_DIR)
 from data_utils import TextTransform
 from dataloaders import LibrispeechDataset, CachedDataset
 from datasets import load_dataset
-
+##
 librispeech_datasets = load_dataset("librispeech_asr")
 librispeech_clean_train = torch.utils.data.ConcatDataset([librispeech_datasets['train.clean.100'],
                                                     librispeech_datasets['train.clean.360']])
@@ -44,3 +44,55 @@ cached_speech_test =  CachedDataset(LibrispeechDataset, librispeech_test_cache, 
 # %%timeit
 # # 204ms
 # speech_train[0];
+
+##
+# cache to individual files
+import subprocess
+from tqdm import tqdm
+hostname = subprocess.run("hostname", capture_output=True)
+ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+
+assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this in shell: export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'"
+
+# load our data file paths and metadata:
+if ON_SHERLOCK:
+    sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
+    # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
+    scratch_directory = os.environ["LOCAL_SCRATCH"]
+    gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
+    librispeech_train_cache = os.path.join(os.environ["SCRATCH"], "librispeech_train_cache")
+    librispeech_val_cache = os.path.join(os.environ["SCRATCH"], "librispeech_val_cache")
+    librispeech_test_cache = os.path.join(os.environ["SCRATCH"], "librispeech_test_cache")
+
+else:
+    sessions_dir = '/data/magneto/'
+    scratch_directory = "/scratch"
+    gaddy_dir = '/scratch/GaddyPaper/'
+    librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_cache")
+    librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_cache")
+    librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_cache")
+
+
+
+cached_speech_train =  CachedDataset(LibrispeechDataset, librispeech_train_cache)
+##
+def cache_each_index(dset:CachedDataset):
+    """
+    Convert a CachedDataset (one pickle) into a CachedDataset where
+    each index is cached individually
+    """
+    cache_path = f"{dset.cache_path}_per_index"
+    os.makedirs(cache_path, exist_ok=True)
+    N = len(dset)
+    for i in tqdm(range(N), desc='Caching each index', total=N):
+        data = dset[i]
+        idx_path = os.path.join(cache_path, f"{i}.pickle")
+        pickle.dump(data, open(idx_path, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
+cached_speech_train =  CachedDataset(LibrispeechDataset, librispeech_train_cache)
+del cached_speech_train
+cached_speech_val =  CachedDataset(LibrispeechDataset, librispeech_val_cache)
+cache_each_index(cached_speech_val)
+del cached_speech_val
+cached_speech_test =  CachedDataset(LibrispeechDataset, librispeech_test_cache)
+cache_each_index(cached_speech_test)
+##
