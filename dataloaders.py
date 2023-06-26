@@ -83,7 +83,7 @@ def collate_gaddy_or_speech(batch):
         audio_feature_lengths.append(example['audio_features'].shape[0])
         text_int.append(example['text_int'])
         text_int_lengths.append(example['text_int'].shape[0])
-        phonemes.append(example['phonemes'])
+        # phonemes.append(example['phonemes'])
         if type(example['text']) == np.ndarray:
             text.append(example['text'][0]) # use a string instead of array([string])
         else:
