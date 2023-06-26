@@ -274,6 +274,10 @@ def print_confusion(confusion_mat, n=10):
         
 def read_phonemes(textgrid_fname, max_len=None):
     tg = TextGrid(textgrid_fname)
+    # 1000 / 86.133 = 11.6ms per frame
+    # Gaddy chooses this as some recent vocoders like HiFi GAN use
+    # sampling_rate = 22k, hop_length=256 and win_length=1024
+    # and 256/22050 = 11.6ms per frame
     phone_ids = np.zeros(int(tg['phones'][-1].xmax*86.133)+1, dtype=np.int64)
     phone_ids[:] = -1
     phone_ids[-1] = phoneme_inventory.index('sil') # make sure list is long enough to cover full length of original sequence

@@ -27,6 +27,7 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         text = self.dataset[index]['text']
         audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
         audio = np.clip(audio, -1, 1) # because resampling sometimes pushes things out of range
+        
         # window is 1024, hop is 256, so length of output is (len(audio) - 1024) // 256 + 1
         # (or at least that's what co-pilot says)
         pytorch_mspec = mel_spectrogram(torch.tensor(audio, dtype=torch.float32).unsqueeze(0),
@@ -74,6 +75,7 @@ def collate_gaddy_or_speech(batch):
     text = []
     raw_emg = []
     raw_emg_lengths = []
+    phonemes = []
     silent = []
     audio_only = []
     for example in batch:
@@ -81,6 +83,7 @@ def collate_gaddy_or_speech(batch):
         audio_feature_lengths.append(example['audio_features'].shape[0])
         text_int.append(example['text_int'])
         text_int_lengths.append(example['text_int'].shape[0])
+        phonemes.append(example['phonemes'])
         if type(example['text']) == np.ndarray:
             text.append(example['text'][0]) # use a string instead of array([string])
         else:
@@ -104,7 +107,7 @@ def collate_gaddy_or_speech(batch):
         'audio_features': audio_features,
         'audio_feature_lengths':audio_feature_lengths,
         'raw_emg': raw_emg,
-        # 'phonemes':phonemes,
+        'phonemes':phonemes,
         'raw_emg_lengths': raw_emg_lengths,
         'silent': silent,
         'audio_only': audio_only,

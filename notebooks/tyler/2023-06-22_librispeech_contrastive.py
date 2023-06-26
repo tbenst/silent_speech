@@ -81,7 +81,7 @@ else:
     grad_accum = 1
 
 NUM_GPUS = 2
-grad_accum = 4
+grad_accum = 2
 
 isotime = datetime.now().isoformat()
 hostname = subprocess.run("hostname", capture_output=True)
