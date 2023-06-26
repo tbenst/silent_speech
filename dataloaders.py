@@ -1,5 +1,5 @@
 import torch, numpy as np, librosa, pickle, torchaudio, os, pytorch_lightning as pl
-from data_utils import mel_spectrogram
+from data_utils import mel_spectrogram, read_phonemes
 import torch.distributed as dist, sys
 from tqdm import tqdm
 
@@ -11,20 +11,38 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         dataset: a torch.utils.data.Dataset object in HuggingFace format
         text_transform: a TextTransform object that converts text to integers
         mfcc_norm: an MFCCNormalizer object that normalizes MFCCs
+        alignment_dirs: Folders with TextGrid alignments
+
+    Can download alignments from e.g. https://zenodo.org/record/2619474
     """
-    def __init__(self, dataset, text_transform, mfcc_norm):
+    def __init__(self, dataset, text_transform, mfcc_norm, alignment_dirs):
         super().__init__()
         self.dataset = dataset
         self.text_transform = text_transform
         self.mfcc_norm = mfcc_norm
+        self.alignment_dirs = alignment_dirs
         
     def __len__(self):
         return len(self.dataset)
+    
+    def get_textgrid_path(self, item):
+        speaker_id = item['speaker_id']
+        chapter_id = item['chapter_id']
+        id = item['id']
+        for alignment_dir in self.alignment_dirs:
+            textgrid_path = os.path.join(alignment_dir, str(speaker_id), str(chapter_id), f'{id}.TextGrid')
+            if os.path.exists(textgrid_path):
+                return textgrid_path
+        else:
+            raise ValueError(f'Could not find TextGrid for {speaker_id}/{chapter_id}/{id}')
+        
         
     def __getitem__(self, index):
         "Reproduce the audio preprocessing from Gaddy on Librispeech data"
-        audio = self.dataset[index]['audio']['array']
-        text = self.dataset[index]['text']
+        item = self.dataset[index]
+        audio = item['audio']['array']
+        text = item['text']
+
         audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
         audio = np.clip(audio, -1, 1) # because resampling sometimes pushes things out of range
         
@@ -35,8 +53,13 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         mfccs = pytorch_mspec.squeeze(0).T.numpy()
         mfccs = self.mfcc_norm.normalize(mfccs)
         text_int = np.array(self.text_transform.text_to_int(text), dtype=np.int64)
+
+        textgrid_path = self.get_textgrid_path(item)
+        phonemes = read_phonemes(textgrid_path, max_len=mfccs.shape[0])
+
         example = {'audio_features': torch.from_numpy(mfccs),
             'text': text,
+            'phonemes': phonemes,
             # 'text': np.array([text]), # match Gaddy's format. seems unnecessary though, why not just str..?
             'text_int':torch.from_numpy(text_int),
             }
@@ -131,6 +154,7 @@ class CachedDataset(torch.utils.data.Dataset):
             if os.path.isdir(cache_path):
                 self.len = len(os.listdir(cache_path))
             else:
+                os.makedirs(cache_path)
                 # cache each index individually to disk
                 dset = Dataset(*args, **kwargs)
                 self.len = len(dset)
@@ -149,7 +173,7 @@ class CachedDataset(torch.utils.data.Dataset):
 
     def approximate_memory_usage(self, dset):
         sz = len(pickle.dumps(dset[0], protocol=pickle.HIGHEST_PROTOCOL))
-        gb = len(self.cache) * sz / 1e9
+        gb = self.len * sz / 1e9
         print("Approximate memory usage of dataset: {} GB".format(gb))
         return gb
 
@@ -167,11 +191,20 @@ class CachedDataset(torch.utils.data.Dataset):
     def cache_each_index(self, dset):
         N = len(dset)
         self.approximate_memory_usage(dset)
+        save_idx = 0
         for i in tqdm(range(N), desc='Caching each index', total=N):
-            data = dset[i]
-            idx_path = os.path.join(self.cache_path, f"{i}.pickle")
-            with open(idx_path, 'wb') as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            # Librispeech is missing some aligned phonemes, so we need to skip those
+            # this does mean the cache will be smaller than the dataset, and some
+            # indices may not match up
+            try:
+                data = dset[i]
+                idx_path = os.path.join(self.cache_path, f"{save_idx}.pickle")
+                with open(idx_path, 'wb') as f:
+                    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                save_idx += 1
+            except Exception as e:
+                print(e)
+                print(f"Failed to cache index {i}, skipping.")
     
     def __len__(self):
         return self.len

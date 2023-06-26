@@ -55,16 +55,16 @@ class ResBlock(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
-        self.norm1 = LayerNorm()
+        self.norm1 = nn.BatchNorm1d(num_outs)
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
-        self.norm2 = LayerNorm()
-        self.act = nn.ReLU()
-        # self.act = nn.GELU()
+        self.norm2 = nn.BatchNorm1d(num_outs)
+        # self.act = nn.ReLU()
+        self.act = nn.GELU()
         self.beta = beta
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
-            self.res_norm = LayerNorm()
+            self.res_norm = nn.BatchNorm1d(num_outs)
             if pre_activation:
                 self.skip = nn.Sequential(
                     self.res_norm, self.residual_path)
@@ -304,13 +304,10 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(self):
         initial_lr = self.target_lr/self.learning_rate_warmup
-        # optimizer = torch.optim.AdamW(self.parameters(), lr=initial_lr)
         
         # for FSDP
         optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr)
 
-        # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.lr,
-        #     steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
             milestones=[
                 125 * self.steps_per_epoch,
