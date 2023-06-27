@@ -82,7 +82,8 @@ else:
     n_epochs = 200
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
-    grad_accum = 2
+    grad_accum = 2 # NaN loss at epoch 67 with BatchNorm... :/
+    # grad_accum = 4
     logger_level = logging.WARNING
     
 isotime = datetime.now().isoformat()
@@ -128,9 +129,45 @@ if ON_SHERLOCK:
         os.symlink(emg_dir, scratch_emg)
     data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
+    
+# bz = 96 # OOM after 25 steps
+# bz = 128
+# bz = 96
+# bz = 64
 
-# TODO: should we go back to bz=1? need to benchmark. or maybe batch val by length
-val_bz = 32
+# OOM w/ 4 GPUs
+# bz = 48 # memory usage is massive on GPU 0 (32GB), but not on GPU 1 (13GB) or 2 (12GB) or 3 (11GB)
+# bz = 32
+# bz = 48  # OOM at epoch 36
+# bz = 32 # ~15:30 for epoch 1 (1 GPUs w/ num_workers=0 )
+# bz = 32 # 7:30 for epoch 1 (1 GPUs w/ num_workers=32)
+# bz = 128 # 6:20 per epoch (0 workers)
+# bz = 128 # 11:14 epoch 0, 4:47 epoch 1 (8 workers)
+# TODO: validation is really slow with distributed, maybe we should just do it on one GPU, somehow..?
+# OR better, let's actually use all 4 GPUs with not-shitty batch size ;)
+# num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
+# num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
+# num_workers=8 # I think that's 8 per GPU..?
+# TODO: try prefetch_factor=4 for dataloader
+
+# 2022/06/25: 2 GPUs ddp num_workers=0,8 is same w/ cached Librispeech
+# about 4:52 per epoch, 30s validation, <5:30 total
+# TODO: figure out what Gaddy batch size is by averaging dataloader
+# I think bz=20.6 with accum_grad=2 on average assuming 4.5s per example
+gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+
+if gpu_ram < 24:
+    # Titan RTX
+    # base_bz = 16
+    base_bz = 24
+    val_bz = base_bz
+elif gpu_ram > 30:
+    # V100
+    base_bz = 24
+    val_bz = base_bz
+else:
+    raise ValueError("Unknown GPU")
+
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
     pin_memory=(not DEBUG), batch_size=val_bz)
 emg_train = emg_datamodule.train
@@ -190,40 +227,6 @@ togglePhones = False
 
 ##
 n_chars = len(emg_datamodule.val.text_transform.chars)
-# bz = 96 # OOM after 25 steps
-# bz = 128
-# bz = 96
-# bz = 64
-
-# OOM w/ 4 GPUs
-# bz = 48 # memory usage is massive on GPU 0 (32GB), but not on GPU 1 (13GB) or 2 (12GB) or 3 (11GB)
-# bz = 32
-# bz = 48  # OOM at epoch 36
-# bz = 32 # ~15:30 for epoch 1 (1 GPUs w/ num_workers=0 )
-# bz = 32 # 7:30 for epoch 1 (1 GPUs w/ num_workers=32)
-# bz = 128 # 6:20 per epoch (0 workers)
-# bz = 128 # 11:14 epoch 0, 4:47 epoch 1 (8 workers)
-# TODO: validation is really slow with distributed, maybe we should just do it on one GPU, somehow..?
-# OR better, let's actually use all 4 GPUs with not-shitty batch size ;)
-# num_workers=0 # 11:42 epoch 0, ~10:14 epoch 1
-# num_workers=8 # 7:42 epoch 0, 7:24 epoch 1
-# num_workers=8 # I think that's 8 per GPU..?
-# TODO: try prefetch_factor=4 for dataloader
-
-# 2022/06/25: 2 GPUs ddp num_workers=0,8 is same w/ cached Librispeech
-# about 4:52 per epoch, 30s validation, <5:30 total
-# TODO: figure out what Gaddy batch size is by averaging dataloader
-# I think bz=20.6 with accum_grad=2 on average assuming 4.5s per example
-gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-
-if gpu_ram < 24:
-    # Titan RTX
-    base_bz = 16
-elif gpu_ram > 30:
-    # V100
-    base_bz = 24
-else:
-    raise ValueError("Unknown GPU")
 
 if NUM_GPUS > 1:
     # num_workers=0 # nccl backend doesn't support num_workers>0
@@ -536,21 +539,25 @@ class SpeechOrEMGToText(Model):
         loss = emg_ctc_loss + audio_ctc_loss + emg_audio_contrastive_loss
         
         if torch.isnan(loss):
-            logging.warning(f"Loss is NaN. EMG isnan output: {torch.any(torch.isnan(emg_pred))}. " \
-                  "Audio isnan output: {torch.any(torch.isnan(audio_pred))}")
+            emg_isnan = torch.any(torch.tensor([torch.isnan(e) for e in emg_pred]))
+            audio_isnan = torch.any(torch.tensor([torch.isnan(a) for a in audio_pred]))
+            logging.warning(f"Loss is NaN. EMG isnan output: {emg_isnan}. " \
+                  f"Audio isnan output: {audio_isnan}")
         if torch.isinf(loss):
-            logging.warning(f"Loss is Inf. EMG isinf output: {torch.any(torch.isinf(emg_pred))}. " \
-                  "Audio isinf output: {torch.any(torch.isinf(audio_pred))}")
+            emg_isinf = torch.any(torch.tensor([torch.isinf(e) for e in emg_pred]))
+            audio_isinf = torch.any(torch.tensor([torch.isinf(a) for a in audio_pred]))
+            logging.warning(f"Loss is Inf. EMG isinf output: {emg_isinf}. " \
+                  f"Audio isinf output: {audio_isinf}")
         
         paired_bz = len(paired_emg_idx)
         # paired_bz <= min(emg_bz, audio_bz)
         bz = np.array([emg_bz, audio_bz, paired_bz])
         if not emg_z is None:
-            emg_z_mean = torch.concatenate([e.reshape(-1) for e in emg_z]).mean()
+            emg_z_mean = torch.concatenate([e.reshape(-1).abs() for e in emg_z]).mean()
         else:
             emg_z_mean = None
         if not audio_z is None:
-            audio_z_mean = torch.concatenate([a.reshape(-1) for a in audio_z]).mean()
+            audio_z_mean = torch.concatenate([a.reshape(-1).abs() for a in audio_z]).mean()
         else:
             audio_z_mean = None
         return {
@@ -568,7 +575,7 @@ class SpeechOrEMGToText(Model):
         X = nn.utils.rnn.pad_sequence(batch['raw_emg'], batch_first=True)
         # X = batch['raw_emg'][0].unsqueeze(0) 
 
-        logging.warning(f"calling emg_forward with {X.shape=}")
+        logging.debug(f"calling emg_forward with {X.shape=}")
         pred  = self.emg_forward(X)[0].cpu()
 
         beam_results = self.ctc_decoder(pred)
