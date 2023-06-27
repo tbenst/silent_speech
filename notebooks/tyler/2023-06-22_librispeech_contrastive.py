@@ -82,7 +82,9 @@ else:
     n_epochs = 200
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
-    grad_accum = 2 # NaN loss at epoch 67 with BatchNorm... :/
+    grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
+    # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
+    # https://youtu.be/HR0lt1hlR6U?t=7543
     # grad_accum = 4
     logger_level = logging.WARNING
     
@@ -158,8 +160,8 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    # base_bz = 16
-    base_bz = 24
+    base_bz = 20
+    # base_bz = 24 # OOM in validation
     val_bz = base_bz
 elif gpu_ram > 30:
     # V100
