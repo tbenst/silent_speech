@@ -2,10 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import numpy as np
+import numpy as np, torchmetrics
 import scipy.signal
 import scipy.io
 from scipy.signal import iirnotch, lfilter
+from typing import List
 
 class ContrastiveLoss(nn.Module):
     def __init__(self, device = 'cpu', temperature=0.5):
@@ -165,6 +166,18 @@ def pairwise_cos_sim(x, y):
     y = F.normalize(y, dim=2)
     return torch.bmm(x,y.permute(0,2,1))
 
+def infoNCE_masks(L, device='cpu'):
+    "Return positive and negative masks for infoNCE loss."
+    positives_mask = torch.zeros(L*2, L*2, dtype=bool, device=device)
+    torch.diagonal(positives_mask, offset=L).fill_(True) # x_i is a positive example of y_i
+    torch.diagonal(positives_mask, offset=-L).fill_(True) # y_i is a positive example of x_i
+    
+    negatives_mask = positives_mask.clone()
+    torch.diagonal(negatives_mask).fill_(True) # ignore self-similarity
+    negatives_mask = (~negatives_mask).float()
+    return positives_mask, negatives_mask
+
+
 def cross_contrastive_loss(x,y, k=0.1, device='cpu'):
     """Compute cross contrastive loss between two batches of embeddings.
     
@@ -179,13 +192,7 @@ def cross_contrastive_loss(x,y, k=0.1, device='cpu'):
     B, L, D = x.shape
     representations = torch.cat([x,y], dim=1)
     
-    positives_mask = torch.zeros(L*2, L*2, dtype=bool, device=device)
-    torch.diagonal(positives_mask, offset=L).fill_(True) # x_i is a positive example of y_i
-    torch.diagonal(positives_mask, offset=-L).fill_(True) # y_i is a positive example of x_i
-    
-    negatives_mask = positives_mask.clone()
-    torch.diagonal(negatives_mask).fill_(True) # ignore self-similarity
-    negatives_mask = (~negatives_mask).float()
+    positives_mask, negatives_mask = infoNCE_masks(L, device=device)
     
     similarity_matrix = pairwise_cos_sim(representations,representations) / k
     positives = similarity_matrix[positives_mask.expand(B,-1,-1)] # now B*L*2
@@ -195,3 +202,45 @@ def cross_contrastive_loss(x,y, k=0.1, device='cpu'):
     loss_partial = -torch.log(nominator / denominator)
     loss = torch.mean(loss_partial)
     return loss
+
+def nobatch_cross_contrastive_loss(x,y, k=0.1, device='cpu'):
+    """Compute cross contrastive loss between two sequences of embeddings.
+    
+    This diverges from the SimCLR paper in that we consider y_i to be a positive example of x_i, and vice versa,
+    such that we have 1 positive examples, and 2L-2 negative examples for each x_i and y_i.
+    
+    Args:
+        x: L x D
+        y: L x D
+        
+    """
+    L, D = x.shape
+    representations = torch.cat([x,y], dim=0)
+    
+    positives_mask, negatives_mask = infoNCE_masks(L, device=device)
+    
+    similarity_matrix = torchmetrics.functional.pairwise_cosine_similarity(
+        representations,representations) / k
+    positives = similarity_matrix[positives_mask] # now L*2
+    nominator = torch.exp(positives)
+    denominator = negatives_mask * torch.exp(similarity_matrix)
+    denominator = torch.sum(denominator, dim=1).reshape(L*2)
+    loss_partial = -torch.log(nominator / denominator)
+    loss = torch.mean(loss_partial)
+    return loss
+
+def var_length_cross_contrastive_loss(x:List[torch.Tensor], y:List[torch.Tensor], k=0.1, device="cpu"):
+    """
+    Compute cross contrastive loss between two batches of embeddings,
+    where the length of the sequences in each batch may vary.
+
+    Args:
+        x (List[torch.Tensor]): B x N x D
+        y (List[torch.Tensor]): B x M x D
+        k (float, optional): temperature. Defaults to 0.1.
+        device (str, optional): Defaults to "cpu".
+    """
+    loss = 0.
+    for i in range(len(x)):
+        loss += nobatch_cross_contrastive_loss(x[i], y[i], k=k, device=device)
+    return loss / len(x)

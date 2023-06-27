@@ -1,6 +1,6 @@
 import torch, numpy as np, librosa, pickle, torchaudio, os, pytorch_lightning as pl
 from data_utils import mel_spectrogram, read_phonemes
-import torch.distributed as dist, sys
+import torch.distributed as dist, sys, logging
 from tqdm import tqdm
 
 class LibrispeechDataset(torch.utils.data.Dataset):
@@ -138,6 +138,58 @@ def collate_gaddy_or_speech(batch):
         'text_int': text_int,
         'text_int_lengths': text_int_lengths,
     }
+    
+def split_batch_into_emg_audio(batch):
+    # Can compose with collate_gaddy_or_speech
+    emg = []
+    # emg_phonemes = []
+    length_emg = []
+    y_length_emg = []
+    y_emg = []
+    
+    audio = []
+    # audio_phonemes = []
+    length_audio = []
+    y_length_audio = []
+    y_audio = []
+    
+    paired_emg_idx = []
+    paired_audio_idx = [] # same length as paired_emg_idx
+    
+    for i, (s,a) in enumerate(zip(batch['silent'], batch['audio_only'])):
+        if s:
+            # EMG
+            emg.append(batch['raw_emg'][i])
+            length_emg.append(batch['raw_emg_lengths'][i])
+            y_length_emg.append(batch['text_int_lengths'][i])
+            y_emg.append(batch['text_int'][i])
+        elif a:
+            # AUDIO
+            audio.append(batch['audio_features'][i])
+            length_audio.append(batch['audio_feature_lengths'][i])
+            y_length_audio.append(batch['text_int_lengths'][i])
+            y_audio.append(batch['text_int'][i])
+        else:
+            # EMG + AUDIO
+            logging.debug(f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}")
+            paired_emg_idx.append(len(emg))
+            paired_audio_idx.append(len(audio))
+            
+            emg.append(batch['raw_emg'][i])
+            length_emg.append(batch['raw_emg_lengths'][i])
+            y_length_emg.append(batch['text_int_lengths'][i])
+            y_emg.append(batch['text_int'][i])
+            
+            audio.append(batch['audio_features'][i])
+            length_audio.append(batch['audio_feature_lengths'][i])
+            y_length_audio.append(batch['text_int_lengths'][i])
+            y_audio.append(batch['text_int'][i])
+            logging.debug(f"{len(emg)=}, {len(audio)=}")
+    
+    emg_tup = (emg, length_emg, y_length_emg, y_emg)
+    audio_tup = (audio, length_audio, y_length_audio, y_audio)
+    idxs = (paired_emg_idx, paired_audio_idx)
+    return emg_tup, audio_tup, idxs
     
 class CachedDataset(torch.utils.data.Dataset):
     """Cache a dataset to disk via pickle."""

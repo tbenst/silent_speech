@@ -18,6 +18,8 @@ from pytorch_lightning.profilers import PassThroughProfiler
 from dataclasses import dataclass
 from typing import Tuple
 
+import logging
+
 MODEL_SIZE = 768 # number of hidden dimensions
 NUM_LAYERS = 6 # number of layers
 DROPOUT = .2 # dropout
@@ -93,6 +95,7 @@ class ResBlock(nn.Module):
             )
 
     def forward(self, x):
+        # logging.warning(f"ResBlock forward pass. x.shape: {x.shape}")
         res = self.block(x) * self.beta
         x = self.skip(x)
         

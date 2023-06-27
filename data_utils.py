@@ -217,7 +217,8 @@ def combine_fixed_length(tensor_list, length):
 
 def decollate_tensor(tensor, lengths):
     b, s, d = tensor.size()
-    tensor = tensor.view(b*s, d)
+    # tensor = tensor.view(b*s, d)
+    tensor = tensor.reshape(b*s, d)
     results = []
     idx = 0
     for length in lengths:
