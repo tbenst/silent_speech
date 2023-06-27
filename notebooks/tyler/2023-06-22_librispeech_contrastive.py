@@ -301,7 +301,8 @@ class SpeechOrEMGToTextConfig:
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
-    warmup_steps:int = 1000
+    # warmup_steps:int = 1000
+    warmup_steps:int = 1000 // grad_accum
     # batch_size:int = 8
     batch_size:int = bz
     # batch_size:int = 24

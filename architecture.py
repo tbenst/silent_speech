@@ -334,15 +334,19 @@ class Model(pl.LightningModule):
         # optimizer = self.optimizers().optimizer
         # for param_group in optimizer.param_groups:
         #     print(f"lr: {param_group['lr']}")
+        if metric is None:
+            scheduler.step()
+        else:
+            scheduler.step(metric)
 
+        # TODO:  switch to a new (proper) scheduler that supports
+        # linear warmup and gamma decay
+
+        # linear warmup
         if self.global_step <= self.learning_rate_warmup:
             new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
             self.set_lr(new_lr)
-        else:
-            if metric is None:
-                scheduler.step()
-            else:
-                scheduler.step(metric)
+
 
 class S4Layer(nn.Module):
     """
