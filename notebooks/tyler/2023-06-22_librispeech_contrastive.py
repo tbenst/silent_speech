@@ -62,8 +62,8 @@ per_index_cache = True # read each index from disk separately
 if DEBUG:
     NUM_GPUS = 1
     limit_train_batches = 2
-    # limit_val_batches = 2 # will not run on_validation_epoch_end
-    limit_val_batches = None
+    limit_val_batches = 2 # will not run on_validation_epoch_end
+    # limit_val_batches = None
     log_neptune = False
     n_epochs = 2
     # precision = "32"
