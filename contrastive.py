@@ -235,8 +235,8 @@ def var_length_cross_contrastive_loss(x:List[torch.Tensor], y:List[torch.Tensor]
     where the length of the sequences in each batch may vary.
 
     Args:
-        x (List[torch.Tensor]): B x N x D
-        y (List[torch.Tensor]): B x M x D
+        x (List[torch.Tensor]): [N x D, M x D, ...]
+        y (List[torch.Tensor]): [N x D, M x D, ...]
         k (float, optional): temperature. Defaults to 0.1.
         device (str, optional): Defaults to "cpu".
     """
