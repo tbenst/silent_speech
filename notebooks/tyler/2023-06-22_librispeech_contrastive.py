@@ -44,7 +44,8 @@ from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     DistributedStratifiedBatchSampler, StratifiedBatchSampler, CachedDataset, \
     split_batch_into_emg_audio
 from functools import partial
-from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss
+from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
+    nobatch_cross_contrastive_loss
 
 DEBUG = False
 # DEBUG = True
@@ -82,8 +83,8 @@ else:
     n_epochs = 200
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
-    # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
-    grad_accum = 3
+    grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
+    # grad_accum = 3
     # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
     # https://youtu.be/HR0lt1hlR6U?t=7543
     # grad_accum = 4
@@ -302,7 +303,7 @@ class SpeechOrEMGToTextConfig:
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
     # warmup_steps:int = 1000
-    warmup_steps:int = 1000 // grad_accum
+    warmup_steps:int = 1000 // grad_accum # warmup is effectilely by batch count now
     # batch_size:int = 8
     batch_size:int = bz
     # batch_size:int = 24
@@ -526,17 +527,28 @@ class SpeechOrEMGToText(Model):
             audio_ctc_loss = 0.
         
         if emg_z is not None and audio_z is not None:
+
             # InfoNCE contrastive loss with emg_t, audio_t as positive pairs
+            
             paired_e_z = [emg_z[i] for i in paired_emg_idx]
             paired_a_z = [audio_z[i] for i in paired_audio_idx]
+
+            # per-utterance only
+            # emg_audio_contrastive_loss = var_length_cross_contrastive_loss(
+            #     paired_e_z, paired_a_z,
+            #     device=self.device)
+            
+            # across batch
+            paired_e_z = torch.concatenate(paired_e_z)
+            paired_a_z = torch.concatenate(paired_a_z)
+            emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
+                                                                device=self.device)
+
             # TODO: we prob shouldn't decollate until after we've done the contrastive loss
             # for phonemes we'll have to figure out how to do this
             # emg_audio_contrastive_loss = cross_contrastive_loss(
             #     paired_e_z, paired_a_z,
             #     device=self.device)
-            emg_audio_contrastive_loss = var_length_cross_contrastive_loss(
-                paired_e_z, paired_a_z,
-                device=self.device)
         else:
             logging.info("emg_z or audio_z is None")
             emg_audio_contrastive_loss = 0.
