@@ -164,7 +164,8 @@ if gpu_ram < 24:
     # Titan RTX
     # TODO: we OOM on my Titan RTX likely due to the 2GB of vram used by the OS
     # should figure out how to use onboard AMD graphics for display...
-    base_bz = 18
+    base_bz = 16
+    # base_bz = 18
     # base_bz = 20 # OOM epoch 4
     # base_bz = 24 # OOM in validation
     val_bz = base_bz
