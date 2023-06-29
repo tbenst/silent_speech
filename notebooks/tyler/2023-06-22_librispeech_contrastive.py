@@ -767,6 +767,8 @@ trainer.fit(model, datamodule=datamodule)
 #             val_dataloaders=datamodule.val_dataloader()) 
 
 if log_neptune:
-    trainer.save_checkpoint(os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt"))
+    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    trainer.save_checkpoint(ckpt_path)
+    print(f"saved checkpoint to {ckpt_path}")
 ##
 # TODO: run again now that we fixed num_replicas in DistributedStratifiedBatchSampler
