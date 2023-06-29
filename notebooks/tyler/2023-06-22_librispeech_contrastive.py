@@ -83,8 +83,8 @@ else:
     n_epochs = 200
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
-    grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
-    # grad_accum = 3
+    # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
+    grad_accum = 3
     # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
     # https://youtu.be/HR0lt1hlR6U?t=7543
     # grad_accum = 4
@@ -164,7 +164,8 @@ if gpu_ram < 24:
     # Titan RTX
     # TODO: we OOM on my Titan RTX likely due to the 2GB of vram used by the OS
     # should figure out how to use onboard AMD graphics for display...
-    base_bz = 16
+    base_bz = 12 # NaN :/
+    # base_bz = 16 # OOM epoch 9 with Titan RTX
     # base_bz = 18
     # base_bz = 20 # OOM epoch 4
     # base_bz = 24 # OOM in validation
@@ -559,15 +560,17 @@ class SpeechOrEMGToText(Model):
         loss = emg_ctc_loss + audio_ctc_loss + emg_audio_contrastive_loss
         
         if torch.isnan(loss):
-            emg_isnan = torch.any(torch.tensor([torch.isnan(e) for e in emg_pred]))
-            audio_isnan = torch.any(torch.tensor([torch.isnan(a) for a in audio_pred]))
-            logging.warning(f"Loss is NaN. EMG isnan output: {emg_isnan}. " \
-                  f"Audio isnan output: {audio_isnan}")
+            logging.warning(f"Loss is NaN.")
+            # emg_isnan = torch.any(torch.tensor([torch.isnan(e) for e in emg_pred]))
+            # audio_isnan = torch.any(torch.tensor([torch.isnan(a) for a in audio_pred]))
+            # logging.warning(f"Loss is NaN. EMG isnan output: {emg_isnan}. " \
+            #       f"Audio isnan output: {audio_isnan}")
         if torch.isinf(loss):
-            emg_isinf = torch.any(torch.tensor([torch.isinf(e) for e in emg_pred]))
-            audio_isinf = torch.any(torch.tensor([torch.isinf(a) for a in audio_pred]))
-            logging.warning(f"Loss is Inf. EMG isinf output: {emg_isinf}. " \
-                  f"Audio isinf output: {audio_isinf}")
+            logging.warning(f"Loss is Inf.")
+            # emg_isinf = torch.any(torch.tensor([torch.isinf(e) for e in emg_pred]))
+            # audio_isinf = torch.any(torch.tensor([torch.isinf(a) for a in audio_pred]))
+            # logging.warning(f"Loss is Inf. EMG isinf output: {emg_isinf}. " \
+            #       f"Audio isinf output: {audio_isinf}")
         
         paired_bz = len(paired_emg_idx)
         # paired_bz <= min(emg_bz, audio_bz)
