@@ -162,8 +162,8 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    # base_bz = 8
-    base_bz = 4
+    base_bz = 8
+    # base_bz = 4
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     val_bz = base_bz
 elif gpu_ram > 30:
@@ -545,9 +545,10 @@ class SpeechOrEMGToText(Model):
 
             # only use vocalized emg for supervised contrastive loss as we have
             # frame-aligned phoneme labels for those
-            z = torch.concatenate([paired_e_z, *audio_z])
-            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
-            sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+            z = torch.concatenate([paired_e_z, *audio_z]).to('cpu'')
+            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes]).to('cpu')
+            sup_nce_loss = supervised_contrastive_loss(z, z_class, 'cpu')
+                # device=self.device)
         elif emg_z is not None:
             # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
             # TODO: try DTW with parallel audio/emg to align phonemes with silent emg
