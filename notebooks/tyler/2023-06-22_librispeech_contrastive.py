@@ -545,7 +545,7 @@ class SpeechOrEMGToText(Model):
 
             # only use vocalized emg for supervised contrastive loss as we have
             # frame-aligned phoneme labels for those
-            z = torch.concatenate([paired_e_z, *audio_z]).to('cpu'')
+            z = torch.concatenate([paired_e_z, *audio_z]).to('cpu')
             z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes]).to('cpu')
             sup_nce_loss = supervised_contrastive_loss(z, z_class, 'cpu')
                 # device=self.device)
