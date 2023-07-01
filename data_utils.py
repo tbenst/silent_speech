@@ -109,11 +109,11 @@ def get_emg_features(emg_data, debug=False):
         r = np.abs(p)
 
         w_h = librosa.util.frame(w, frame_length=16, hop_length=6).mean(axis=0)
-        p_w = librosa.feature.rms(w, frame_length=16, hop_length=6, center=False)
+        p_w = librosa.feature.rms(y=w, frame_length=16, hop_length=6, center=False)
         p_w = np.squeeze(p_w, 0)
-        p_r = librosa.feature.rms(r, frame_length=16, hop_length=6, center=False)
+        p_r = librosa.feature.rms(y=r, frame_length=16, hop_length=6, center=False)
         p_r = np.squeeze(p_r, 0)
-        z_p = librosa.feature.zero_crossing_rate(p, frame_length=16, hop_length=6, center=False)
+        z_p = librosa.feature.zero_crossing_rate(y=p, frame_length=16, hop_length=6, center=False)
         z_p = np.squeeze(z_p, 0)
         r_h = librosa.util.frame(r, frame_length=16, hop_length=6).mean(axis=0)
 

@@ -106,7 +106,7 @@ def collate_gaddy_or_speech(batch):
         audio_feature_lengths.append(example['audio_features'].shape[0])
         text_int.append(example['text_int'])
         text_int_lengths.append(example['text_int'].shape[0])
-        # phonemes.append(example['phonemes'])
+        phonemes.append(example['phonemes'])
         if type(example['text']) == np.ndarray:
             text.append(example['text'][0]) # use a string instead of array([string])
         else:
@@ -142,13 +142,13 @@ def collate_gaddy_or_speech(batch):
 def split_batch_into_emg_audio(batch):
     # Can compose with collate_gaddy_or_speech
     emg = []
-    # emg_phonemes = []
+    emg_phonemes = []
     length_emg = []
     y_length_emg = []
     y_emg = []
     
     audio = []
-    # audio_phonemes = []
+    audio_phonemes = []
     length_audio = []
     y_length_audio = []
     y_audio = []
@@ -157,18 +157,24 @@ def split_batch_into_emg_audio(batch):
     paired_audio_idx = [] # same length as paired_emg_idx
     
     for i, (s,a) in enumerate(zip(batch['silent'], batch['audio_only'])):
+        logging.debug(f"{type(batch['phonemes'])=}")
         if s:
             # EMG
             emg.append(batch['raw_emg'][i])
             length_emg.append(batch['raw_emg_lengths'][i])
             y_length_emg.append(batch['text_int_lengths'][i])
             y_emg.append(batch['text_int'][i])
+            emg_phonemes.append(batch['phonemes'][i])
+            phoneme_len = len(batch['phonemes'][i])
+            emg_len = batch['raw_emg_lengths'][i] // 8
+            assert phoneme_len == emg_len, f"{phoneme_len} != {emg_len}. {batch['audio_features'][i].shape=}"
         elif a:
             # AUDIO
             audio.append(batch['audio_features'][i])
             length_audio.append(batch['audio_feature_lengths'][i])
             y_length_audio.append(batch['text_int_lengths'][i])
             y_audio.append(batch['text_int'][i])
+            audio_phonemes.append(batch['phonemes'][i])
         else:
             # EMG + AUDIO
             logging.debug(f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}")
@@ -179,15 +185,17 @@ def split_batch_into_emg_audio(batch):
             length_emg.append(batch['raw_emg_lengths'][i])
             y_length_emg.append(batch['text_int_lengths'][i])
             y_emg.append(batch['text_int'][i])
+            emg_phonemes.append(batch['phonemes'][i])
             
             audio.append(batch['audio_features'][i])
             length_audio.append(batch['audio_feature_lengths'][i])
             y_length_audio.append(batch['text_int_lengths'][i])
             y_audio.append(batch['text_int'][i])
+            audio_phonemes.append(batch['phonemes'][i])
             logging.debug(f"{len(emg)=}, {len(audio)=}")
     
-    emg_tup = (emg, length_emg, y_length_emg, y_emg)
-    audio_tup = (audio, length_audio, y_length_audio, y_audio)
+    emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg)
+    audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio)
     idxs = (paired_emg_idx, paired_audio_idx)
     return emg_tup, audio_tup, idxs
     
@@ -216,12 +224,13 @@ class CachedDataset(torch.utils.data.Dataset):
                 # read entire dataset into memory
                 with open(cache_path, 'rb') as f:
                     self.cache = pickle.load(f)
+                self.len = len(self.cache)
             else:
                 # populate cache and save to file
                 dset = Dataset(*args, **kwargs)
                 self.cache = []
-                self.populate_cache(dset)
-            self.len = len(self.cache)
+                self.populate_cache(dset) # sets len
+            
 
     def approximate_memory_usage(self, dset):
         sz = len(pickle.dumps(dset[0], protocol=pickle.HIGHEST_PROTOCOL))
@@ -232,6 +241,7 @@ class CachedDataset(torch.utils.data.Dataset):
         
     def populate_cache(self, dset):
         N = len(dset)
+        self.len = N
         self.approximate_memory_usage(dset)
         for data in tqdm(dset, desc='Caching dataset', total=N):
             self.cache.append(data)

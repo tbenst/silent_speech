@@ -45,10 +45,10 @@ from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     split_batch_into_emg_audio
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
-    nobatch_cross_contrastive_loss
+    nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-# DEBUG = True
+DEBUG = True
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
@@ -174,6 +174,7 @@ elif gpu_ram > 30:
 else:
     raise ValueError("Unknown GPU")
 
+data_dir = '/scratch/GaddyPaper/cached/' # temporarily hack for hardcoded paths
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
     pin_memory=(not DEBUG), batch_size=val_bz)
 emg_train = emg_datamodule.train
@@ -502,15 +503,13 @@ class SpeechOrEMGToText(Model):
 
     def calc_loss(self, batch):
         emg_tup, audio_tup, idxs = split_batch_into_emg_audio(batch)
-        emg, length_emg, y_length_emg, y_emg = emg_tup
-        audio, length_audio, y_length_audio, y_audio = audio_tup
+        emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
+        audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
         paired_emg_idx, paired_audio_idx = idxs
 
 
         
         (emg_pred, audio_pred), (emg_z, audio_z), (emg_bz, audio_bz) = self(emg, audio, length_emg, length_audio)
-        
-        # print(f"{emg_pred.shape=}")
         
         if emg_pred is not None:
             length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
@@ -543,18 +542,25 @@ class SpeechOrEMGToText(Model):
             emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
                                                                 device=self.device)
 
-            # TODO: we prob shouldn't decollate until after we've done the contrastive loss
-            # for phonemes we'll have to figure out how to do this
-            # emg_audio_contrastive_loss = cross_contrastive_loss(
-            #     paired_e_z, paired_a_z,
-            #     device=self.device)
+            z = torch.concatenate([*emg_z, *audio_z])
+            z_class = torch.concatenate([*emg_phonemes, *audio_phonemes])
+        elif emg_z is not None:
+            z = torch.concatenate(emg_z)
+            z_class = torch.concatenate(emg_phonemes)
+        elif audio_z is not None:
+            raise NotImplementedError("audio only is not expected")
+            z = torch.concatenate(audio_z)
+            z_class = torch.concatenate(audio_phonemes)
         else:
-            logging.info("emg_z or audio_z is None")
             emg_audio_contrastive_loss = 0.
+        
+        # logging.debug(f"{z_class=}")
+        sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+        
         # assert audio_pred is None, f'Audio only not implemented, got {audio_pred=}'
         logging.debug(f"emg_ctc_loss: {emg_ctc_loss}, audio_ctc_loss: {audio_ctc_loss}, " \
                         f"emg_audio_contrastive_loss: {emg_audio_contrastive_loss}")
-        loss = emg_ctc_loss + audio_ctc_loss + emg_audio_contrastive_loss
+        loss = emg_ctc_loss + audio_ctc_loss + emg_audio_contrastive_loss + sup_nce_loss
         
         if torch.isnan(loss):
             logging.warning(f"Loss is NaN.")
@@ -585,6 +591,7 @@ class SpeechOrEMGToText(Model):
             'emg_ctc_loss': emg_ctc_loss,
             'audio_ctc_loss': audio_ctc_loss,
             'cross_contrastive_loss': emg_audio_contrastive_loss,
+            'supervised_contrastive_loss': sup_nce_loss,
             'emg_z_mean': emg_z_mean,
             'audio_z_mean': audio_z_mean,
             'bz': bz
@@ -616,6 +623,7 @@ class SpeechOrEMGToText(Model):
         emg_ctc_loss = c['emg_ctc_loss']
         audio_ctc_loss = c['audio_ctc_loss']
         cross_contrastive_loss = c['cross_contrastive_loss']
+        sup_contrastive_loss = c['supervised_contrastive_loss']
         bz = c['bz']
         avg_emg_latent = c['emg_z_mean']
         avg_audio_latent = c['audio_z_mean']
@@ -628,6 +636,8 @@ class SpeechOrEMGToText(Model):
         self.log("train/audio_ctc_loss", audio_ctc_loss,
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("train/cross_contrastive_loss", cross_contrastive_loss,
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
+        self.log("train/supervised_contrastive_loss", sup_contrastive_loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("train/avg_emg_latent", avg_emg_latent,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)

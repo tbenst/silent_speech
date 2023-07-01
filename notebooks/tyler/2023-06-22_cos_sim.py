@@ -12,8 +12,8 @@ f_cos_sim0 = F.cosine_similarity(x[0], y[0],dim=0)
 f_cos_sim0_2 = F.cosine_similarity(x[0], y[0],dim=0)
 f_cos_sim1 = F.cosine_similarity(x[1], y[1],dim=0)
 f_cos_sim1_2 = F.cosine_similarity(x[1], y[1],dim=0)
-assert torch.equal(cos_sim[0,0], f_cos_sim0), f'{cos_sim[0,0]}, {cos_sim_2[0,0]} != {f_cos_sim0}, {f_cos_sim0_2}'
-assert torch.equal(cos_sim[1,1], f_cos_sim1), f'{cos_sim[1,1]}, {cos_sim_2[1,1]} != {f_cos_sim1}, {f_cos_sim1_2}'
+assert torch.isclose(cos_sim[0,0], f_cos_sim0), f'{cos_sim[0,0]}, {cos_sim_2[0,0]} != {f_cos_sim0}, {f_cos_sim0_2}'
+assert torch.isclose(cos_sim[1,1], f_cos_sim1), f'{cos_sim[1,1]}, {cos_sim_2[1,1]} != {f_cos_sim1}, {f_cos_sim1_2}'
 ##
 def pairwise_cos_sim(x, y):
     """Batched cosine similarity matrix.

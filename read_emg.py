@@ -24,12 +24,14 @@ import torch
 from data_utils import load_audio, get_emg_features, FeatureNormalizer, phoneme_inventory, read_phonemes, TextTransform
 from torch.utils.data import DataLoader
 
-DATA_FOLDER    = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
-project_folder = '/home/users/ghwilson/projects/silent_speech/'
+from dataloaders import CachedDataset
+
+DATA_FOLDER    = '/scratch/GaddyPaper'
+project_folder = '/home/tyler/code/silent_speech'
 
 REMOVE_CHANNELS = []
 SILENT_DATA_DIRECTORIES = [f'{DATA_FOLDER}/emg_data/silent_parallel_data']
-VOICED_DATA_DIRECTORIES = [f'{DATA_FOLDER}/emg_data/voiced_parallel_data'
+VOICED_DATA_DIRECTORIES = [f'{DATA_FOLDER}/emg_data/voiced_parallel_data',
                                               f'{DATA_FOLDER}/emg_data/nonparallel_data']
 TESTSET_FILE = f'{project_folder}/testset_largedev.json'
 TEXT_ALIGN_DIRECTORY = f'{DATA_FOLDER}/text_alignments'
@@ -505,16 +507,19 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
 class EMGDataModule(pl.LightningDataModule):
     def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=None,
                  max_len=128000, num_workers=0, batch_sampler=True, shuffle=None,
-                 batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
+                 batch_size=None, collate_fn=None,
                  pin_memory=True) -> None:
         super().__init__()
-        self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
-                                        togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.val   = DatasetClass(base_dir = base_dir, train = False, dev = True, test = False,
-                                        togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train'),
+            base_dir = None, dev = False, test = False,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val'),
+            base_dir = None, dev = True, test = False,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
         
-        self.test = DatasetClass(base_dir = base_dir, train = False, dev = False, test = True,
-                                    togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test'),
+            base_dir = None, dev = False, test = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
         self.num_workers = num_workers
         self.max_len = max_len
         self.val_test_batch_sampler = False
