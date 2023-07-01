@@ -82,6 +82,16 @@ for L in range(2,10):
     cc = cross_contrastive_loss(x,x,k=k)
     assert torch.isclose(cc, all_same), (cc, all_same)
     
+    # score if all the same with L2 normalized vectors
+    # https://github.com/HobbitLong/SupContrast/issues/106#issue-1192097371
+    theory = torch.log(torch.tensor(2*L-1))
+    x = F.normalize(torch.ones(bz,L,L))
+    cc = cross_contrastive_loss(x,x,k=k)
+    # TODO: need to fix cross_contrastive_loss to match theory...
+    assert torch.isclose(cc, theory), (cc, theory)
+
+
+    
     # score if all x are the same, all y are the same, but x != y
     x = torch.ones(bz,L,L)
     x[:,:,:int(L/2)] = 0

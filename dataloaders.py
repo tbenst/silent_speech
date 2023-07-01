@@ -59,9 +59,9 @@ class LibrispeechDataset(torch.utils.data.Dataset):
 
         example = {'audio_features': torch.from_numpy(mfccs),
             'text': text,
-            'phonemes': phonemes,
+            'phonemes': torch.from_numpy(phonemes),
             # 'text': np.array([text]), # match Gaddy's format. seems unnecessary though, why not just str..?
-            'text_int':torch.from_numpy(text_int),
+            'text_int': torch.from_numpy(text_int),
             }
         return example
     
@@ -157,7 +157,7 @@ def split_batch_into_emg_audio(batch):
     paired_audio_idx = [] # same length as paired_emg_idx
     
     for i, (s,a) in enumerate(zip(batch['silent'], batch['audio_only'])):
-        logging.debug(f"{type(batch['phonemes'])=}")
+        # logging.debug(f"{type(batch['phonemes'])=}")
         if s:
             # EMG
             emg.append(batch['raw_emg'][i])
@@ -167,7 +167,8 @@ def split_batch_into_emg_audio(batch):
             emg_phonemes.append(batch['phonemes'][i])
             phoneme_len = len(batch['phonemes'][i])
             emg_len = batch['raw_emg_lengths'][i] // 8
-            assert phoneme_len == emg_len, f"{phoneme_len} != {emg_len}. {batch['audio_features'][i].shape=}"
+            # INFO: phonemes come from parallel dataset, so they are not always the same length as the emg
+            # assert phoneme_len == emg_len, f"{phoneme_len} != {emg_len}. {batch['audio_features'][i].shape=}"
         elif a:
             # AUDIO
             audio.append(batch['audio_features'][i])
@@ -247,7 +248,7 @@ class CachedDataset(torch.utils.data.Dataset):
             self.cache.append(data)
         
         # save to file
-        with open(self.cache_file, 'wb') as f:
+        with open(self.cache_path, 'wb') as f:
             pickle.dump(self.cache, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def cache_each_index(self, dset):

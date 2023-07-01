@@ -96,3 +96,27 @@ del cached_speech_val
 cached_speech_test =  CachedDataset(LibrispeechDataset, librispeech_test_cache)
 cache_each_index(cached_speech_test)
 ##
+# convert phonemes to tensor
+# speech_train
+# speech_val
+# speech_test
+
+def rewrite_with_phoneme_tensor(dset:CachedDataset):
+    "For each index, save new pickled file with phonemes as tensor"
+    N = len(dset)
+    save_idx = 0
+    for i in tqdm(range(N), desc='Caching each index', total=N):
+        try:
+            data = dset[i]
+            data["phonemes"] = torch.from_numpy(data["phonemes"])
+            idx_path = os.path.join(dset.cache_path, f"{save_idx}.pickle")
+            with open(idx_path, 'wb') as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            save_idx += 1
+        except Exception as e:
+            print(e)
+            print(f"Failed to cache index {i}, skipping.")
+            
+rewrite_with_phoneme_tensor(speech_train)
+##
+rewrite_with_phoneme_tensor(speech_test)

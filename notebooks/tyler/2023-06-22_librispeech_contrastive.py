@@ -162,9 +162,7 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    # TODO: we OOM on my Titan RTX likely due to the 2GB of vram used by the OS
-    # should figure out how to use onboard AMD graphics for display...
-    base_bz = 12 # NaN :/
+    base_bz = 8
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     val_bz = base_bz
 elif gpu_ram > 30:
@@ -231,9 +229,10 @@ max_len = 128000 * 2
 learning_rate = 3e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False
-
+text_transform = TextTransform(togglePhones = togglePhones)
 ##
-n_chars = len(emg_datamodule.val.text_transform.chars)
+
+n_chars = len(text_transform.chars)
 
 if NUM_GPUS > 1:
     # num_workers=0 # nccl backend doesn't support num_workers>0
@@ -530,6 +529,7 @@ class SpeechOrEMGToText(Model):
             
             paired_e_z = [emg_z[i] for i in paired_emg_idx]
             paired_a_z = [audio_z[i] for i in paired_audio_idx]
+            paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
 
             # per-utterance only
             # emg_audio_contrastive_loss = var_length_cross_contrastive_loss(
@@ -542,24 +542,32 @@ class SpeechOrEMGToText(Model):
             emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
                                                                 device=self.device)
 
-            z = torch.concatenate([*emg_z, *audio_z])
-            z_class = torch.concatenate([*emg_phonemes, *audio_phonemes])
+            # only use vocalized emg for supervised contrastive loss as we have
+            # frame-aligned phoneme labels for those
+            z = torch.concatenate([paired_e_z, *audio_z])
+            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
+            sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
         elif emg_z is not None:
-            z = torch.concatenate(emg_z)
-            z_class = torch.concatenate(emg_phonemes)
+            # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
+            # TODO: try DTW with parallel audio/emg to align phonemes with silent emg
+            # z = torch.concatenate(emg_z)
+            # z_class = torch.concatenate(emg_phonemes)
+            emg_audio_contrastive_loss = 0.
+            sup_nce_loss = 0.
         elif audio_z is not None:
             raise NotImplementedError("audio only is not expected")
             z = torch.concatenate(audio_z)
             z_class = torch.concatenate(audio_phonemes)
         else:
             emg_audio_contrastive_loss = 0.
+            sup_nce_loss = 0.
         
         # logging.debug(f"{z_class=}")
-        sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
         
         # assert audio_pred is None, f'Audio only not implemented, got {audio_pred=}'
         logging.debug(f"emg_ctc_loss: {emg_ctc_loss}, audio_ctc_loss: {audio_ctc_loss}, " \
-                        f"emg_audio_contrastive_loss: {emg_audio_contrastive_loss}")
+                        f"emg_audio_contrastive_loss: {emg_audio_contrastive_loss}, " \
+                        f"sup_nce_loss: {sup_nce_loss}")
         loss = emg_ctc_loss + audio_ctc_loss + emg_audio_contrastive_loss + sup_nce_loss
         
         if torch.isnan(loss):
@@ -678,7 +686,7 @@ class SpeechOrEMGToText(Model):
 
 config = SpeechOrEMGToTextConfig()
 
-model = SpeechOrEMGToText(config, emg_datamodule.val.text_transform)
+model = SpeechOrEMGToText(config, text_transform)
 
 # why is this sooo slow?? slash freezes..? are we hitting oak?
 # TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
@@ -782,3 +790,49 @@ if log_neptune:
     print(f"saved checkpoint to {ckpt_path}")
 ##
 # TODO: run again now that we fixed num_replicas in DistributedStratifiedBatchSampler
+
+##
+for i,b in enumerate(datamodule.train_dataloader()):
+    N = len(b['audio_features'])
+    for j in range(N):
+        if b['silent'][j]:
+            aus = b['audio_features'][j].shape[0]
+            es = b['raw_emg'][j].shape[0] // 8
+            ps = b['phonemes'][j].shape[0]
+        # assert aus == es == ps, f"batch {i} sample {j} size mismatch: audio={aus}, emg={es}, phonemes={ps}"
+        if not aus == es == ps:
+            print(f"batch {i} sample {j} size mismatch: audio={aus}, emg={es}, phonemes={ps}")
+##
+for i,b in enumerate(datamodule.train):
+    if b['silent']:
+        aus = b['audio_features'].shape[0]
+        es = b['raw_emg'].shape[0] // 8
+        ps = b['phonemes'].shape[0]
+        if not aus == es == ps:
+            print(f"sample {i} size mismatch: audio={aus}, emg={es}, phonemes={ps}")
+##
+td = EMGDataset(togglePhones=togglePhones, normalizers_file=normalizers_file)
+##
+# TODO: phoneme length is wrong when silent... 
+# a) we can use pretrained model to align phonemes
+# b) we can use DTW to align phonemes during training
+# TODO: align phonemes for silent speech using pretrained model & DTW
+i = 2
+td[i]['silent'], td[i]['phonemes'].shape[0], td[i]['audio_features'].shape[0], td[i]['raw_emg'].shape[0] //8
+
+##
+max_phonemes = 0
+phone_count = {}
+for i,b in enumerate(datamodule.train):
+    max_phonemes = max(max_phonemes, b['phonemes'].max())
+    for p in b['phonemes']:
+        p = int(p)
+        if p not in phone_count:
+            phone_count[p] = 1
+        phone_count[p] += 1
+max_phonemes, phone_count
+##
+for i in range(max_phonemes+1):
+    if i not in phone_count:
+        print(i)
+##
