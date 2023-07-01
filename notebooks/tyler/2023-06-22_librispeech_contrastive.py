@@ -791,48 +791,48 @@ if log_neptune:
 ##
 # TODO: run again now that we fixed num_replicas in DistributedStratifiedBatchSampler
 
-##
-for i,b in enumerate(datamodule.train_dataloader()):
-    N = len(b['audio_features'])
-    for j in range(N):
-        if b['silent'][j]:
-            aus = b['audio_features'][j].shape[0]
-            es = b['raw_emg'][j].shape[0] // 8
-            ps = b['phonemes'][j].shape[0]
-        # assert aus == es == ps, f"batch {i} sample {j} size mismatch: audio={aus}, emg={es}, phonemes={ps}"
-        if not aus == es == ps:
-            print(f"batch {i} sample {j} size mismatch: audio={aus}, emg={es}, phonemes={ps}")
-##
-for i,b in enumerate(datamodule.train):
-    if b['silent']:
-        aus = b['audio_features'].shape[0]
-        es = b['raw_emg'].shape[0] // 8
-        ps = b['phonemes'].shape[0]
-        if not aus == es == ps:
-            print(f"sample {i} size mismatch: audio={aus}, emg={es}, phonemes={ps}")
-##
-td = EMGDataset(togglePhones=togglePhones, normalizers_file=normalizers_file)
-##
-# TODO: phoneme length is wrong when silent... 
-# a) we can use pretrained model to align phonemes
-# b) we can use DTW to align phonemes during training
-# TODO: align phonemes for silent speech using pretrained model & DTW
-i = 2
-td[i]['silent'], td[i]['phonemes'].shape[0], td[i]['audio_features'].shape[0], td[i]['raw_emg'].shape[0] //8
+# ##
+# for i,b in enumerate(datamodule.train_dataloader()):
+#     N = len(b['audio_features'])
+#     for j in range(N):
+#         if b['silent'][j]:
+#             aus = b['audio_features'][j].shape[0]
+#             es = b['raw_emg'][j].shape[0] // 8
+#             ps = b['phonemes'][j].shape[0]
+#         # assert aus == es == ps, f"batch {i} sample {j} size mismatch: audio={aus}, emg={es}, phonemes={ps}"
+#         if not aus == es == ps:
+#             print(f"batch {i} sample {j} size mismatch: audio={aus}, emg={es}, phonemes={ps}")
+# ##
+# for i,b in enumerate(datamodule.train):
+#     if b['silent']:
+#         aus = b['audio_features'].shape[0]
+#         es = b['raw_emg'].shape[0] // 8
+#         ps = b['phonemes'].shape[0]
+#         if not aus == es == ps:
+#             print(f"sample {i} size mismatch: audio={aus}, emg={es}, phonemes={ps}")
+# ##
+# td = EMGDataset(togglePhones=togglePhones, normalizers_file=normalizers_file)
+# ##
+# # TODO: phoneme length is wrong when silent... 
+# # a) we can use pretrained model to align phonemes
+# # b) we can use DTW to align phonemes during training
+# # TODO: align phonemes for silent speech using pretrained model & DTW
+# i = 2
+# td[i]['silent'], td[i]['phonemes'].shape[0], td[i]['audio_features'].shape[0], td[i]['raw_emg'].shape[0] //8
 
-##
-max_phonemes = 0
-phone_count = {}
-for i,b in enumerate(datamodule.train):
-    max_phonemes = max(max_phonemes, b['phonemes'].max())
-    for p in b['phonemes']:
-        p = int(p)
-        if p not in phone_count:
-            phone_count[p] = 1
-        phone_count[p] += 1
-max_phonemes, phone_count
-##
-for i in range(max_phonemes+1):
-    if i not in phone_count:
-        print(i)
-##
+# ##
+# max_phonemes = 0
+# phone_count = {}
+# for i,b in enumerate(datamodule.train):
+#     max_phonemes = max(max_phonemes, b['phonemes'].max())
+#     for p in b['phonemes']:
+#         p = int(p)
+#         if p not in phone_count:
+#             phone_count[p] = 1
+#         phone_count[p] += 1
+# max_phonemes, phone_count
+# ##
+# for i in range(max_phonemes+1):
+#     if i not in phone_count:
+#         print(i)
+# ##
