@@ -545,10 +545,9 @@ class SpeechOrEMGToText(Model):
 
             # only use vocalized emg for supervised contrastive loss as we have
             # frame-aligned phoneme labels for those
-            z = torch.concatenate([paired_e_z, *audio_z]).to('cpu').float()
-            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes]).to('cpu')
-            sup_nce_loss = supervised_contrastive_loss(z, z_class, device='cpu')
-                # device=self.device)
+            z = torch.concatenate([paired_e_z, *audio_z])
+            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
+            sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
         elif emg_z is not None:
             # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
             # TODO: try DTW with parallel audio/emg to align phonemes with silent emg
@@ -653,6 +652,7 @@ class SpeechOrEMGToText(Model):
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("train/avg_audio_latent", avg_audio_latent,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
+        torch.cuda.empty_cache()
         return loss
 
     def validation_step(self, batch, batch_idx, task="val"):
