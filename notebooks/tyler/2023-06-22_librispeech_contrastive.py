@@ -162,8 +162,8 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    base_bz = 8
-    # base_bz = 4
+    # base_bz = 8
+    base_bz = 4
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     val_bz = base_bz
 elif gpu_ram > 30:
