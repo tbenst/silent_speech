@@ -48,7 +48,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
@@ -84,10 +84,10 @@ else:
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
-    grad_accum = 3
+    # grad_accum = 3
+    grad_accum = 4
     # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
     # https://youtu.be/HR0lt1hlR6U?t=7543
-    # grad_accum = 4
     logger_level = logging.WARNING
     
 isotime = datetime.now().isoformat()
@@ -162,7 +162,8 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    base_bz = 8
+    # base_bz = 8
+    base_bz = 4
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     val_bz = base_bz
 elif gpu_ram > 30:
