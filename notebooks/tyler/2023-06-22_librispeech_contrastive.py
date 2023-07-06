@@ -42,7 +42,7 @@ from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     DistributedStratifiedBatchSampler, StratifiedBatchSampler, CachedDataset, \
-    split_batch_into_emg_audio
+    split_batch_into_emg_audio, DistributedSizeAwareStratifiedBatchSampler
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
@@ -118,7 +118,10 @@ librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phone
 
 
 
-max_len = 128000 * 2
+# max_len = 128000 * 2
+# max_len = 128000
+# max_len = 64000
+max_len = 32000
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 emg_dir = os.path.join(gaddy_dir, 'emg_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
@@ -163,8 +166,9 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 if gpu_ram < 24:
     # Titan RTX
     # base_bz = 8
-    base_bz = 4
-    # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
+    # TODO: need to fix by using size-aware sampling for dataloader
+    # base_bz = 4
+    base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     val_bz = base_bz
 elif gpu_ram > 30:
     # V100
@@ -224,7 +228,6 @@ if not log_neptune:
 
 ##
 auto_lr_find = False
-max_len = 128000 * 2
 
 # precision = 32
 learning_rate = 3e-4
@@ -252,8 +255,8 @@ if NUM_GPUS > 1:
     # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
     # or we get this error:
     # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
-    TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
-        num_replicas=NUM_GPUS)
+    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+        num_replicas=NUM_GPUS, max_len=max_len//8)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,

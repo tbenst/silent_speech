@@ -129,6 +129,8 @@ class EMGDirectory(object):
         return self.directory
 
 class SizeAwareSampler(torch.utils.data.Sampler):
+    """Sample batches of examples from the dataset,
+    ensuring that each batch fits within max_len."""
     def __init__(self, emg_dataset, max_len):
         self.dataset = emg_dataset
         self.max_len = max_len

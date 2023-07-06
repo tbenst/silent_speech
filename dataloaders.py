@@ -2,6 +2,29 @@ import torch, numpy as np, librosa, pickle, torchaudio, os, pytorch_lightning as
 from data_utils import mel_spectrogram, read_phonemes
 import torch.distributed as dist, sys, logging
 from tqdm import tqdm
+from functools import partial
+from joblib import Memory
+
+def persist_to_file(file_name):
+    cache = {}
+    try:
+        with open(file_name, 'rb') as f:
+            cache['k'] = pickle.load(f)
+            logging.warn(f'Loaded cache from {file_name}')
+    except:
+        cache['k'] = None
+
+    def decorator(original_func):
+        def new_func(*args, **kwargs):
+            if cache['k'] is None:
+                cache['k'] = original_func(*args, **kwargs)
+                with open(file_name, 'wb') as f:
+                    pickle.dump(cache['k'], f)
+            return cache['k']
+
+        return new_func
+
+    return decorator
 
 class LibrispeechDataset(torch.utils.data.Dataset):
     """
@@ -345,11 +368,85 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
     def __len__(self):
         return self.num_batches
 
+class SizeAwareStratifiedBatchSampler(StratifiedBatchSampler):
+    """Sample batches without replacement with desired proportions of each class,
+    constraining max_len such that sum of all lengths in batch < max_len.
+    
+    If we run out of examples of a given class, we stop yielding batches.
+    batch_size is used indirectly to estimate the split, while max_len
+    actually determines ultimate number of examples per batch
+    
+    Args:
+        classes: array of class labels for each example
+        lengths: array of length for each example
+        class_proportion: array of desired proportion of each class in each batch
+        batch_size: anticipated number of examples in each batch
+        max_len: maximum length of batch in samples
+        shuffle: whether to shuffle the examples before sampling
+    """
+    
+    def __init__(self, classes:np.ndarray, lengths:np.ndarray,
+                 class_proportion:np.ndarray,
+                 batch_size:int, max_len:int, shuffle:bool=True):        
+        super().__init__(classes, class_proportion, batch_size, shuffle)
+        self.max_len = max_len
+        self.lengths = lengths
+        self.mini_batch_classes = np.concatenate([np.full(self.class_n_per_batch[i], i) for i in range(self.class_n_per_batch.shape[0])])
+        
+    def __iter__(self):
+        if self.shuffle:
+            class_indices = [np.random.permutation(x) for x in self.class_indices]
+        else:
+            class_indices = self.class_indices.copy()
+            classes = self.classes.copy()
+        class_indices = [list(x) for x in class_indices]
+        batch = []
+        batch_length = 0
+
+        # what we actually want is to have summed length from each class in
+        # each batch that is proportional to class_proportion. this approximates that
+
+        # first, we choose class baseed on randomly sampling proportion
+        while True:
+            if self.shuffle:
+                mini_batch_classes = np.random.permutation(self.mini_batch_classes)
+            else:
+                mini_batch_classes = self.mini_batch_classes
+                
+            for cl in mini_batch_classes:
+                if len(class_indices[cl]) == 0:
+                    # stop yielding batches if we run out of examples of a given class
+                    break
+                idx = class_indices[cl].pop()
+                length = self.lengths[idx]
+                if length > self.max_len:
+                    logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
+                if length + batch_length > self.max_len:
+                    yield batch
+                    batch = []
+                    batch_length = 0
+                batch.append(idx)
+                batch_length += length
+            else: # no break so we continue while loop
+                # https://stackoverflow.com/a/3150107
+                continue
+            break # break out of while loop when we run out of examples
+
 class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
-    """"Given the class of each example, sample batches without replacement
+    """Given the class of each example, sample batches without replacement
     with desired proportions of each class.
     
     If we run out of examples of a given class, we stop yielding batches.
+    
+    Args:
+        classes: array of class labels for each example
+        lengths: array of length for each example
+        class_proportion: array of desired proportion of each class in each batch
+        batch_size: number of examples in each batch
+        max_len: maximum length of batch in samples
+        shuffle: whether to shuffle the examples before sampling
+        seed: random seed
+        num_replicas: number of GPUs
     """
     def __init__(self, classes:np.ndarray, class_proportion:np.ndarray,
                  batch_size:int, shuffle:bool=True, drop_last:bool=False, seed:int=61923,
@@ -397,6 +494,86 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
             
     def __len__(self):
         return int(np.floor(self.num_batches / self.num_replicas))
+    
+class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampler):
+    """Sample batches without replacement with desired proportions of each class,
+    constraining max_len such that sum of all lengths in batch < max_len.
+    
+    If we run out of examples of a given class, we stop yielding batches.
+    
+    Args:
+        classes: array of class labels for each example
+        lengths: array of length for each example
+        class_proportion: array of desired proportion of each class in each batch
+        batch_size: number of examples in each batch
+        max_len: maximum length of batch in samples
+        shuffle: whether to shuffle the examples before sampling
+        seed: random seed
+        num_replicas: number of GPUs
+    """
+    def __init__(self, classes:np.ndarray, lengths:np.ndarray,
+                class_proportion:np.ndarray,
+                batch_size:int, max_len:int, shuffle:bool=True, seed:int=61923,
+                num_replicas:int=None):        
+        super().__init__(classes, class_proportion, batch_size, shuffle,
+                         seed=seed, num_replicas=num_replicas)
+        
+        self.max_len = max_len
+        self.lengths = lengths
+        self.mini_batch_classes = np.concatenate([np.full(self.class_n_per_batch[i], i) for i in range(self.class_n_per_batch.shape[0])])
+
+    def __iter__(self):
+        if self.shuffle:
+            g = torch.Generator()
+            g.manual_seed(self.seed + self.epoch)
+            class_indices = [x[torch.randperm(len(x), generator=g)].tolist()
+                                    for x in self.class_indices]
+            # different indices per GPU
+            class_indices = [x[self.rank::self.num_replicas]
+                                  for x in class_indices]
+        else:
+            class_indices = [x.tolist() for x in self.class_indices]
+
+
+        batch = []
+        batch_length = 0
+            
+        for b in range(self.rank,self.num_batches,self.num_replicas):
+            if self.shuffle:
+                mini_batch_classes = np.random.permutation(self.mini_batch_classes)
+            else:
+                mini_batch_classes = self.mini_batch_classes
+            
+            for cl in mini_batch_classes:
+                if len(class_indices[cl]) == 0:
+                    # stop yielding batches if we run out of examples of a given class
+                    break
+                idx = class_indices[cl].pop()
+                length = self.lengths[idx]
+                if length > self.max_len:
+                    logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
+                if length + batch_length > self.max_len:
+                    yield batch
+                    batch = []
+                    batch_length = 0
+                batch.append(idx)
+                batch_length += length
+
+@persist_to_file("/tmp/2023-07-06_emg_speech_dset_lengths.pickle")
+def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
+    """Calculate length of latent space for each example in dataset.
+    
+    Useful as contrastive loss is quadratic in length of latent space.
+    """
+    lengths = []
+    for d in tqdm(dset, desc="calc lengths for sampler"):
+        if 'silent' in d:
+            # add length in latent space
+            lengths.append(d['raw_emg'].shape[0] // 8)
+        else:
+            # same dim as latent space
+            lengths.append(d['audio_features'].shape[0])
+    return lengths
 
 class EMGAndSpeechModule(pl.LightningDataModule):
     def __init__(self, emg_train:torch.utils.data.Dataset,
@@ -446,14 +623,23 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             if not b['silent']:
                 classes[i] = 1
     
+        isDSASBS = (TrainBatchSampler == DistributedSizeAwareStratifiedBatchSampler) or \
+            (type(TrainBatchSampler) is partial) and \
+            (TrainBatchSampler.func == DistributedSizeAwareStratifiedBatchSampler)
         # TODO: could make this more general when need arises
-        self.TrainSampler = TrainBatchSampler(classes, batch_class_proportions, bz)
+        if isDSASBS:
+            self.train_lengths = emg_speech_dset_lengths(self.train)
+            self.TrainSampler = TrainBatchSampler(classes, self.train_lengths,
+                batch_class_proportions, bz, num_replicas=num_replicas)
+        else:
+            self.TrainSampler = TrainBatchSampler(classes, batch_class_proportions, bz)
         self.ValSampler = ValSampler
         self.TestSampler = TestSampler
         self.collate_fn = collate_gaddy_or_speech
         self.val_bz = bz // num_replicas
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        
         
         # self.prepare_data_per_node = False # we don't prepare data here
         # # https://github.com/Lightning-AI/lightning/pull/16712#discussion_r1237629807
