@@ -120,8 +120,8 @@ librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phone
 
 # max_len = 128000 * 2
 # max_len = 128000
-# max_len = 64000
-max_len = 32000
+max_len = 64000
+# max_len = 32000
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 emg_dir = os.path.join(gaddy_dir, 'emg_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
@@ -169,7 +169,8 @@ if gpu_ram < 24:
     # TODO: need to fix by using size-aware sampling for dataloader
     # base_bz = 4
     base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
-    val_bz = base_bz
+    # val_bz = base_bz
+    val_bz = 4
 elif gpu_ram > 30:
     # V100
     base_bz = 24

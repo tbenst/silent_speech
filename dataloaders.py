@@ -586,7 +586,8 @@ def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
         if 'silent' in d:
             # add length in latent space
             lengths.append(d['raw_emg'].shape[0] // 8)
-        elif 'audio_only' in d:
+        elif 'raw_emg' not in d:
+            # audio only
             # same dim as latent space, no need to divide by 8
             lengths.append(d['audio_features'].shape[0])
         else:
