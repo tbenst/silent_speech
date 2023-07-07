@@ -574,6 +574,15 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                         break # ensure we always include at least one example from this class
                 batch.append(idx)
                 batch_length += length
+                
+    def __len__(self):
+        "Return approximate number of batches per epoch"
+        L = np.sum(self.lengths)
+        # number of batches if each batch is exactly max_len
+        optimal = int(np.floor(L / self.max_len / self.num_replicas))
+        fudge = 1.25 # fudge factor to ensure we don't stop iterating too early
+        return int(np.floor(optimal * fudge))
+        
 
 @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")
 def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
@@ -603,7 +612,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             emg_val:torch.utils.data.Dataset, emg_test:torch.utils.data.Dataset,
             speech_train:torch.utils.data.Dataset, speech_val:torch.utils.data.Dataset,
             speech_test:torch.utils.data.Dataset,
-            bz:int=64, num_replicas:int=1, num_workers:int=0,
+            bz:int=64, val_bz:int=16, num_replicas:int=1, num_workers:int=0,
             TrainBatchSampler:torch.utils.data.Sampler=StratifiedBatchSampler,
             ValSampler:torch.utils.data.Sampler=None,
             TestSampler:torch.utils.data.Sampler=None,
@@ -652,14 +661,14 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         # TODO: could make this more general when need arises
         if isDSASBS:
             self.train_lengths = emg_speech_dset_lengths(self.train)
-            self.TrainSampler = TrainBatchSampler(classes, self.train_lengths,
+            self.TrainBatchSampler = TrainBatchSampler(classes, self.train_lengths,
                 batch_class_proportions, bz, num_replicas=num_replicas)
         else:
-            self.TrainSampler = TrainBatchSampler(classes, batch_class_proportions, bz)
+            self.TrainBatchSampler = TrainBatchSampler(classes, batch_class_proportions, bz)
         self.ValSampler = ValSampler
         self.TestSampler = TestSampler
         self.collate_fn = collate_gaddy_or_speech
-        self.val_bz = bz // num_replicas
+        self.val_bz = val_bz // num_replicas
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         
@@ -685,7 +694,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             collate_fn=self.collate_fn,
             pin_memory=self.pin_memory,
             num_workers=self.num_workers,
-            batch_sampler=self.TrainSampler
+            batch_sampler=self.TrainBatchSampler
         )
         
     def val_dataloader(self):

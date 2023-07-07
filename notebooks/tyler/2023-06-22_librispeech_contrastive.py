@@ -171,7 +171,7 @@ if gpu_ram < 24:
     # base_bz = 4
     base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     # val_bz = base_bz
-    val_bz = 4
+    val_bz = 8
 elif gpu_ram > 30:
     # V100
     base_bz = 24
@@ -276,14 +276,14 @@ else:
 datamodule =  EMGAndSpeechModule(emg_datamodule.train,
     emg_datamodule.val, emg_datamodule.test,
     speech_train, speech_val, speech_test,
-    bz=bz, num_replicas=NUM_GPUS, pin_memory=(not DEBUG),
+    bz=bz, val_bz=val_bz, num_replicas=NUM_GPUS, pin_memory=(not DEBUG),
     num_workers=num_workers,
     TrainBatchSampler=TrainBatchSampler,
     ValSampler=ValSampler,
     TestSampler=TestSampler,
 )
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
-steps_per_epoch = len(datamodule.TrainSampler) // grad_accum
+steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 
 # steps_per_epoch = len(datamodule.train_dataloader())
 # print(steps_per_epoch)
