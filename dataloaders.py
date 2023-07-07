@@ -510,16 +510,24 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         shuffle: whether to shuffle the examples before sampling
         seed: random seed
         num_replicas: number of GPUs
+        always_include_class: first example in each batch is always from this class
+        
+    always_include_class is useful for when models need at least one certain class of
+    example in each batch, e.g. for cross contrastive loss between EMG & Audio.
     """
     def __init__(self, classes:np.ndarray, lengths:np.ndarray,
                 class_proportion:np.ndarray,
                 batch_size:int, max_len:int, shuffle:bool=True, seed:int=61923,
-                num_replicas:int=None):        
+                num_replicas:int=None,
+                always_include_class:int=None):        
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
         
         self.max_len = max_len
         self.lengths = lengths
+        self.always_include_class = always_include_class
+        if always_include_class is not None:
+            self.class_n_per_batch[self.always_include_class] -= 1
         self.mini_batch_classes = np.concatenate([np.full(self.class_n_per_batch[i], i) for i in range(self.class_n_per_batch.shape[0])])
 
     def __iter__(self):
@@ -538,28 +546,36 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         batch = []
         batch_length = 0
             
-        for b in range(self.rank,self.num_batches,self.num_replicas):
+        # for b in range(self.rank,self.num_batches,self.num_replicas):
+        while True:
             if self.shuffle:
                 mini_batch_classes = np.random.permutation(self.mini_batch_classes)
             else:
                 mini_batch_classes = self.mini_batch_classes
-            
+                
+            if self.always_include_class is not None:
+                mini_batch_classes = np.concatenate([[self.always_include_class], mini_batch_classes])
+                
             for cl in mini_batch_classes:
                 if len(class_indices[cl]) == 0:
                     # stop yielding batches if we run out of examples of a given class
-                    break
+                    # break
+                    return None
                 idx = class_indices[cl].pop()
                 length = self.lengths[idx]
                 if length > self.max_len:
-                    logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
+                    logging.warning(f'Warning: example {idx} cannot fit within desired batch length, skipping')
+                    continue
                 if length + batch_length > self.max_len:
                     yield batch
                     batch = []
                     batch_length = 0
+                    if self.always_include_class is not None:
+                        break # ensure we always include at least one example from this class
                 batch.append(idx)
                 batch_length += length
 
-@persist_to_file("/tmp/2023-07-06_emg_speech_dset_lengths.pickle")
+@persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")
 def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
     
@@ -570,9 +586,15 @@ def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
         if 'silent' in d:
             # add length in latent space
             lengths.append(d['raw_emg'].shape[0] // 8)
-        else:
-            # same dim as latent space
+        elif 'audio_only' in d:
+            # same dim as latent space, no need to divide by 8
             lengths.append(d['audio_features'].shape[0])
+        else:
+            # EMG + audio, so length is sum of both
+            emg_z_len = d['raw_emg'].shape[0] // 8
+            audio_z_len = d['audio_features'].shape[0]
+            assert emg_z_len == audio_z_len
+            lengths.append(emg_z_len + audio_z_len)
     return lengths
 
 class EMGAndSpeechModule(pl.LightningDataModule):

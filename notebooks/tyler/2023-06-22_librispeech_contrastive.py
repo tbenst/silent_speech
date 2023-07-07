@@ -255,8 +255,9 @@ if NUM_GPUS > 1:
     # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
     # or we get this error:
     # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
+    # always include at least one example of class 1 (EMG & Audio) in batch
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
@@ -541,7 +542,11 @@ class SpeechOrEMGToText(Model):
             #     device=self.device)
             
             # across batch
-            paired_e_z = torch.concatenate(paired_e_z)
+            try:
+                paired_e_z = torch.concatenate(paired_e_z)
+            except Exception as e:
+                logging.error(f"paired_e_z: {paired_e_z=}")
+                raise e
             paired_a_z = torch.concatenate(paired_a_z)
             emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
                                                                 device=self.device)
