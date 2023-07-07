@@ -120,8 +120,9 @@ librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phone
 
 # max_len = 128000 * 2
 # max_len = 128000
-max_len = 64000
+# max_len = 64000 # OOM
 # max_len = 32000
+max_len = 48000
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 emg_dir = os.path.join(gaddy_dir, 'emg_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
