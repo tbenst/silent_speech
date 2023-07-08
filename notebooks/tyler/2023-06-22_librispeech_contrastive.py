@@ -565,7 +565,8 @@ class SpeechOrEMGToText(Model):
             # frame-aligned phoneme labels for those
             z = torch.concatenate([paired_e_z, *audio_z])
             z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
-            sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+            # sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+            sup_nce_loss = 0.
         elif emg_z is not None:
             # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
             # TODO: try DTW with parallel audio/emg to align phonemes with silent emg
