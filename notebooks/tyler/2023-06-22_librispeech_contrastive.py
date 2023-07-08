@@ -188,7 +188,7 @@ else:
 
 # needed for using CachedDataset
 # TODO: is this creating problems...?
-data_dir = '/scratch/GaddyPaper/cached/' # temporarily hack for hardcoded paths
+# data_dir = '/scratch/GaddyPaper/cached/' # temporarily hack for hardcoded paths
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
     pin_memory=(not DEBUG), batch_size=val_bz)
 emg_train = emg_datamodule.train
