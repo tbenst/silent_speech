@@ -613,7 +613,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         # if self.len is None:
         #     self.len = self.approx_len()
         # return self.len
-        return 900
+        return 904
         
 
 @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")

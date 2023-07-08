@@ -79,7 +79,8 @@ if DEBUG:
     
 else:
     NUM_GPUS = 2
-    limit_train_batches = None
+    limit_train_batches = 900 # hack to try and get validation loop to run...
+    # variable length batches are destroying pytorch lightning
     # limit_train_batches = 2
     limit_val_batches = None
     log_neptune = True
