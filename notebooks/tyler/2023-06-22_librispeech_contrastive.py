@@ -268,8 +268,8 @@ if NUM_GPUS > 1:
     #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
         num_replicas=NUM_GPUS)
-    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+    # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+    #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
