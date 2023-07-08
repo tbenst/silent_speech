@@ -49,7 +49,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
