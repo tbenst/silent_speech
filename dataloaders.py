@@ -523,7 +523,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                 always_include_class:int=None):        
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
-        
+        logging.warning("Hard coding len to 900 as hack to get pytorch lightning to work")
         self.max_len = max_len
         self.lengths = lengths
         self.always_include_class = always_include_class
@@ -609,7 +609,6 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
 
     def __len__(self):
         "Return approximate number of batches per epoch"
-        logging.warning("Hard coding len to 900 as hack to get pytorch lightning to work")
         # https://github.com/Lightning-AI/lightning/issues/18023
         # if self.len is None:
         #     self.len = self.approx_len()
