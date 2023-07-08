@@ -172,8 +172,13 @@ def infoNCE_masks(L, device='cpu'):
     torch.diagonal(positives_mask, offset=L).fill_(True) # x_i is a positive example of y_i
     torch.diagonal(positives_mask, offset=-L).fill_(True) # y_i is a positive example of x_i
     
-    denominator_mask = (~torch.eye(L*2, L*2, dtype=bool, device=device))
-    return positives_mask, denominator_mask
+    # denominator_mask = (~torch.eye(L*2, L*2, dtype=bool, device=device)) # over everything (original formulation)
+    # denominator_mask = (~torch.eye(L*2, L*2, dtype=bool, device=device))
+    # return positives_mask, denominator_mask
+    negatives_mask = positives_mask.clone()
+    torch.diagonal(negatives_mask).fill_(True) # ignore self-similarity
+    negatives_mask = (~negatives_mask).float()
+    return positives_mask, negatives_mask
 
 
 def supNCE_masks(labels:torch.Tensor, device='cpu'):
