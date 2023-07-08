@@ -91,8 +91,8 @@ else:
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
-    # grad_accum = 3
     grad_accum = 4
+    grad_accum = 3
     # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
     # https://youtu.be/HR0lt1hlR6U?t=7543
     logger_level = logging.WARNING
@@ -125,11 +125,11 @@ librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phone
 
 
 
-# max_len = 128000 * 2
+max_len = 128000 * 2 # original Gaddy
 # max_len = 128000
 # max_len = 64000 # OOM
-max_len = 32000
-# max_len = 56000
+# max_len = 32000 # works for supNCE
+# max_len = 48000
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 emg_dir = os.path.join(gaddy_dir, 'emg_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
@@ -186,6 +186,8 @@ elif gpu_ram > 30:
 else:
     raise ValueError("Unknown GPU")
 
+# needed for using CachedDataset
+# TODO: is this creating problems...?
 data_dir = '/scratch/GaddyPaper/cached/' # temporarily hack for hardcoded paths
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
     pin_memory=(not DEBUG), batch_size=val_bz)
@@ -276,9 +278,9 @@ if NUM_GPUS > 1:
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
         shuffle=False, num_replicas=NUM_GPUS)
 else:
-    # TrainBatchSampler = SizeAwareStratifiedBatchSampler
-    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+    TrainBatchSampler = SizeAwareStratifiedBatchSampler
+    # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+    #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
@@ -352,7 +354,7 @@ class SpeechOrEMGToTextConfig:
     out_channels:int = 80
     resid_dropout:float = 0.0
     num_outs:int = n_chars+1
-    max_len:int = max_len # maybe make smaller..?
+    max_len:int = max_len
     num_heads:int = 8
     lm_directory:str = lm_directory
 
@@ -708,17 +710,6 @@ class SpeechOrEMGToText(Model):
     
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx, task="test")
-    
-    def on_train_epoch_start(self):
-        logging.warning("\n ====== on_train_epoch_start ======")
-        # bad separation of concerns / composability,
-        # but this seems forced by pytorch lightning
-        # maybe should use Fabric in the future..
-        if self.trainer.datamodule is not None:
-            if hasattr(self.trainer.datamodule, 'TrainBatchSampler'):
-                logging.warning(f"set epoch to {self.current_epoch=}")
-                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
-
 
 class BoringModel(pl.LightningModule):
     def __init__(self):
