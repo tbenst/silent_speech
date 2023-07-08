@@ -49,7 +49,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-# DEBUG = True
+DEBUG = True
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
@@ -269,7 +269,9 @@ if NUM_GPUS > 1:
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
         shuffle=False, num_replicas=NUM_GPUS)
 else:
-    TrainBatchSampler = SizeAwareStratifiedBatchSampler
+    # TrainBatchSampler = SizeAwareStratifiedBatchSampler
+    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
@@ -786,7 +788,7 @@ if log_neptune:
         filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
     )
     callbacks.extend([
-        # checkpoint_callback,
+        checkpoint_callback,
         pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
         # pl.callbacks.LearningRateMonitor(logging_interval="step"), # good for troubleshooting warmup
     ])
