@@ -70,7 +70,6 @@ if DEBUG:
     # limit_val_batches = None
     log_neptune = False
     n_epochs = 2
-    n_epochs = 50
     # precision = "32"
     precision = "16-mixed"
     num_sanity_val_steps = 2
@@ -81,6 +80,7 @@ if DEBUG:
 else:
     NUM_GPUS = 2
     limit_train_batches = None
+    # limit_train_batches = 2
     limit_val_batches = None
     log_neptune = True
     # log_neptune = False
@@ -729,6 +729,7 @@ class BoringModel(pl.LightningModule):
         return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
+        logging.warning(f"validation_step: {batch_idx=}")
         loss = self.calc_loss(batch)
         self.log("valid_loss", loss)
 
@@ -799,8 +800,6 @@ else:
 # perhaps this line will resolve..?
 # export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'
 ##
-# TODO: at epoch 22 validation seems to massively slow down...?
-# may be due to neptune...? (saw freeze on two models at same time...)
 if NUM_GPUS > 1:
     devices = 'auto'
     strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True)
