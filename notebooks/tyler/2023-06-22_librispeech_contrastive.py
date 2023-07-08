@@ -172,10 +172,10 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    # base_bz = 8
+    base_bz = 12
     # TODO: need to fix by using size-aware sampling for dataloader
     # base_bz = 4
-    base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
+    # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     # val_bz = base_bz
     val_bz = 8
 elif gpu_ram > 30:
@@ -264,6 +264,10 @@ if NUM_GPUS > 1:
     # or we get this error:
     # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
     # always include at least one example of class 1 (EMG & Audio) in batch
+    # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+    #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+    TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
+        num_replicas=NUM_GPUS)
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
         num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
