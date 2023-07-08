@@ -567,7 +567,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     # stop yielding batches if we run out of examples of a given class
                     # break
                     self.len = len(batches)
-                    logging.warning(f"DEBUG:return {self.len} batches. {self.epoch=}")
+                    # logging.warning(f"DEBUG:return {self.len} batches. {self.epoch=}")
                     # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
                     return iter(batches[:850])
                 # class_indices shrink as we pop from them
@@ -597,12 +597,12 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             class_indices = self.class_indices
         length_per_class = np.array([np.sum(np.array(self.lengths)[class_indices[i]])
                                      for i in range(self.class_n_per_batch.shape[0])])
-        logging.warning(f'length_per_class: {length_per_class}')
+        # logging.warning(f'length_per_class: {length_per_class}')
         # num batches limiting class 
         num_batches_per_class = np.ceil(length_per_class / self.class_proportion / self.max_len)
-        logging.warning(f'num_batches_per_class: {num_batches_per_class}')
+        # logging.warning(f'num_batches_per_class: {num_batches_per_class}')
         optimal_batches = np.min(num_batches_per_class)
-        logging.warning(f'{optimal_batches=}')
+        # logging.warning(f'{optimal_batches=}')
         # we could potentially have more batches if we don't always fill max_len
         # but if len > actual num_batches, pytorch lightning stalls
         return int(np.floor(optimal_batches))
