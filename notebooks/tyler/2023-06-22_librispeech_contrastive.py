@@ -82,7 +82,8 @@ else:
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
-    limit_train_batches = 500
+    # limit_train_batches = 500
+    limit_train_batches = None
     limit_val_batches = None
     log_neptune = True
     # log_neptune = False
