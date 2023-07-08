@@ -42,7 +42,8 @@ from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     DistributedStratifiedBatchSampler, StratifiedBatchSampler, CachedDataset, \
-    split_batch_into_emg_audio, DistributedSizeAwareStratifiedBatchSampler
+    split_batch_into_emg_audio, DistributedSizeAwareStratifiedBatchSampler, \
+    SizeAwareStratifiedBatchSampler
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
@@ -64,9 +65,12 @@ if DEBUG:
     NUM_GPUS = 1
     limit_train_batches = 2
     limit_val_batches = 2 # will not run on_validation_epoch_end
+    # NUM_GPUS = 2
+    # limit_train_batches = None
     # limit_val_batches = None
     log_neptune = False
     n_epochs = 2
+    n_epochs = 50
     # precision = "32"
     precision = "16-mixed"
     num_sanity_val_steps = 2
@@ -265,7 +269,7 @@ if NUM_GPUS > 1:
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
         shuffle=False, num_replicas=NUM_GPUS)
 else:
-    TrainBatchSampler = StratifiedBatchSampler
+    TrainBatchSampler = SizeAwareStratifiedBatchSampler
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
@@ -694,11 +698,59 @@ class SpeechOrEMGToText(Model):
     
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx, task="test")
+    
+    def on_train_epoch_start(self):
+        logging.warning("\n ====== on_train_epoch_start ======")
+        # bad separation of concerns / composability,
+        # but this seems forced by pytorch lightning
+        # maybe should use Fabric in the future..
+        if self.trainer.datamodule is not None:
+            if hasattr(self.trainer.datamodule, 'TrainBatchSampler'):
+                logging.warning(f"set epoch to {self.current_epoch=}")
+                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
 
+
+class BoringModel(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.param = torch.nn.Parameter(torch.rand(1))
+
+    def forward(self, x):
+        return x * self.param
+    
+    def calc_loss(self,batch):
+        return self(batch['audio_features'][0]).sum()
+
+    def training_step(self, batch, batch_idx):
+        loss = self.calc_loss(batch)
+        self.log("train_loss", loss)
+        return {"loss": loss}
+
+    def validation_step(self, batch, batch_idx):
+        loss = self.calc_loss(batch)
+        self.log("valid_loss", loss)
+
+    def test_step(self, batch, batch_idx):
+        loss = self.calc_loss(batch)
+        self.log("test_loss", loss)
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(self.parameters(), lr=0.1)
+    
+    def on_train_epoch_start(self):
+        logging.warning("\n ====== on_train_epoch_start ======")
+        # bad separation of concerns / composability,
+        # but this seems forced by pytorch lightning
+        # maybe should use Fabric in the future..
+        if self.trainer.datamodule is not None:
+            if hasattr(self.trainer.datamodule, 'TrainBatchSampler'):
+                logging.warning(f"set epoch to {self.current_epoch=}")
+                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
 
 config = SpeechOrEMGToTextConfig()
 
 model = SpeechOrEMGToText(config, text_transform)
+# model = BoringModel()
 
 # why is this sooo slow?? slash freezes..? are we hitting oak?
 # TODO: benchmark with cProfiler. CPU & GPU are near 100% during however
@@ -734,7 +786,7 @@ if log_neptune:
         filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
     )
     callbacks.extend([
-        checkpoint_callback,
+        # checkpoint_callback,
         pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
         # pl.callbacks.LearningRateMonitor(logging_interval="step"), # good for troubleshooting warmup
     ])

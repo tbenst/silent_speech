@@ -388,6 +388,7 @@ class SizeAwareStratifiedBatchSampler(StratifiedBatchSampler):
     def __init__(self, classes:np.ndarray, lengths:np.ndarray,
                  class_proportion:np.ndarray,
                  batch_size:int, max_len:int, shuffle:bool=True):        
+        raise NotImplementedError("This is not yet tested. update to match DistributedSizeAwareStratifiedBatchSampler")
         super().__init__(classes, class_proportion, batch_size, shuffle)
         self.max_len = max_len
         self.lengths = lengths
@@ -528,9 +529,12 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         self.always_include_class = always_include_class
         if always_include_class is not None:
             self.class_n_per_batch[self.always_include_class] -= 1
-        self.mini_batch_classes = np.concatenate([np.full(self.class_n_per_batch[i], i) for i in range(self.class_n_per_batch.shape[0])])
+        self.mini_batch_classes = torch.from_numpy(np.concatenate([np.full(self.class_n_per_batch[i], i)
+            for i in range(self.class_n_per_batch.shape[0])]))
+        self.len = None
 
     def __iter__(self):
+        logging.warning("Initializing DistributedSizeAwareStratifiedBatchSampler")
         if self.shuffle:
             g = torch.Generator()
             g.manual_seed(self.seed + self.epoch)
@@ -543,13 +547,15 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             class_indices = [x.tolist() for x in self.class_indices]
 
 
-        batch = []
+        batch = [] # resets each time over max_len
         batch_length = 0
+        batches = [] # accumulates
             
         # for b in range(self.rank,self.num_batches,self.num_replicas):
         while True:
             if self.shuffle:
-                mini_batch_classes = np.random.permutation(self.mini_batch_classes)
+                p = torch.randperm(self.mini_batch_classes.shape[0], generator=g)
+                mini_batch_classes = self.mini_batch_classes[p]
             else:
                 mini_batch_classes = self.mini_batch_classes
                 
@@ -560,14 +566,18 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                 if len(class_indices[cl]) == 0:
                     # stop yielding batches if we run out of examples of a given class
                     # break
-                    return None
+                    self.len = len(batches)
+                    logging.warning(f"DEBUG:return {self.len} batches. {self.epoch=}")
+                    # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
+                    return iter(batches[:850])
+                # class_indices shrink as we pop from them
                 idx = class_indices[cl].pop()
                 length = self.lengths[idx]
                 if length > self.max_len:
                     logging.warning(f'Warning: example {idx} cannot fit within desired batch length, skipping')
                     continue
                 if length + batch_length > self.max_len:
-                    yield batch
+                    batches.append(batch)
                     batch = []
                     batch_length = 0
                     if self.always_include_class is not None:
@@ -575,13 +585,36 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                 batch.append(idx)
                 batch_length += length
                 
+    def approx_len(self, class_indices=None):
+        """Return approximate number of batches per epoch.
+        
+        We can't know for sure how many batches we'll yield until we call iter,
+        as it's stochastic.
+        
+        TODO: why is this estimate so bad??
+        """
+        if class_indices is None:
+            class_indices = self.class_indices
+        length_per_class = np.array([np.sum(np.array(self.lengths)[class_indices[i]])
+                                     for i in range(self.class_n_per_batch.shape[0])])
+        logging.warning(f'length_per_class: {length_per_class}')
+        # num batches limiting class 
+        num_batches_per_class = np.ceil(length_per_class / self.class_proportion / self.max_len)
+        logging.warning(f'num_batches_per_class: {num_batches_per_class}')
+        optimal_batches = np.min(num_batches_per_class)
+        logging.warning(f'{optimal_batches=}')
+        # we could potentially have more batches if we don't always fill max_len
+        # but if len > actual num_batches, pytorch lightning stalls
+        return int(np.floor(optimal_batches))
+
     def __len__(self):
         "Return approximate number of batches per epoch"
-        L = np.sum(self.lengths)
-        # number of batches if each batch is exactly max_len
-        optimal = int(np.floor(L / self.max_len / self.num_replicas))
-        fudge = 1.25 # fudge factor to ensure we don't stop iterating too early
-        return int(np.floor(optimal * fudge))
+        logging.warning("Hard coding len to 900 as hack to get pytorch lightning to work")
+        # https://github.com/Lightning-AI/lightning/issues/18023
+        # if self.len is None:
+        #     self.len = self.approx_len()
+        # return self.len
+        return 900
         
 
 @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")

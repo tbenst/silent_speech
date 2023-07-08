@@ -247,8 +247,8 @@ class Model(pl.LightningModule):
         # but this seems forced by pytorch lightning
         # maybe should use Fabric in the future..
         if self.trainer.datamodule is not None:
-            if hasattr(self.trainer.datamodule, 'TrainSampler'):
-                self.trainer.datamodule.TrainSampler.set_epoch(self.current_epoch)
+            if hasattr(self.trainer.datamodule, 'TrainBatchSampler'):
+                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
     
     def training_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
