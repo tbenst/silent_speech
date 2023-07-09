@@ -118,6 +118,7 @@ else:
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
+    # scratch_directory = os.environ["SCRATCH"]
     scratch_directory = os.environ["LOCAL_SCRATCH"]
     gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
 else:
@@ -139,6 +140,7 @@ normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 togglePhones = False
 
 if ON_SHERLOCK:
+    lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
     
 # bz = 96 # OOM after 25 steps
@@ -176,11 +178,15 @@ if gpu_ram < 24:
     # val_bz = base_bz
     val_bz = 8
     max_len = 48000 # works for supNCE on Titan RTX
+    assert NUM_GPUS == 2
+    hardcode_len = 904 # 2 GPUs
 elif gpu_ram > 30:
     # V100
     base_bz = 24
     val_bz = base_bz
     max_len = 64000 # try on V100
+    assert NUM_GPUS == 4
+    hardcode_len = 375 # 4 GPUs
 else:
     raise ValueError("Unknown GPU")
 
@@ -270,7 +276,8 @@ if NUM_GPUS > 1:
     # TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS)
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1,
+        hardcode_len=hardcode_len)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
@@ -278,7 +285,8 @@ if NUM_GPUS > 1:
 else:
     # TrainBatchSampler = SizeAwareStratifiedBatchSampler
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1,
+        hardcode_len=hardcode_len)
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
