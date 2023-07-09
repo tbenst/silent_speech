@@ -269,18 +269,18 @@ if NUM_GPUS > 1:
     # always include at least one example of class 1 (EMG & Audio) in batch
     # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
-    TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
-        num_replicas=NUM_GPUS)
-    # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-    #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+    # TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
+    #     num_replicas=NUM_GPUS)
+    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
         shuffle=False, num_replicas=NUM_GPUS)
 else:
-    TrainBatchSampler = SizeAwareStratifiedBatchSampler
-    # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-    #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+    # TrainBatchSampler = SizeAwareStratifiedBatchSampler
+    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
