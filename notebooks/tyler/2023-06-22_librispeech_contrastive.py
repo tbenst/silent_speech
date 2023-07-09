@@ -85,8 +85,10 @@ if DEBUG:
     
 else:
     NUM_GPUS = 2
+    grad_accum = 3
     if ON_SHERLOCK:
         NUM_GPUS = 4
+        grad_accum = 2
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
@@ -99,8 +101,7 @@ else:
     precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
-    grad_accum = 4
-    grad_accum = 3
+    
     # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
     # https://youtu.be/HR0lt1hlR6U?t=7543
     logger_level = logging.WARNING
