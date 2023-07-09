@@ -523,8 +523,9 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                 always_include_class:int=None):        
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
-        logging.warning("Hard coding len to 900 as hack to get pytorch lightning to work")
+        # self.hardcode_len = 16
         self.hardcode_len = 904
+        logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
         self.max_len = max_len
         self.lengths = lengths
         self.always_include_class = always_include_class
