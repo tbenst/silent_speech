@@ -88,7 +88,7 @@ else:
     grad_accum = 3
     if ON_SHERLOCK:
         NUM_GPUS = 4
-        grad_accum = 2
+        grad_accum = 1
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
@@ -184,7 +184,8 @@ elif gpu_ram > 30:
     # V100
     base_bz = 24
     val_bz = base_bz
-    max_len = 64000 # try on V100
+    # max_len = 64000 # OOM epoch 32
+    max_len = 56000
     assert NUM_GPUS == 4
     hardcode_len = 360 # 4 GPUs
 else:
