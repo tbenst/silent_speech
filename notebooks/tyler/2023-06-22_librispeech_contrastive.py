@@ -112,37 +112,27 @@ else:
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
-    scratch_directory = os.environ["SCRATCH"]
+    scratch_directory = os.environ["LOCAL_SCRATCH"]
     gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
 else:
+    # on my local machine
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
     
-librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_phoneme_cache")
-librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache")
-librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phoneme_cache")
+librispeech_train_cache = os.path.join(scratch_directory, "librispeech",
+    "librispeech_train_phoneme_cache")
+librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
+    "librispeech_val_phoneme_cache")
+librispeech_test_cache = os.path.join(scratch_directory, "librispeech",
+    "librispeech_test_phoneme_cache")
+data_dir = os.path.join(scratch_directory, 'gaddy/')
 
-
-
-max_len = 128000 * 2 # original Gaddy
-# max_len = 128000
-# max_len = 64000 # OOM
-# max_len = 32000 # works for supNCE
-max_len = 48000
-data_dir = os.path.join(gaddy_dir, 'processed_data/')
-emg_dir = os.path.join(gaddy_dir, 'emg_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 togglePhones = False
 
-
-# copy_metadata_command = f"rsync -am --include='*.json' --include='*/' --exclude='*' {emg_dir} {scratch_directory}/"
-scratch_emg = os.path.join(scratch_directory,"emg_data")
 if ON_SHERLOCK:
-    if not os.path.exists(scratch_emg):
-        os.symlink(emg_dir, scratch_emg)
-    data_dir = ensure_folder_on_scratch(data_dir, scratch_directory)
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
     
 # bz = 96 # OOM after 25 steps
@@ -179,10 +169,12 @@ if gpu_ram < 24:
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     # val_bz = base_bz
     val_bz = 8
+    max_len = 48000 # works for supNCE on Titan RTX
 elif gpu_ram > 30:
     # V100
     base_bz = 24
     val_bz = base_bz
+    max_len = 64000 # try on V100
 else:
     raise ValueError("Unknown GPU")
 
@@ -343,8 +335,9 @@ class SpeechOrEMGToTextConfig:
     # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
     beta:float = 1 / np.sqrt(2) # adjust resnet initialization
     
-    latent_lambda:float = 0.1 # how much to weight the latent loss
-    audio_lambda:float = 0.1 # how much to weight the audio->text loss
+    cross_nce_lambda:float = 1.0 # how much to weight the latent loss
+    audio_lambda:float = 1.0 # how much to weight the audio->text loss
+    sup_nce_lambda:float = 1.0
 
     # d_inner:int = 1024
     d_inner:int = 3072 # original Gaddy
@@ -405,12 +398,13 @@ class SpeechOrEMGToText(Model):
         self.lm_directory = cfg.lm_directory
         self.lexicon_file = os.path.join(cfg.lm_directory, 'lexicon_graphemes_noApostrophe.txt')
         self._init_ctc_decoder()
-        self.latent_lambda = cfg.latent_lambda
+        self.cross_nce_lambda = cfg.cross_nce_lambda
         self.audio_lambda = cfg.audio_lambda
         self.steps_per_epoch = cfg.steps_per_epoch
         
         self.step_target = []
         self.step_pred = []
+        self.sup_nce_lambda = cfg.sup_nce_lambda
     
     def emg_encoder(self, x):
         "Encode emg (B x T x C) into a latent space (B x T/8 x C)"
@@ -595,7 +589,10 @@ class SpeechOrEMGToText(Model):
         logging.debug(f"emg_ctc_loss: {emg_ctc_loss}, audio_ctc_loss: {audio_ctc_loss}, " \
                         f"emg_audio_contrastive_loss: {emg_audio_contrastive_loss}, " \
                         f"sup_nce_loss: {sup_nce_loss}")
-        loss = emg_ctc_loss + audio_ctc_loss + emg_audio_contrastive_loss + 0.1 * sup_nce_loss
+        loss = emg_ctc_loss + \
+            self.audio_lambda * audio_ctc_loss + \
+            self.cross_nce_lambda * emg_audio_contrastive_loss + \
+            self.sup_nce_lambda * sup_nce_loss
         
         if torch.isnan(loss):
             logging.warning(f"Loss is NaN.")

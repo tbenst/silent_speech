@@ -515,14 +515,14 @@ class EMGDataModule(pl.LightningDataModule):
                  batch_size=None, collate_fn=None,
                  pin_memory=True) -> None:
         super().__init__()
-        self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train'),
+        self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train.pickle'),
             base_dir = None, dev = False, test = False, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val'),
+        self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val.pickle'),
             base_dir = None, dev = True, test = False, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
         
-        self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test'),
+        self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test.pickle'),
             base_dir = None, dev = False, test = True, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
         #             batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
