@@ -54,6 +54,12 @@ DEBUG = False
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
 
+
+isotime = datetime.now().isoformat()
+hostname = subprocess.run("hostname", capture_output=True)
+ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+
+# out of date..
 # When using 4 GPUs, bz=128, grad_accum=1,
 # one epoch takes 4:57 and validation takes 2:51
 # unfortunately there is a ton of downtime between epoch so total time is 8:30
@@ -79,6 +85,8 @@ if DEBUG:
     
 else:
     NUM_GPUS = 2
+    if ON_SHERLOCK:
+        NUM_GPUS = 4
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
@@ -96,10 +104,7 @@ else:
     # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
     # https://youtu.be/HR0lt1hlR6U?t=7543
     logger_level = logging.WARNING
-    
-isotime = datetime.now().isoformat()
-hostname = subprocess.run("hostname", capture_output=True)
-ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+
 
 assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this in shell: export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'"
 
