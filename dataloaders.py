@@ -569,6 +569,8 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     self.len = len(batches)
                     # logging.warning(f"DEBUG:return {self.len} batches. {self.epoch=}")
                     # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
+                    avg_num_ex = np.mean([len(x) for x in batches])
+                    logging.warning(f"Average number of examples per batch: {avg_num_ex}")
                     return iter(batches[:850])
                 # class_indices shrink as we pop from them
                 idx = class_indices[cl].pop()
