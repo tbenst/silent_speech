@@ -511,6 +511,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         shuffle: whether to shuffle the examples before sampling
         seed: random seed
         num_replicas: number of GPUs
+        hardcode_len: hack; 904 for 2x24GB GPUs; 375 for 4x32GB GPUs
         always_include_class: first example in each batch is always from this class
         
     always_include_class is useful for when models need at least one certain class of
@@ -519,12 +520,12 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
     def __init__(self, classes:np.ndarray, lengths:np.ndarray,
                 class_proportion:np.ndarray,
                 batch_size:int, max_len:int, shuffle:bool=True, seed:int=61923,
-                num_replicas:int=None,
+                num_replicas:int=None, hardcode_len:int=904,
                 always_include_class:int=None):        
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
         # self.hardcode_len = 16
-        self.hardcode_len = 904
+        self.hardcode_len = hardcode_len
         logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
         self.max_len = max_len
         self.lengths = lengths

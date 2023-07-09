@@ -186,7 +186,7 @@ elif gpu_ram > 30:
     val_bz = base_bz
     max_len = 64000 # try on V100
     assert NUM_GPUS == 4
-    hardcode_len = 375 # 4 GPUs
+    hardcode_len = 360 # 4 GPUs
 else:
     raise ValueError("Unknown GPU")
 
