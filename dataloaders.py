@@ -536,7 +536,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         self.len = None
 
     def __iter__(self):
-        logging.warning("Initializing DistributedSizeAwareStratifiedBatchSampler")
+        logging.debug("Initializing DistributedSizeAwareStratifiedBatchSampler")
         if self.shuffle:
             g = torch.Generator()
             g.manual_seed(self.seed + self.epoch)
@@ -572,7 +572,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     # logging.warning(f"DEBUG:return {self.len} batches. {self.epoch=}")
                     # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
                     avg_num_ex = np.mean([len(x) for x in batches])
-                    logging.warning(f"Average number of examples per batch: {avg_num_ex}")
+                    logging.debug(f"Average number of examples per batch: {avg_num_ex}")
                     return iter(batches[:self.hardcode_len])
                 # class_indices shrink as we pop from them
                 idx = class_indices[cl].pop()
