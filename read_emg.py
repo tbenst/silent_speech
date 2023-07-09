@@ -61,7 +61,8 @@ def apply_to_all(function, signal_array, *args, **kwargs):
         results.append(function(signal_array[:,i], *args, **kwargs))
     return np.stack(results, 1)
 
-def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_directory=None, returnRaw= False):
+def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_directory=None, returnRaw=True):
+    # TODO: should we revert back to Gaddy's load_utterance..? returnRaw doesn't seem useful.
     index   = int(index)
     raw_emg = np.load(os.path.join(base_dir, f'{index}_emg.npy'))
     before  = os.path.join(base_dir, f'{index-1}_emg.npy')
@@ -306,7 +307,9 @@ class EMGDataset(torch.utils.data.Dataset):
     @lru_cache(maxsize=None)
     def __getitem__(self, i):
         directory_info, idx = self.example_indices[i]
-        mfccs, emg, text, book_location, phonemes, raw_emg = load_utterance(directory_info.directory, idx, self.limit_length, text_align_directory=self.text_align_directory, returnRaw = self.returnRaw)
+        mfccs, emg, text, book_location, phonemes, raw_emg = load_utterance(
+            directory_info.directory, idx, self.limit_length,
+            text_align_directory=self.text_align_directory, returnRaw = self.returnRaw)
         raw_emg = raw_emg / 20
         raw_emg = 50*np.tanh(raw_emg/50.)
 
@@ -509,29 +512,29 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
 class EMGDataModule(pl.LightningDataModule):
     def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=None,
                  max_len=128000, num_workers=0, batch_sampler=True, shuffle=None,
-        #          batch_size=None, collate_fn=None,
-        #          pin_memory=True) -> None:
-        # super().__init__()
-        # self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train'),
-        #     base_dir = None, dev = False, test = False,
-        #     togglePhones = togglePhones, normalizers_file = normalizers_file)
-        # self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val'),
-        #     base_dir = None, dev = True, test = False,
-        #     togglePhones = togglePhones, normalizers_file = normalizers_file)
-        
-        # self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test'),
-        #     base_dir = None, dev = False, test = True,
-        #     togglePhones = togglePhones, normalizers_file = normalizers_file)
-                    batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
-                    pin_memory=True) -> None:
+                 batch_size=None, collate_fn=None,
+                 pin_memory=True) -> None:
         super().__init__()
-        self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
-                                        togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.val   = DatasetClass(base_dir = base_dir, train = False, dev = True, test = False,
-                                        togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train'),
+            base_dir = None, dev = False, test = False, returnRaw = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val'),
+            base_dir = None, dev = True, test = False, returnRaw = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
         
-        self.test = DatasetClass(base_dir = base_dir, train = False, dev = False, test = True,
-                                    togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test'),
+            base_dir = None, dev = False, test = True, returnRaw = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
+        #             batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
+        #             pin_memory=True) -> None:
+        # super().__init__()
+        # self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
+        #                                 togglePhones = togglePhones, normalizers_file = normalizers_file)
+        # self.val   = DatasetClass(base_dir = base_dir, train = False, dev = True, test = False,
+        #                                 togglePhones = togglePhones, normalizers_file = normalizers_file)
+        
+        # self.test = DatasetClass(base_dir = base_dir, train = False, dev = False, test = True,
+        #                             togglePhones = togglePhones, normalizers_file = normalizers_file)
         self.num_workers = num_workers
         self.max_len = max_len
         self.val_test_batch_sampler = False
