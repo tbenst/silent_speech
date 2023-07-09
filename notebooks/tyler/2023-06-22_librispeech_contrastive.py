@@ -187,7 +187,8 @@ elif gpu_ram > 30:
     # max_len = 64000 # OOM epoch 32
     max_len = 56000
     assert NUM_GPUS == 4
-    hardcode_len = 360 # 4 GPUs
+    hardcode_len = 360 # 4 GPUs x 64k max_len
+    hardcode_len = 410 # 4 GPUs x 56k
 else:
     raise ValueError("Unknown GPU")
 
