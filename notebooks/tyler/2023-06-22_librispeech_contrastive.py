@@ -738,16 +738,6 @@ class BoringModel(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=0.1)
-    
-    def on_train_epoch_start(self):
-        logging.warning("\n ====== on_train_epoch_start ======")
-        # bad separation of concerns / composability,
-        # but this seems forced by pytorch lightning
-        # maybe should use Fabric in the future..
-        if self.trainer.datamodule is not None:
-            if hasattr(self.trainer.datamodule, 'TrainBatchSampler'):
-                logging.warning(f"set epoch to {self.current_epoch=}")
-                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
 
 config = SpeechOrEMGToTextConfig()
 

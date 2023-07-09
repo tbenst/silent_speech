@@ -243,7 +243,6 @@ class Model(pl.LightningModule):
         return target_text, pred_text
     
     def on_train_epoch_start(self):
-        logging.warning("\n ====== on_train_epoch_start ======")
         # bad separation of concerns / composability,
         # but this seems forced by pytorch lightning
         # maybe should use Fabric in the future..

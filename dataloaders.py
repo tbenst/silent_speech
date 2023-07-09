@@ -524,6 +524,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
         logging.warning("Hard coding len to 900 as hack to get pytorch lightning to work")
+        self.hardcode_len = 904
         self.max_len = max_len
         self.lengths = lengths
         self.always_include_class = always_include_class
@@ -571,7 +572,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
                     avg_num_ex = np.mean([len(x) for x in batches])
                     logging.warning(f"Average number of examples per batch: {avg_num_ex}")
-                    return iter(batches[:850])
+                    return iter(batches[:self.hardcode_len])
                 # class_indices shrink as we pop from them
                 idx = class_indices[cl].pop()
                 length = self.lengths[idx]
@@ -615,7 +616,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         # if self.len is None:
         #     self.len = self.approx_len()
         # return self.len
-        return 904
+        return self.hardcode_len
         
 
 @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")
