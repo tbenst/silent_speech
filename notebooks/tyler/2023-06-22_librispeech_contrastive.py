@@ -847,9 +847,9 @@ if auto_lr_find:
         
 logging.info('about to fit')
 # epoch of 242 if only train...
-# trainer.fit(model, datamodule=datamodule)
-trainer.fit(model, datamodule=datamodule,
-    ckpt_path='/scratch/2023-07-08T19:27:44.318616_gaddy/SpeechOrEMGToText-epoch=129-val/wer=0.282.ckpt')
+trainer.fit(model, datamodule=datamodule)
+# trainer.fit(model, datamodule=datamodule,
+#     ckpt_path='/scratch/2023-07-08T19:27:44.318616_gaddy/SpeechOrEMGToText-epoch=129-val/wer=0.282.ckpt')
 if log_neptune:
     ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
     trainer.save_checkpoint(ckpt_path)
