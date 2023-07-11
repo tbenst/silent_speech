@@ -50,7 +50,8 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 
 DEBUG = False
 # DEBUG = True
-RESUME = False
+# RESUME = False
+RESUME = True
 
 if RESUME:
     ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
