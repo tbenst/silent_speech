@@ -4,8 +4,11 @@
 # %load_ext autoreload
 # %autoreload 2
 ##
-import pytorch_lightning as pl
-import os, pickle
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM but 9% slower
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # probably also works..?
+
+import pytorch_lightning as pl, pickle
 import sys
 import numpy as np
 import logging
@@ -50,6 +53,16 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 
 DEBUG = False
 # DEBUG = True
+# RESUME = False
+RESUME = True
+
+if RESUME:
+    # INFO: when resuming logging to Neptune, we might repeat some steps,
+    # e.g. if epoch 29 was lowest WER, but we resume at epoch 31, we will
+    # log epoch 30 & 31 twice. mainly an issue for publication plots
+    ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
+    run_id = 'GAD-372'
+    
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
@@ -127,13 +140,10 @@ else:
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
     
-librispeech_train_cache = os.path.join(scratch_directory, "librispeech",
-    "librispeech_train_phoneme_cache")
-librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
-    "librispeech_val_phoneme_cache")
-librispeech_test_cache = os.path.join(scratch_directory, "librispeech",
-    "librispeech_test_phoneme_cache")
-data_dir = os.path.join(scratch_directory, 'gaddy/')
+librispeech_train_cache = os.path.join(scratch_directory, "librispeech_960_train_phoneme_cache")
+# librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_phoneme_cache")
+librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache")
+librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phoneme_cache")
 
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
@@ -769,21 +779,28 @@ callbacks = [
 ]
 
 if log_neptune:
-    neptune_logger = NeptuneLogger(
-        # need to store credentials in your shell env
-        api_key=os.environ["NEPTUNE_API_TOKEN"],
-        project="neuro/Gaddy",
-        # name=magneto.fullname(model), # from lib
-        name=model.__class__.__name__,
-        tags=[model.__class__.__name__,
-                "EMGonly",
-                "preactivation",
-                "AdamW",
+    # need to store credentials in your shell env
+    nep_key = os.environ["NEPTUNE_API_TOKEN"]
+    neptune_kwargs = {
+        "project": "neuro/Gaddy",
+        "name": model.__class__.__name__,
+        "tags": [model.__class__.__name__,
                 f"fp{config.precision}",
                 ],
-        log_model_checkpoints=False,
-    )
-    neptune_logger.log_hyperparams(vars(config))
+    }
+    if RESUME:
+        neptune_logger = NeptuneLogger(
+            run = neptune.init_run(with_id=run_id,
+                api_token=os.environ["NEPTUNE_API_TOKEN"],
+                **neptune_kwargs),
+            log_model_checkpoints=False
+        )
+    else:
+        neptune_logger = NeptuneLogger(api_key=nep_key,
+            **neptune_kwargs,
+            log_model_checkpoints=False
+        )
+        neptune_logger.log_hyperparams(vars(config))
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
@@ -843,17 +860,15 @@ if auto_lr_find:
         
 logging.info('about to fit')
 # epoch of 242 if only train...
-# trainer.fit(model, datamodule.train_dataloader(),
-#             datamodule.val_dataloader())
-# trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
-# note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
-# we should prob transfer this data to $LOCAL_SCRATCH first...
-trainer.fit(model, datamodule=datamodule) 
-# trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
-#             val_dataloaders=datamodule.val_dataloader()) 
-
+if RESUME:
+    trainer.fit(model, datamodule=datamodule,
+        ckpt_path=ckpt_path)
+else:
+    trainer.fit(model, datamodule=datamodule)
+    
 if log_neptune:
-    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    if not RESUME:
+        ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
 ##
