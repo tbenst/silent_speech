@@ -140,20 +140,10 @@ else:
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
     
-<<<<<<< HEAD
-librispeech_train_cache = os.path.join(scratch_directory, "librispeech",
-    "librispeech_train_phoneme_cache")
-librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
-    "librispeech_val_phoneme_cache")
-librispeech_test_cache = os.path.join(scratch_directory, "librispeech",
-    "librispeech_test_phoneme_cache")
-data_dir = os.path.join(scratch_directory, 'gaddy/')
-=======
 librispeech_train_cache = os.path.join(scratch_directory, "librispeech_960_train_phoneme_cache")
 # librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_phoneme_cache")
 librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache")
 librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phoneme_cache")
->>>>>>> 8889261 (train on librispeech clean + other)
 
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
