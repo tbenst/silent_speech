@@ -183,13 +183,14 @@ if gpu_ram < 24:
 elif gpu_ram > 30:
     # V100
     base_bz = 24
-    val_bz = base_bz
+    val_bz = 8
     # max_len = 64000 # OOM epoch 32
     max_len = 56000
     assert NUM_GPUS == 4
     hardcode_len = 360 # 4 GPUs x 64k max_len
-    hardcode_len = 410 # 4 GPUs x 56k, crashed with 407 batches
-    hardcode_len = 400 # 4 GPUs x 56k
+    # hardcode_len = 410 # 4 GPUs x 56k, crashed with 407 batches
+    # hardcode_len = 400 # 4 GPUs x 56k, crashed with 391 batches
+    hardcode_len = 385 # 4 GPUs x 56k, crashed with 391 batches
 else:
     raise ValueError("Unknown GPU")
 
@@ -227,15 +228,12 @@ emg_speech_train[num_emg_train]
 
 
 if ON_SHERLOCK:
-    # TODO: should we just use the scratch directory over LOCAL_SCRATCH?
     output_directory = os.path.join(os.environ["SCRATCH"], f"{isotime}_gaddy")
 else:
     output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
-
-os.makedirs(output_directory, exist_ok=True)
     
 logging.basicConfig(handlers=[
-        logging.FileHandler(os.path.join(output_directory, 'log.txt'), 'w'),
+        # logging.FileHandler(os.path.join(output_directory, 'log.txt'), 'w'),
         logging.StreamHandler()
         ], level=logger_level, format="%(message)s")
 
@@ -295,7 +293,10 @@ else:
     bz = base_bz
     ValSampler = None
     TestSampler = None
+    rank = 0
 
+if rank == 0:
+    os.makedirs(output_directory, exist_ok=True)
 
 datamodule =  EMGAndSpeechModule(emg_datamodule.train,
     emg_datamodule.val, emg_datamodule.test,
@@ -842,15 +843,8 @@ if auto_lr_find:
     tuner.lr_find(model, datamodule)
         
 logging.info('about to fit')
-# epoch of 242 if only train...
-# trainer.fit(model, datamodule.train_dataloader(),
-#             datamodule.val_dataloader())
-# trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
-# note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
-# we should prob transfer this data to $LOCAL_SCRATCH first...
-trainer.fit(model, datamodule=datamodule) 
-# trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
-#             val_dataloaders=datamodule.val_dataloader()) 
+trainer.fit(model, datamodule=datamodule,
+    ckpt_path='/scratch/users/tbenst/2023-07-09T10:04:04.286181_gaddy/SpeechOrEMGToText-epoch=39-val/wer=0.486.ckpt')
 
 if log_neptune:
     ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
