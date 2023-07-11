@@ -18,6 +18,7 @@ from pytorch_lightning.profilers import PassThroughProfiler
 from dataclasses import dataclass
 from typing import Tuple
 
+import gc
 import logging
 
 MODEL_SIZE = 768 # number of hidden dimensions
@@ -289,6 +290,7 @@ class Model(pl.LightningModule):
         self.log("val/wer", wer, prog_bar=True, sync_dist=True)
         # self.profiler.stop(f"validation loop")
         # self.profiler.describe()
+        gc.collect()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 
     def test_step(self, batch, batch_idx):
