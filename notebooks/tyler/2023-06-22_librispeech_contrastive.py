@@ -780,26 +780,26 @@ callbacks = [
 ]
 
 if log_neptune:
-    if RESUME:
-        neptune_run = neptune.init_run(with_id=run_id)
-    else:
-        neptune_run = None
-    neptune_logger = NeptuneLogger(
+    neptune_kwargs = {
         # need to store credentials in your shell env
-        api_key=os.environ["NEPTUNE_API_TOKEN"],
-        project="neuro/Gaddy",
-        # name=magneto.fullname(model), # from lib
-        name=model.__class__.__name__,
-        tags=[model.__class__.__name__,
-                "EMGonly",
-                "preactivation",
-                "AdamW",
+        "api_key": os.environ["NEPTUNE_API_TOKEN"],
+        "project": "neuro/Gaddy",
+        "name": model.__class__.__name__,
+        "tags": [model.__class__.__name__,
                 f"fp{config.precision}",
                 ],
-        log_model_checkpoints=False,
-        run = neptune_run,
-    )
-    neptune_logger.log_hyperparams(vars(config))
+    }
+    if RESUME:
+        neptune_logger = NeptuneLogger(
+            run = neptune.init_run(with_id=run_id, **neptune_kwargs),
+            log_model_checkpoints=False
+        )
+    else:
+        neptune_logger = NeptuneLogger(
+            **neptune_kwargs,
+            log_model_checkpoints=False
+        )
+        neptune_logger.log_hyperparams(vars(config))
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
