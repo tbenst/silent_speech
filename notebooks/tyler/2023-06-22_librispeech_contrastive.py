@@ -866,8 +866,7 @@ else:
     trainer.fit(model, datamodule=datamodule)
     
 if log_neptune:
-    if not RESUME:
-        ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
 ##

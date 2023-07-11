@@ -131,8 +131,8 @@ else:
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
-    # scratch_directory = os.environ["SCRATCH"]
-    scratch_directory = os.environ["LOCAL_SCRATCH"]
+    scratch_directory = os.environ["SCRATCH"]
+    # scratch_directory = os.environ["LOCAL_SCRATCH"]
     gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
 else:
     # on my local machine
@@ -783,21 +783,28 @@ callbacks = [
 ]
 
 if log_neptune:
-    neptune_logger = NeptuneLogger(
-        # need to store credentials in your shell env
-        api_key=os.environ["NEPTUNE_API_TOKEN"],
-        project="neuro/Gaddy",
-        # name=magneto.fullname(model), # from lib
-        name=model.__class__.__name__,
-        tags=[model.__class__.__name__,
-                "EMGonly",
-                "preactivation",
-                "AdamW",
+    # need to store credentials in your shell env
+    nep_key = os.environ["NEPTUNE_API_TOKEN"]
+    neptune_kwargs = {
+        "project": "neuro/Gaddy",
+        "name": model.__class__.__name__,
+        "tags": [model.__class__.__name__,
                 f"fp{config.precision}",
                 ],
-        log_model_checkpoints=False,
-    )
-    neptune_logger.log_hyperparams(vars(config))
+    }
+    if RESUME:
+        neptune_logger = NeptuneLogger(
+            run = neptune.init_run(with_id=run_id,
+                api_token=os.environ["NEPTUNE_API_TOKEN"],
+                **neptune_kwargs),
+            log_model_checkpoints=False
+        )
+    else:
+        neptune_logger = NeptuneLogger(api_key=nep_key,
+            **neptune_kwargs,
+            log_model_checkpoints=False
+        )
+        neptune_logger.log_hyperparams(vars(config))
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
@@ -856,13 +863,17 @@ if auto_lr_find:
     tuner.lr_find(model, datamodule)
         
 logging.info('about to fit')
-trainer.fit(model, datamodule=datamodule,
-    ckpt_path='/scratch/users/tbenst/2023-07-09T10:04:04.286181_gaddy/SpeechOrEMGToText-epoch=39-val/wer=0.486.ckpt')
-
+if RESUME:
+    trainer.fit(model, datamodule=datamodule,
+        ckpt_path=ckpt_path)
+else:
+    trainer.fit(model, datamodule=datamodule)
+    
 if log_neptune:
-    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={model.current_epoch}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
+
 ##
 # TODO: run again now that we fixed num_replicas in DistributedStratifiedBatchSampler
 
