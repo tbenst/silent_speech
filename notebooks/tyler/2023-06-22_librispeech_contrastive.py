@@ -780,9 +780,9 @@ callbacks = [
 ]
 
 if log_neptune:
+    # need to store credentials in your shell env
+    nep_key = os.environ["NEPTUNE_API_TOKEN"]
     neptune_kwargs = {
-        # need to store credentials in your shell env
-        "api_key": os.environ["NEPTUNE_API_TOKEN"],
         "project": "neuro/Gaddy",
         "name": model.__class__.__name__,
         "tags": [model.__class__.__name__,
@@ -791,11 +791,13 @@ if log_neptune:
     }
     if RESUME:
         neptune_logger = NeptuneLogger(
-            run = neptune.init_run(with_id=run_id, **neptune_kwargs),
+            run = neptune.init_run(with_id=run_id,
+                api_token=os.environ["NEPTUNE_API_TOKEN"],
+                **neptune_kwargs),
             log_model_checkpoints=False
         )
     else:
-        neptune_logger = NeptuneLogger(
+        neptune_logger = NeptuneLogger(api_key=nep_key,
             **neptune_kwargs,
             log_model_checkpoints=False
         )
