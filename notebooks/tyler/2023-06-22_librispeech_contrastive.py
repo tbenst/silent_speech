@@ -780,9 +780,9 @@ callbacks = [
 
 if log_neptune:
     if RESUME:
-        neptune_kwargs = {'with_id': run_id}
+        neptune_run = neptune.init_run(with_id=run_id)
     else:
-        neptune_kwargs = {}
+        neptune_run = None
     neptune_logger = NeptuneLogger(
         # need to store credentials in your shell env
         api_key=os.environ["NEPTUNE_API_TOKEN"],
@@ -796,7 +796,7 @@ if log_neptune:
                 f"fp{config.precision}",
                 ],
         log_model_checkpoints=False,
-        **neptune_kwargs
+        run = neptune_run,
     )
     neptune_logger.log_hyperparams(vars(config))
 
