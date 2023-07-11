@@ -193,13 +193,12 @@ if gpu_ram < 24:
 elif gpu_ram > 30:
     # V100
     base_bz = 24
-    val_bz = base_bz
+    val_bz = 8
     # max_len = 64000 # OOM epoch 32
     max_len = 56000
     assert NUM_GPUS == 4
-    hardcode_len = 360 # 4 GPUs x 64k max_len
-    hardcode_len = 410 # 4 GPUs x 56k, crashed with 407 batches
-    hardcode_len = 400 # 4 GPUs x 56k
+    hardcode_len = 400 # 4 GPUs x 56k, crashed with 391 batches
+    hardcode_len = 385 # 4 GPUs x 56k
 else:
     raise ValueError("Unknown GPU")
 
@@ -242,10 +241,7 @@ if ON_SHERLOCK:
 else:
     output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 
-os.makedirs(output_directory, exist_ok=True)
-    
 logging.basicConfig(handlers=[
-        logging.FileHandler(os.path.join(output_directory, 'log.txt'), 'w'),
         logging.StreamHandler()
         ], level=logger_level, format="%(message)s")
 
@@ -305,7 +301,10 @@ else:
     bz = base_bz
     ValSampler = None
     TestSampler = None
+    rank = 0
 
+if rank == 0:
+    os.makedirs(output_directory, exist_ok=True)
 
 datamodule =  EMGAndSpeechModule(emg_datamodule.train,
     emg_datamodule.val, emg_datamodule.test,

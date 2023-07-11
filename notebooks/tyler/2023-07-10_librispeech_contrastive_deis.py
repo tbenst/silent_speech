@@ -4,8 +4,11 @@
 # %load_ext autoreload
 # %autoreload 2
 ##
-import pytorch_lightning as pl
-import os, pickle
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM but 9% slower
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # probably also works..?
+
+import pytorch_lightning as pl, pickle
 import sys
 import numpy as np
 import logging
@@ -50,6 +53,16 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 
 DEBUG = False
 # DEBUG = True
+# RESUME = False
+RESUME = True
+
+if RESUME:
+    # INFO: when resuming logging to Neptune, we might repeat some steps,
+    # e.g. if epoch 29 was lowest WER, but we resume at epoch 31, we will
+    # log epoch 30 & 31 twice. mainly an issue for publication plots
+    ckpt_path = '/scratch/users/tbenst/2023-07-10T01:13:51.461137_gaddy/SpeechOrEMGToText-epoch=111-val/wer=0.368.ckpt'
+    run_id = 'GAD-370'
+    
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
