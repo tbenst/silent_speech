@@ -50,6 +50,12 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 
 DEBUG = False
 # DEBUG = True
+RESUME = False
+
+if RESUME:
+    ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
+    run_id = 'GAD-372'
+    
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
@@ -773,6 +779,10 @@ callbacks = [
 ]
 
 if log_neptune:
+    if RESUME:
+        neptune_kwargs = {'run_id': run_id}
+    else:
+        neptune_kwargs = {}
     neptune_logger = NeptuneLogger(
         # need to store credentials in your shell env
         api_key=os.environ["NEPTUNE_API_TOKEN"],
@@ -786,6 +796,7 @@ if log_neptune:
                 f"fp{config.precision}",
                 ],
         log_model_checkpoints=False,
+        **neptune_kwargs
     )
     neptune_logger.log_hyperparams(vars(config))
 
@@ -847,11 +858,15 @@ if auto_lr_find:
         
 logging.info('about to fit')
 # epoch of 242 if only train...
-trainer.fit(model, datamodule=datamodule)
-# trainer.fit(model, datamodule=datamodule,
-#     ckpt_path='/scratch/2023-07-08T19:27:44.318616_gaddy/SpeechOrEMGToText-epoch=129-val/wer=0.282.ckpt')
+if RESUME:
+    trainer.fit(model, datamodule=datamodule,
+        ckpt_path=ckpt_path)
+else:
+    trainer.fit(model, datamodule=datamodule)
+    
 if log_neptune:
-    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    if not RESUME:
+        ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
 ##
