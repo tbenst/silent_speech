@@ -780,7 +780,7 @@ callbacks = [
 
 if log_neptune:
     if RESUME:
-        neptune_kwargs = {'run_id': run_id}
+        neptune_kwargs = {'with_id': run_id}
     else:
         neptune_kwargs = {}
     neptune_logger = NeptuneLogger(
