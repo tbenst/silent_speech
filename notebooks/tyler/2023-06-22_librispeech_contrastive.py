@@ -18,7 +18,7 @@ import torch
 from torch import nn
 from torch.utils.data import DistributedSampler
 import torch.nn.functional as F
-
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # try to fIX OOM
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
@@ -127,6 +127,7 @@ else:
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
     
+<<<<<<< HEAD
 librispeech_train_cache = os.path.join(scratch_directory, "librispeech",
     "librispeech_train_phoneme_cache")
 librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
@@ -134,6 +135,12 @@ librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
 librispeech_test_cache = os.path.join(scratch_directory, "librispeech",
     "librispeech_test_phoneme_cache")
 data_dir = os.path.join(scratch_directory, 'gaddy/')
+=======
+librispeech_train_cache = os.path.join(scratch_directory, "librispeech_960_train_phoneme_cache")
+# librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_phoneme_cache")
+librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache")
+librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phoneme_cache")
+>>>>>>> 8889261 (train on librispeech clean + other)
 
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
@@ -840,15 +847,9 @@ if auto_lr_find:
         
 logging.info('about to fit')
 # epoch of 242 if only train...
-# trainer.fit(model, datamodule.train_dataloader(),
-#             datamodule.val_dataloader())
-# trainer.fit(model, train_dataloaders=datamodule.train_dataloader()) 
-# note: datamodule.train_dataloader() can sometimes be slow depending on Oak filesystem
-# we should prob transfer this data to $LOCAL_SCRATCH first...
-trainer.fit(model, datamodule=datamodule) 
-# trainer.fit(model, train_dataloaders=datamodule.train_dataloader(),
-#             val_dataloaders=datamodule.val_dataloader()) 
-
+# trainer.fit(model, datamodule=datamodule)
+trainer.fit(model, datamodule=datamodule,
+    ckpt_path='/scratch/2023-07-08T19:27:44.318616_gaddy/SpeechOrEMGToText-epoch=129-val/wer=0.282.ckpt')
 if log_neptune:
     ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
     trainer.save_checkpoint(ckpt_path)
