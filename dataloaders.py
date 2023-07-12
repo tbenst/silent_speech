@@ -511,22 +511,22 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         shuffle: whether to shuffle the examples before sampling
         seed: random seed
         num_replicas: number of GPUs
-        hardcode_len: hack; 904 for 2x24GB GPUs; 375 for 4x32GB GPUs
+        constant_num_batches: always return same number of batches
         always_include_class: first example in each batch is always from this class
         
     always_include_class is useful for when models need at least one certain class of
     example in each batch, e.g. for cross contrastive loss between EMG & Audio.
+    
+    constant_num_batches is useful for pytorch lightning compatibility
     """
     def __init__(self, classes:np.ndarray, lengths:np.ndarray,
                 class_proportion:np.ndarray,
                 batch_size:int, max_len:int, shuffle:bool=True, seed:int=61923,
-                num_replicas:int=None, hardcode_len:int=904,
+                num_replicas:int=None, constant_num_batches:bool=True,
                 always_include_class:int=None):        
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
-        # self.hardcode_len = 16
-        self.hardcode_len = hardcode_len
-        logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
+        self.constant_num_batches = False
         self.max_len = max_len
         self.lengths = lengths
         self.always_include_class = always_include_class
@@ -535,6 +535,24 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         self.mini_batch_classes = torch.from_numpy(np.concatenate([np.full(self.class_n_per_batch[i], i)
             for i in range(self.class_n_per_batch.shape[0])]))
         self.len = None
+
+        if constant_num_batches:
+            self.hardcode_len = self.min_len(200) # assume 200 epochs
+            self.constant_num_batches = constant_num_batches
+            logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
+
+        
+    def min_len(self, num_epochs:int):
+        """Minimum number of batches in dataset"""
+        cur_epoch = self.epoch
+        min_length = np.inf
+        for epoch in range(num_epochs):
+            self.set_epoch(epoch)
+            N = len(list(iter(self)))
+            if N < min_length:
+                min_length = N
+        self.set_epoch(cur_epoch)
+        return min_length
 
     def __iter__(self):
         logging.debug("Initializing DistributedSizeAwareStratifiedBatchSampler")
@@ -574,9 +592,12 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
                     avg_num_ex = np.mean([len(x) for x in batches])
                     logging.debug(f"Average number of examples per batch: {avg_num_ex}")
-                    if self.len < self.hardcode_len:
-                        logging.warning(f"Warning: returning {self.len} batches, which is less than hardcode_len {self.hardcode_len}")
-                    return iter(batches[:self.hardcode_len])
+                    # if self.len < self.hardcode_len:
+                    #     logging.warning(f"Warning: returning {self.len} batches, which is less than hardcode_len {self.hardcode_len}")
+                    if self.constant_num_batches:
+                        return iter(batches[:self.hardcode_len])
+                    else:
+                        return iter(batches)
                 # class_indices shrink as we pop from them
                 idx = class_indices[cl].pop()
                 length = self.lengths[idx]
@@ -617,10 +638,10 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
     def __len__(self):
         "Return approximate number of batches per epoch"
         # https://github.com/Lightning-AI/lightning/issues/18023
-        # if self.len is None:
-        #     self.len = self.approx_len()
-        # return self.len
-        return self.hardcode_len
+        if self.constant_num_batches:
+            return self.hardcode_len
+        else:
+            return len(iter(self))
         
 
 @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")

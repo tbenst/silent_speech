@@ -1,8 +1,8 @@
 ##
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM but 9% slower
@@ -140,11 +140,6 @@ else:
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
     
-librispeech_train_cache = os.path.join(scratch_directory, "librispeech_960_train_phoneme_cache")
-# librispeech_train_cache = os.path.join(scratch_directory, "librispeech_train_phoneme_cache")
-librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache")
-librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phoneme_cache")
-
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
@@ -190,7 +185,6 @@ if gpu_ram < 24:
     val_bz = 8
     max_len = 48000 # works for supNCE on Titan RTX
     assert NUM_GPUS == 2
-    hardcode_len = 904 # 2 GPUs
 elif gpu_ram > 30:
     # V100
     base_bz = 24
@@ -198,8 +192,6 @@ elif gpu_ram > 30:
     # max_len = 64000 # OOM epoch 32
     max_len = 56000
     assert NUM_GPUS == 4
-    hardcode_len = 400 # 4 GPUs x 56k, crashed with 391 batches
-    hardcode_len = 385 # 4 GPUs x 56k
 else:
     raise ValueError("Unknown GPU")
 
@@ -211,30 +203,6 @@ emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len
 emg_train = emg_datamodule.train
 
 mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
-
-# TODO: CachedDataset for LibrispeechDataset should construct cache if it doesn't exist
-# right now actually need to run 2023-06-21_cache_librispeech.py to create the cache
-##
-# after loading this + EMG, using 100GB of RAM
-speech_train = CachedDataset(LibrispeechDataset, librispeech_train_cache,
-    per_index_cache=per_index_cache)
-speech_val = CachedDataset(LibrispeechDataset, librispeech_val_cache,
-    per_index_cache=per_index_cache)
-speech_test =  CachedDataset(LibrispeechDataset, librispeech_test_cache,
-    per_index_cache=per_index_cache)
-
-num_emg_train = len(emg_train)
-num_speech_train = len(speech_train)
-
-num_emg_train, num_speech_train
-emg_speech_train = torch.utils.data.ConcatDataset([
-    emg_train, speech_train
-])
-len(emg_speech_train)
-
-emg_speech_train[num_emg_train-1]
-emg_speech_train[num_emg_train]
-
 
 if ON_SHERLOCK:
     # TODO: should we just use the scratch directory over LOCAL_SCRATCH?
@@ -286,8 +254,7 @@ if NUM_GPUS > 1:
     # TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS)
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1,
-        hardcode_len=hardcode_len)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
@@ -295,8 +262,7 @@ if NUM_GPUS > 1:
 else:
     # TrainBatchSampler = SizeAwareStratifiedBatchSampler
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1,
-        hardcode_len=hardcode_len)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
@@ -307,6 +273,10 @@ else:
 if rank == 0:
     os.makedirs(output_directory, exist_ok=True)
 
+empty_dataset = torch.utils.data.TensorDataset(torch.tensor([]))
+speech_train, speech_val, speech_test = empty_dataset, empty_dataset, empty_dataset
+
+
 datamodule =  EMGAndSpeechModule(emg_datamodule.train,
     emg_datamodule.val, emg_datamodule.test,
     speech_train, speech_val, speech_test,
@@ -315,6 +285,7 @@ datamodule =  EMGAndSpeechModule(emg_datamodule.train,
     TrainBatchSampler=TrainBatchSampler,
     ValSampler=ValSampler,
     TestSampler=TestSampler,
+    batch_class_proportions=np.array([0.16, 0.84])
 )
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
@@ -325,7 +296,18 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 #     print(b["silent"])
 #     if i>10: break
 ##
+len(datamodule.TrainBatchSampler)
+##
+count = np.zeros(len(datamodule.train))
+for epoch in range(200):
+    datamodule.TrainBatchSampler.set_epoch(epoch)
+    bs = list(iter(datamodule.TrainBatchSampler))
+    for b in bs:
+        for i in b:
+            count[i] += 1
+np.min(count), np.mean(count), np.max(count)
 
+##
 # to Include
 # steps_per_epoch, epochs, lm_directory, lr=3e-4,
 #                 learning_rate_warmup = 1000, 
