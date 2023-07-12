@@ -5,7 +5,7 @@
 # %autoreload 2
 ##
 import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM but 9% slower
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM but 9% slower
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # probably also works..?
 
 import pytorch_lightning as pl, pickle
