@@ -53,8 +53,8 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 
 DEBUG = False
 # DEBUG = True
-# RESUME = False
-RESUME = True
+RESUME = False
+# RESUME = True
 
 if RESUME:
     # INFO: when resuming logging to Neptune, we might repeat some steps,
