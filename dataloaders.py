@@ -1,4 +1,5 @@
-import torch, numpy as np, librosa, pickle, torchaudio, os, pytorch_lightning as pl
+import torch, numpy as np, librosa, torchaudio, os, pytorch_lightning as pl
+import dill as pickle # dill can serialize local classes
 from data_utils import mel_spectrogram, read_phonemes
 import torch.distributed as dist, sys, logging
 from tqdm import tqdm
@@ -223,86 +224,116 @@ def split_batch_into_emg_audio(batch):
     idxs = (paired_emg_idx, paired_audio_idx)
     return emg_tup, audio_tup, idxs
     
-class CachedDataset(torch.utils.data.Dataset):
-    """Cache a dataset to disk via pickle."""
-    def __init__(self, Dataset, cache_path, per_index_cache=False, *args, **kwargs):
-        """
-        If per_index_cache is True, cache each index individually.
-        Otherwise, cache the whole dataset.
-        """
-        super().__init__()
-        self.cache_path = cache_path
-        self.per_index_cache = per_index_cache
-        
-        if per_index_cache:
-            if os.path.isdir(cache_path):
-                self.len = len(os.listdir(cache_path))
-            else:
+def cache_dataset(Dataset, cache_path, per_index_cache=False):
+    """Class factory to modify Dataset to cache getitem to disk. Returns a Callable.
+    
+    This allows for retaining attributes & methods of the original Dataset class.
+    
+    Usage:
+    >>> CachedMyDataset = cache_dataset(MyDataset, '/path/my_dataset_cache.pkl')
+    >>> dset = CachedMyDataset(*args, *kwargs)
+    
+    Filesystem for cache_path='/path/my_dataset_cache/' if per_index_cache=False
+        /path/my_dataset_cache/
+            instance.pkl
+            0.pkl # if per_index_cache=True
+            1.pkl # if per_index_cache=True
+            
+    """
+    if cache_path[-4:] == '.pkl':
+        assert not per_index_cache, "per_index_cache=True is not supported when cache_path is a file"
+        instance_path = cache_path
+    else:
+        name = os.path.split(cache_path)[-1]
+        instance_path = os.path.join(cache_path, "instance.pkl")
+
+    if os.path.isfile(instance_path):
+        # load cached instance & return closure
+        def wrapper(*args, **kwargs):
+            with open(instance_path, 'rb') as f:
+                return pickle.load(f)
+        # for type stability, we return a Callable
+        return wrapper
+    # else: return Class that will cache instance to disk
+    class CachedDataset(Dataset):
+        """Cache a dataset to disk via pickle."""
+        def __init__(self, *args, **kwargs):
+            """
+            If per_index_cache is True, cache each index individually.
+            Otherwise, cache the whole dataset.
+            """
+            super().__init__(*args, **kwargs)
+            
+            cached_attrs = ['cache_path', 'per_index_cache', 'cache',
+                           'approximate_memory_usage', 'populate_cache', 'len'
+                           'cache_each_index', ]
+            for a in cached_attrs:
+                if hasattr(self, a):
+                    logging.warning(f"{Dataset.__class__} already has attribute '{a}'. CachedDataset will clobber.")
+                
+            self.cache_path = cache_path
+            self.per_index_cache = per_index_cache
+            
+            self.len = super().__len__()
+            if per_index_cache:
                 os.makedirs(cache_path)
-                # cache each index individually to disk
-                dset = Dataset(*args, **kwargs)
-                self.len = len(dset)
-                self.cache_each_index(dset)           
-        else:
-            if os.path.isfile(cache_path):
-                # read entire dataset into memory
-                with open(cache_path, 'rb') as f:
-                    self.cache = pickle.load(f)
-                self.len = len(self.cache)
+                self.cache_each_index_to_disk()
             else:
                 # populate cache and save to file
-                dset = Dataset(*args, **kwargs)
                 self.cache = []
-                self.populate_cache(dset) # sets len
+                self.populate_cache()
+                
+            # save instance to file
+            with open(instance_path, 'wb') as f:
+                pickle.dump(self, f)
+                
+        def approximate_memory_usage(self):
+            sz = len(pickle.dumps(super().__getitem__(0), protocol=pickle.HIGHEST_PROTOCOL))
+            gb = self.len * sz / 1e9
+            print("Approximate memory usage of dataset: {} GB".format(gb))
+            return gb
             
+        def populate_cache(self):
+            self.approximate_memory_usage()
+            # __getitem__ can be expensive, so we cache the whole dataset once
+            for i in tqdm(range(self.len), desc='Caching dataset', total=self.len):
+                try:
+                    data = super().__getitem__(i)
+                    self.cache.append(data)
+                except Exception as e:
+                    print(e)
+                    print(f"Failed to cache index {i}, skipping.")
 
-    def approximate_memory_usage(self, dset):
-        sz = len(pickle.dumps(dset[0], protocol=pickle.HIGHEST_PROTOCOL))
-        gb = self.len * sz / 1e9
-        print("Approximate memory usage of dataset: {} GB".format(gb))
-        return gb
-
+        def cache_each_index_to_disk(self):
+            self.approximate_memory_usage()
+            save_idx = 0
+            for i in tqdm(range(self.len), desc='Caching each index', total=self.len):
+                # Librispeech is missing some aligned phonemes, so we need to skip those
+                # this does mean the cache will be smaller than the dataset, and some
+                # indices may not match up
+                try:
+                    data = super().__getitem__(i)
+                    idx_path = os.path.join(self.cache_path, f"{save_idx}.pkl")
+                    with open(idx_path, 'wb') as f:
+                        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    save_idx += 1
+                except Exception as e:
+                    print(e)
+                    print(f"Failed to cache index {i}, skipping.")
         
-    def populate_cache(self, dset):
-        N = len(dset)
-        self.len = N
-        self.approximate_memory_usage(dset)
-        for data in tqdm(dset, desc='Caching dataset', total=N):
-            self.cache.append(data)
+        def __len__(self):
+            return self.len
+            
+        def __getitem__(self, index):
+            if self.per_index_cache:
+                idx_path = os.path.join(self.cache_path, f"{index}.pkl")
+                with open(idx_path, 'rb') as f:
+                    return pickle.load(f)
+            else:
+                return self.cache[index]
         
-        # save to file
-        with open(self.cache_path, 'wb') as f:
-            pickle.dump(self.cache, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def cache_each_index(self, dset):
-        N = len(dset)
-        self.approximate_memory_usage(dset)
-        save_idx = 0
-        for i in tqdm(range(N), desc='Caching each index', total=N):
-            # Librispeech is missing some aligned phonemes, so we need to skip those
-            # this does mean the cache will be smaller than the dataset, and some
-            # indices may not match up
-            try:
-                data = dset[i]
-                idx_path = os.path.join(self.cache_path, f"{save_idx}.pickle")
-                with open(idx_path, 'wb') as f:
-                    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-                save_idx += 1
-            except Exception as e:
-                print(e)
-                print(f"Failed to cache index {i}, skipping.")
+    return CachedDataset       
     
-    def __len__(self):
-        return self.len
-        
-    def __getitem__(self, index):
-        if self.per_index_cache:
-            idx_path = os.path.join(self.cache_path, f"{index}.pickle")
-            with open(idx_path, 'rb') as f:
-                return pickle.load(f)
-        else:
-            return self.cache[index]
-        
 class StratifiedBatchSampler(torch.utils.data.Sampler):
     """"Given the class of each example, sample batches without replacement
     with desired proportions of each class.
@@ -644,7 +675,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             return len(iter(self))
         
 
-@persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pickle")
+@persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pkl")
 def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
     

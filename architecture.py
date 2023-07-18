@@ -274,6 +274,7 @@ class Model(pl.LightningModule):
     
     def on_validation_epoch_end(self) -> None:
         # TODO: this may not be implemented correctly for DDP
+        logging.warning(f"start on_validation_epoch_end")
         step_target = []
         step_pred = []
         for t,p in zip(self.step_target, self.step_pred):
@@ -284,12 +285,14 @@ class Model(pl.LightningModule):
                 print("WARN: got target length of zero during validation.")
             if len(p) == 0:
                 print("WARN: got prediction length of zero during validation.")
+        logging.warning(f"on_validation_epoch_end: calc wer")
         wer = jiwer.wer(step_target, step_pred)
         self.step_target.clear()
         self.step_pred.clear()
         self.log("val/wer", wer, prog_bar=True, sync_dist=True)
         # self.profiler.stop(f"validation loop")
         # self.profiler.describe()
+        logging.warning(f"on_validation_epoch_end: gc.collect()")
         gc.collect()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 

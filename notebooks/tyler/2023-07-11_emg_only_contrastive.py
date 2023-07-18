@@ -5,8 +5,8 @@
 # %autoreload 2
 ##
 import os
-# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM but 9% slower
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # probably also works..?
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # also works, more memory usage
 
 import pytorch_lightning as pl, pickle
 import sys
@@ -184,14 +184,14 @@ if gpu_ram < 24:
     # val_bz = base_bz
     val_bz = 8
     max_len = 48000 # works for supNCE on Titan RTX
-    assert NUM_GPUS == 2
+    # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
     base_bz = 24
     val_bz = 8
     # max_len = 64000 # OOM epoch 32
     max_len = 56000
-    assert NUM_GPUS == 4
+    # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
 
