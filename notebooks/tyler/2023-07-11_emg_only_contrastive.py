@@ -44,7 +44,7 @@ from collections import defaultdict
 from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
-    DistributedStratifiedBatchSampler, StratifiedBatchSampler, CachedDataset, \
+    DistributedStratifiedBatchSampler, StratifiedBatchSampler, cache_dataset, \
     split_batch_into_emg_audio, DistributedSizeAwareStratifiedBatchSampler, \
     SizeAwareStratifiedBatchSampler
 from functools import partial
@@ -194,7 +194,7 @@ elif gpu_ram > 30:
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
-
+##
 # needed for using CachedDataset
 # TODO: is this creating problems...?
 # data_dir = '/scratch/GaddyPaper/cached/' # temporarily hack for hardcoded paths
@@ -217,8 +217,6 @@ logging.basicConfig(handlers=[
 logging.debug("DEBUG mode")
 if not log_neptune:
     logging.warning("not logging to neptune")
-
-
 ##
 auto_lr_find = False
 

@@ -24,7 +24,7 @@ import torch
 from data_utils import load_audio, get_emg_features, FeatureNormalizer, phoneme_inventory, read_phonemes, TextTransform
 from torch.utils.data import DataLoader
 
-from dataloaders import CachedDataset
+from dataloaders import cache_dataset
 
 DATA_FOLDER    = '/scratch/GaddyPaper'
 project_folder = '/home/tyler/code/silent_speech'
@@ -515,14 +515,14 @@ class EMGDataModule(pl.LightningDataModule):
                  batch_size=None, collate_fn=None,
                  pin_memory=True) -> None:
         super().__init__()
-        self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train.pickle'),
+        self.train = cache_dataset(EMGDataset, os.path.join(base_dir, 'emg_train.pkl'))(
             base_dir = None, dev = False, test = False, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val.pickle'),
+        self.val   = cache_dataset(EMGDataset, os.path.join(base_dir, 'emg_val.pkl'))(
             base_dir = None, dev = True, test = False, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
         
-        self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test.pickle'),
+        self.test = cache_dataset(EMGDataset, os.path.join(base_dir, 'emg_test.pkl'))(
             base_dir = None, dev = False, test = True, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
         #             batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,

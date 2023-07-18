@@ -265,11 +265,11 @@ def cache_dataset(Dataset, cache_path, per_index_cache=False):
             super().__init__(*args, **kwargs)
             
             cached_attrs = ['cache_path', 'per_index_cache', 'cache',
-                           'approximate_memory_usage', 'populate_cache', 'len'
-                           'cache_each_index', ]
+                           'approximate_memory_usage', 'populate_cache', 'len',
+                           'cache_each_index_to_disk']
             for a in cached_attrs:
-                if hasattr(self, a):
-                    logging.warning(f"{Dataset.__class__} already has attribute '{a}'. CachedDataset will clobber.")
+                if hasattr(super(), a):
+                    logging.warning(f"{Dataset} already has attribute '{a}'. CachedDataset will clobber.")
                 
             self.cache_path = cache_path
             self.per_index_cache = per_index_cache
