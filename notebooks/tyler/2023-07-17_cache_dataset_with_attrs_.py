@@ -37,6 +37,7 @@ else:
 
 librispeech_train_cache = os.path.join(scratch_directory, "librispeech_960_train_phoneme_cache2")
 librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache2")
+# librispeech_val_cache = os.path.join(scratch_directory, "librispeech_val_phoneme_cache2.pkl")
 librispeech_test_cache = os.path.join(scratch_directory, "librispeech_test_phoneme_cache2")
 alignment_dir = os.path.join(scratch_directory, "librispeech-alignments")
 

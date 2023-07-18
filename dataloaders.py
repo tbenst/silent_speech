@@ -241,10 +241,10 @@ def cache_dataset(Dataset, cache_path, per_index_cache=False):
             
     """
     if cache_path[-4:] == '.pkl':
-        assert not per_index_cache, "per_index_cache=True is not supported when cache_path is a file"
+        assert not per_index_cache, "cache_path must be a directory if per_index_cache=True"
         instance_path = cache_path
     else:
-        name = os.path.split(cache_path)[-1]
+        assert per_index_cache, "cache_path must be a .pkl file if per_index_cache=False"
         instance_path = os.path.join(cache_path, "instance.pkl")
 
     if os.path.isfile(instance_path):
