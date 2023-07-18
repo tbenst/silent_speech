@@ -20,7 +20,7 @@ flags.DEFINE_string('normalizers_file', 'normalizers.pkl', 'file with pickled fe
 phoneme_inventory = ['aa','ae','ah','ao','aw','ax','axr','ay','b','ch','d','dh','dx','eh','el','em','en','er','ey','f','g','hh','hv','ih','iy','jh','k','l','m','n','nx','ng','ow','oy','p','r','s','sh','t','th','uh','uw','v','w','y','z','zh','sil']
 
 def normalize_volume(audio):
-    rms = librosa.feature.rms(audio)
+    rms = librosa.feature.rms(y=audio)
     max_rms = rms.max() + 0.01
     target_rms = 0.2
     audio = audio * (target_rms/max_rms)
@@ -47,16 +47,18 @@ def mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin,
 
     global mel_basis, hann_window
     if fmax not in mel_basis:
-        mel = librosa.filters.mel(sampling_rate, n_fft, num_mels, fmin, fmax)
+        mel = librosa.filters.mel(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels,
+                                  fmin=fmin, fmax=fmax)
         mel_basis[str(fmax)+'_'+str(y.device)] = torch.from_numpy(mel).float().to(y.device)
         hann_window[str(y.device)] = torch.hann_window(win_size).to(y.device)
 
     y = torch.nn.functional.pad(y.unsqueeze(1), (int((n_fft-hop_size)/2), int((n_fft-hop_size)/2)), mode='reflect')
     y = y.squeeze(1)
-
     spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[str(y.device)],
-                      center=center, pad_mode='reflect', normalized=False, onesided=True)
+                      center=center, pad_mode='reflect', normalized=False, onesided=True,
+                      return_complex=True) # new change for pytorch 1.8+
 
+    spec = torch.view_as_real(spec) # added by tyler to account for new complex dtype
     spec = torch.sqrt(spec.pow(2).sum(-1)+(1e-9))
     spec = torch.matmul(mel_basis[str(fmax)+'_'+str(y.device)], spec)
     spec = spectral_normalize_torch(spec)
@@ -77,7 +79,7 @@ def load_audio(filename, start=None, end=None, max_frames=None, renormalize_volu
     if renormalize_volume:
         audio = normalize_volume(audio)
     if r == 16000:
-        audio = librosa.resample(audio, 16000, 22050)
+        audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
     else:
         assert r == 22050
     #print(audio, audio.shape)
@@ -107,11 +109,11 @@ def get_emg_features(emg_data, debug=False):
         r = np.abs(p)
 
         w_h = librosa.util.frame(w, frame_length=16, hop_length=6).mean(axis=0)
-        p_w = librosa.feature.rms(w, frame_length=16, hop_length=6, center=False)
+        p_w = librosa.feature.rms(y=w, frame_length=16, hop_length=6, center=False)
         p_w = np.squeeze(p_w, 0)
-        p_r = librosa.feature.rms(r, frame_length=16, hop_length=6, center=False)
+        p_r = librosa.feature.rms(y=r, frame_length=16, hop_length=6, center=False)
         p_r = np.squeeze(p_r, 0)
-        z_p = librosa.feature.zero_crossing_rate(p, frame_length=16, hop_length=6, center=False)
+        z_p = librosa.feature.zero_crossing_rate(y=p, frame_length=16, hop_length=6, center=False)
         z_p = np.squeeze(z_p, 0)
         r_h = librosa.util.frame(r, frame_length=16, hop_length=6).mean(axis=0)
 
@@ -165,6 +167,43 @@ class FeatureNormalizer(object):
 
     
 def combine_fixed_length(tensor_list, length):
+    """
+    Combine into a single tensor by padding, truncating, and/or merging
+    each tensor in tensor_list to length.
+    
+    
+    ```python
+    n = combine_fixed_length([torch.ones(4,2), 2 * torch.ones(7,2), 3* torch.ones(6,2)], 5)
+    print(n.shape)
+    print(f"{n[0]=}")
+    print(f"{n[1]=}")
+    print(f"{n[2]=}")
+    print(f"{n[3]=}")
+    ```
+    
+    output:
+    torch.Size([4, 5, 2])
+    n[0]=tensor([[1., 1.],
+            [1., 1.],
+            [1., 1.],
+            [1., 1.],
+            [2., 2.]])
+    n[1]=tensor([[2., 2.],
+            [2., 2.],
+            [2., 2.],
+            [2., 2.],
+            [2., 2.]])
+    n[2]=tensor([[2., 2.],
+            [3., 3.],
+            [3., 3.],
+            [3., 3.],
+            [3., 3.]])
+    n[3]=tensor([[3., 3.],
+            [3., 3.],
+            [0., 0.],
+            [0., 0.],
+            [0., 0.]])
+    """
     total_length = sum(t.size(0) for t in tensor_list)
     if total_length % length != 0:
         pad_length = length - (total_length % length)
@@ -178,11 +217,12 @@ def combine_fixed_length(tensor_list, length):
 
 def decollate_tensor(tensor, lengths):
     b, s, d = tensor.size()
-    tensor = tensor.view(b*s, d)
+    # tensor = tensor.view(b*s, d)
+    tensor = tensor.reshape(b*s, d)
     results = []
     idx = 0
     for length in lengths:
-        assert idx + length <= b * s
+        assert idx + length <= b * s, f"{idx=}, {length=}, {b=}, {s=}"
         results.append(tensor[idx:idx+length])
         idx += length
     return results
@@ -235,6 +275,10 @@ def print_confusion(confusion_mat, n=10):
         
 def read_phonemes(textgrid_fname, max_len=None):
     tg = TextGrid(textgrid_fname)
+    # 1000 / 86.133 = 11.6ms per frame
+    # Gaddy chooses this as some recent vocoders like HiFi GAN use
+    # sampling_rate = 22k, hop_length=256 and win_length=1024
+    # and 256/22050 = 11.6ms per frame
     phone_ids = np.zeros(int(tg['phones'][-1].xmax*86.133)+1, dtype=np.int64)
     phone_ids[:] = -1
     phone_ids[-1] = phoneme_inventory.index('sil') # make sure list is long enough to cover full length of original sequence

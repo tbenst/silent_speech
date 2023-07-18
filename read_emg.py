@@ -10,8 +10,9 @@ import copy
 import glob
 import sys
 import pickle
-import string
+import string, shutil
 import logging
+import pytorch_lightning as pl
 from functools import lru_cache
 from copy import copy
 
@@ -21,20 +22,19 @@ from scipy.io import loadmat
 
 import torch
 from data_utils import load_audio, get_emg_features, FeatureNormalizer, phoneme_inventory, read_phonemes, TextTransform
+from torch.utils.data import DataLoader
 
-from absl import flags
+from dataloaders import CachedDataset
 
-data_folder    = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
-project_folder = '/home/users/ghwilson/projects/silent_speech/'
+DATA_FOLDER    = '/scratch/GaddyPaper'
+project_folder = '/home/tyler/code/silent_speech'
 
-
-FLAGS = flags.FLAGS
-flags.DEFINE_list('remove_channels', [], 'channels to remove')
-flags.DEFINE_list('silent_data_directories', [f'{data_folder}/emg_data/silent_parallel_data'], 'silent data locations')
-flags.DEFINE_list('voiced_data_directories', [f'{data_folder}/emg_data/voiced_parallel_data',
-                                              f'{data_folder}/emg_data/nonparallel_data'], 'voiced data locations')
-flags.DEFINE_string('testset_file', f'{project_folder}/testset_largedev.json', 'file with testset indices')
-flags.DEFINE_string('text_align_directory', f'{data_folder}/text_alignments', 'directory with alignment files')
+REMOVE_CHANNELS = []
+SILENT_DATA_DIRECTORIES = [f'{DATA_FOLDER}/emg_data/silent_parallel_data']
+VOICED_DATA_DIRECTORIES = [f'{DATA_FOLDER}/emg_data/voiced_parallel_data',
+                                              f'{DATA_FOLDER}/emg_data/nonparallel_data']
+TESTSET_FILE = f'{project_folder}/testset_largedev.json'
+TEXT_ALIGN_DIRECTORY = f'{DATA_FOLDER}/text_alignments'
 
 def remove_drift(signal, fs):
     b, a = scipy.signal.butter(3, 2, 'highpass', fs=fs)
@@ -61,7 +61,8 @@ def apply_to_all(function, signal_array, *args, **kwargs):
         results.append(function(signal_array[:,i], *args, **kwargs))
     return np.stack(results, 1)
 
-def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_directory=None, returnRaw= False):
+def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_directory=None, returnRaw=True):
+    # TODO: should we revert back to Gaddy's load_utterance..? returnRaw doesn't seem useful.
     index   = int(index)
     raw_emg = np.load(os.path.join(base_dir, f'{index}_emg.npy'))
     before  = os.path.join(base_dir, f'{index-1}_emg.npy')
@@ -87,7 +88,7 @@ def load_utterance(base_dir, index, limit_length=False, debug=False, text_align_
     x   = apply_to_all(subsample, x, 516.79, 1000)
     emg = x
     
-    for c in FLAGS.remove_channels:
+    for c in REMOVE_CHANNELS:
         emg[:,int(c)] = 0
         emg_orig[:,int(c)] = 0
 
@@ -129,6 +130,8 @@ class EMGDirectory(object):
         return self.directory
 
 class SizeAwareSampler(torch.utils.data.Sampler):
+    """Sample batches of examples from the dataset,
+    ensuring that each batch fits within max_len."""
     def __init__(self, emg_dataset, max_len):
         self.dataset = emg_dataset
         self.max_len = max_len
@@ -154,30 +157,56 @@ class SizeAwareSampler(torch.utils.data.Sampler):
             batch.append(idx)
             batch_length += length
         # dropping last incomplete batch
+
+_local_regex = re.compile(r'^.*(emg_data/.*)$')
+def local_path_for_audio_file(audio_file):
+    "Strip absolute path from audio file name, leaving only the local path for portability."
+    m = _local_regex.match(audio_file)
+    if m is None:
+        raise ValueError(f'Could not parse local path for {audio_file=}')
+    return m[1]
+
+_dir_regex = re.compile(r'^(.*)/processed_data/.+/session_\d+/\d+.mat$')
+def parent_dir_for_preprocessed_mat(mat_file):
+    "Return absolute path Gaddy data dir from mat file."
+    m = _dir_regex.match(mat_file)
+    if m is None:
+        raise ValueError(f'Could not parse parent directory for {mat_file=}')
+    return m[1]
+
+def lookup_emg_length(example):
+    audio_file = loadmat(example)['audio_file'][0]
+    fn = local_path_for_audio_file(audio_file)
+    parent = parent_dir_for_preprocessed_mat(example)
+    fp = os.path.join(parent, fn)
+    json_file = fp.split('_audio_clean')[0] + '_info.json'
+
+    with open(json_file) as f:
+        info = json.load(f)
+        
+        
+    if not np.any([l in string.ascii_letters for l in info['text']]):
+        return False
+
+    length = sum([emg_len for emg_len, _, _ in info['chunks']])
+    return length
         
 class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
-    def __init__(self, emg_dataset, max_len):
+    def __init__(self, emg_dataset, max_len, shuffle=True):
         self.dataset = emg_dataset
         self.max_len = max_len
+        self.shuffle = shuffle
+        
+        self.lengths = self.dataset.lengths
+        self.approx_len = int(np.ceil(np.array(self.lengths)).sum() / max_len)
 
     def __iter__(self):
         indices = list(range(len(self.dataset)))
-        random.shuffle(indices)
+        if self.shuffle: random.shuffle(indices)
         batch = []
         batch_length = 0
         for idx in indices:
-           # directory_info, file_idx = self.dataset.example_indices[idx]
-            
-            x         = loadmat(self.dataset.example_indices[idx])['audio_file'][0]
-            json_file = x.split('_audio_clean')[0] + '_info.json'
-
-            with open(json_file) as f:
-                info = json.load(f)
-                
-                
-            if not np.any([l in string.ascii_letters for l in info['text']]):
-                continue
-            length = sum([emg_len for emg_len, _, _ in info['chunks']])
+            length = self.lengths[idx]
             if length > self.max_len:
                 logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
             if length + batch_length > self.max_len:
@@ -187,18 +216,21 @@ class PreprocessedSizeAwareSampler(torch.utils.data.Sampler):
             batch.append(idx)
             batch_length += length
         # dropping last incomplete batch
+        
+    def __len__(self):
+        return self.approx_len
 
 class EMGDataset(torch.utils.data.Dataset):
-    def __init__(self, base_dir=None, limit_length=False, dev=False, test=False, no_testset=False, 
+    def __init__(self, base_dir=None, normalizers_file=None, limit_length=False, dev=False, test=False, no_testset=False, 
                  no_normalizers=False, returnRaw = False, togglePhones = False):
 
-        self.text_align_directory = FLAGS.text_align_directory
+        self.text_align_directory = TEXT_ALIGN_DIRECTORY
 
         if no_testset:
             devset = []
             testset = []
         else:
-            with open(FLAGS.testset_file) as f:
+            with open(TESTSET_FILE) as f:
                 testset_json = json.load(f)
                 devset = testset_json['dev']
                 testset = testset_json['test']
@@ -207,12 +239,12 @@ class EMGDataset(torch.utils.data.Dataset):
         if base_dir is not None:
             directories.append(EMGDirectory(0, base_dir, False))
         else:
-            for sd in FLAGS.silent_data_directories:
+            for sd in SILENT_DATA_DIRECTORIES:
                 for session_dir in sorted(os.listdir(sd)):
                     directories.append(EMGDirectory(len(directories), os.path.join(sd, session_dir), True))
 
-            has_silent = len(FLAGS.silent_data_directories) > 0
-            for vd in FLAGS.voiced_data_directories:
+            has_silent = len(SILENT_DATA_DIRECTORIES) > 0
+            for vd in VOICED_DATA_DIRECTORIES:
                 for session_dir in sorted(os.listdir(vd)):
                     directories.append(EMGDirectory(len(directories), os.path.join(vd, session_dir), False, exclude_from_testset=has_silent))
 
@@ -243,7 +275,8 @@ class EMGDataset(torch.utils.data.Dataset):
 
         self.no_normalizers = no_normalizers
         if not self.no_normalizers:
-            self.mfcc_norm, self.emg_norm = pickle.load(open(FLAGS.normalizers_file,'rb'))
+            with open(normalizers_file,'rb') as f:
+                self.mfcc_norm, self.emg_norm = pickle.load(f)
 
         sample_mfccs, sample_emg, _, _, _, _ = load_utterance(self.example_indices[0][0].directory, self.example_indices[0][1])
         self.num_speech_features = sample_mfccs.shape[1]
@@ -274,7 +307,9 @@ class EMGDataset(torch.utils.data.Dataset):
     @lru_cache(maxsize=None)
     def __getitem__(self, i):
         directory_info, idx = self.example_indices[i]
-        mfccs, emg, text, book_location, phonemes, raw_emg = load_utterance(directory_info.directory, idx, self.limit_length, text_align_directory=self.text_align_directory, returnRaw = self.returnRaw)
+        mfccs, emg, text, book_location, phonemes, raw_emg = load_utterance(
+            directory_info.directory, idx, self.limit_length,
+            text_align_directory=self.text_align_directory, returnRaw = self.returnRaw)
         raw_emg = raw_emg / 20
         raw_emg = 50*np.tanh(raw_emg/50.)
 
@@ -289,7 +324,7 @@ class EMGDataset(torch.utils.data.Dataset):
 
         text_int = np.array(self.text_transform.text_to_int(text), dtype=np.int64)
 
-        result = {'audio_features':torch.from_numpy(mfccs).pin_memory(), 'emg':torch.from_numpy(emg).pin_memory(), 'text':text, 'text_int': torch.from_numpy(text_int).pin_memory(), 'file_label':idx, 'session_ids':torch.from_numpy(session_ids).pin_memory(), 'book_location':book_location, 'silent':directory_info.silent, 'raw_emg':torch.from_numpy(raw_emg).pin_memory()}
+        result = {'audio_features':torch.from_numpy(mfccs), 'emg':torch.from_numpy(emg), 'text':text, 'text_int': torch.from_numpy(text_int), 'file_label':idx, 'session_ids':torch.from_numpy(session_ids), 'book_location':book_location, 'silent':directory_info.silent, 'raw_emg':torch.from_numpy(raw_emg)}
 
         if directory_info.silent:
             voiced_directory, voiced_idx = self.voiced_data_locations[book_location]
@@ -300,12 +335,12 @@ class EMGDataset(torch.utils.data.Dataset):
                 voiced_emg = self.emg_norm.normalize(voiced_emg)
                 voiced_emg = 8*np.tanh(voiced_emg/8.)
 
-            result['parallel_voiced_audio_features'] = torch.from_numpy(voiced_mfccs).pin_memory()
-            result['parallel_voiced_emg'] = torch.from_numpy(voiced_emg).pin_memory()
+            result['parallel_voiced_audio_features'] = torch.from_numpy(voiced_mfccs)
+            result['parallel_voiced_emg'] = torch.from_numpy(voiced_emg)
 
             audio_file = f'{voiced_directory.directory}/{voiced_idx}_audio_clean.flac'
 
-        result['phonemes'] = torch.from_numpy(phonemes).pin_memory() # either from this example if vocalized or aligned example if silent
+        result['phonemes'] = torch.from_numpy(phonemes) # either from this example if vocalized or aligned example if silent
         result['audio_file'] = audio_file
 
         return result
@@ -348,9 +383,11 @@ class EMGDataset(torch.utils.data.Dataset):
         return result
     
     
+# TODO: remove pin_memory as dataloader should handle. make sure no performance hit
 class PreprocessedEMGDataset(torch.utils.data.Dataset):
     def __init__(self, base_dir=None, train = False, dev=False, test=False, limit_length = False,
-                 pin_memory = True, no_normalizers = False, togglePhones = False, device = None):
+                 pin_memory = True, no_normalizers = False, togglePhones = False, device = None,
+                 normalizers_file=None):
         
         self.togglePhones = togglePhones
 
@@ -381,9 +418,9 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
         np.random.seed(0)
         np.random.shuffle(self.example_indices)
 
-    
-        self.num_speech_features = loadmat(self.example_indices[0])['audio_features'].shape[1]
-        self.num_features        = loadmat(self.example_indices[0])['emg'].shape[1]
+        mat = loadmat(self.example_indices[0])
+        self.num_speech_features = mat['audio_features'].shape[1]
+        self.num_features        = mat['emg'].shape[1]
         self.limit_length = limit_length
         self.num_sessions = len(glob.glob(os.path.join(base_dir, 'train/') + '*session_*/'))
         
@@ -391,7 +428,9 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
         
         self.no_normalizers = no_normalizers
         if not self.no_normalizers:
-            self.mfcc_norm, self.emg_norm = pickle.load(open(FLAGS.normalizers_file,'rb'))
+            self.mfcc_norm, self.emg_norm = pickle.load(open(normalizers_file,'rb'))
+            
+        self.lengths = [lookup_emg_length(ex) for ex in self.example_indices]
 
     def silent_subset(self):
         result = copy(self)
@@ -420,15 +459,14 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
                     'parallel_voiced_emg', 'parallel_voiced_audio_features']
             for key in keys:
                 try:
-                    result[key] = torch.tensor(result[key].squeeze()).pin_memory()
+                    result[key] = torch.tensor(result[key].squeeze())
                 except:
                     continue
                     
-        result['text_int'] = torch.tensor(np.array(self.text_transform.text_to_int(result['text'][0]), dtype=np.int64)).pin_memory()
+        result['text_int'] = torch.tensor(np.array(self.text_transform.text_to_int(result['text'][0]), dtype=np.int64))
 
         return result
     
-
     @staticmethod
     def collate_raw(batch):
         
@@ -468,10 +506,108 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
                   'text_int': text_int,
                   'text_int_lengths':int_lengths}
         
-        return result 
+        return result
     
 
-def make_normalizers():
+class EMGDataModule(pl.LightningDataModule):
+    def __init__(self, base_dir, togglePhones, normalizers_file, drop_last=None,
+                 max_len=128000, num_workers=0, batch_sampler=True, shuffle=None,
+                 batch_size=None, collate_fn=None,
+                 pin_memory=True) -> None:
+        super().__init__()
+        self.train = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_train.pickle'),
+            base_dir = None, dev = False, test = False, returnRaw = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.val   = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_val.pickle'),
+            base_dir = None, dev = True, test = False, returnRaw = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
+        
+        self.test = CachedDataset(EMGDataset, os.path.join(base_dir, 'emg_test.pickle'),
+            base_dir = None, dev = False, test = True, returnRaw = True,
+            togglePhones = togglePhones, normalizers_file = normalizers_file)
+        #             batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
+        #             pin_memory=True) -> None:
+        # super().__init__()
+        # self.train = DatasetClass(base_dir = base_dir, train = True, dev = False, test = False,
+        #                                 togglePhones = togglePhones, normalizers_file = normalizers_file)
+        # self.val   = DatasetClass(base_dir = base_dir, train = False, dev = True, test = False,
+        #                                 togglePhones = togglePhones, normalizers_file = normalizers_file)
+        
+        # self.test = DatasetClass(base_dir = base_dir, train = False, dev = False, test = True,
+        #                             togglePhones = togglePhones, normalizers_file = normalizers_file)
+        self.num_workers = num_workers
+        self.max_len = max_len
+        self.val_test_batch_sampler = False
+        self.batch_size = batch_size if batch_size is not None and batch_size > 0 else 1 # can't be None
+        self.batch_sampler = batch_sampler
+        self.drop_last = drop_last
+        self.collate_fn = collate_fn
+        self.shuffle = shuffle
+        self.pin_memory = pin_memory
+        
+    def train_dataloader(self):
+        collate_fn = self.collate_fn if self.collate_fn is not None else self.train.collate_raw
+        batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len) if self.batch_sampler else None
+        loader = DataLoader(
+            self.train,
+            collate_fn = collate_fn,
+            shuffle = self.shuffle,
+            drop_last = self.drop_last,
+            num_workers = self.num_workers,
+            batch_size = self.batch_size,
+            pin_memory = self.pin_memory,
+            batch_sampler = batch_sampler
+        )
+            
+        return loader
+
+    def val_dataloader(self):
+        collate_fn = self.collate_fn if self.collate_fn is not None else self.val.collate_raw
+
+        if self.val_test_batch_sampler:
+            batch_sampler = PreprocessedSizeAwareSampler(self.val, self.max_len) if self.batch_sampler else None
+            loader = DataLoader(
+                self.val,
+                collate_fn = collate_fn,
+                num_workers = self.num_workers,
+                batch_size = self.batch_size,
+                pin_memory = self.pin_memory,
+                batch_sampler = batch_sampler
+            )
+        else:
+            loader = DataLoader(
+                self.val,
+                collate_fn = collate_fn,
+                num_workers = self.num_workers,
+                batch_size = self.batch_size,
+                pin_memory = self.pin_memory,
+            )
+        return loader
+
+    def test_dataloader(self):
+        collate_fn = self.collate_fn if self.collate_fn is not None else self.test.collate_raw
+
+        if self.val_test_batch_sampler:
+            loader = DataLoader(
+                self.test,
+                collate_fn = collate_fn,
+                num_workers=self.num_workers,
+                batch_size = self.batch_size,
+                pin_memory = self.pin_memory,
+                batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
+            )
+        else:
+            loader = DataLoader(
+                self.test,
+                collate_fn = collate_fn,
+                num_workers=self.num_workers,
+                batch_size = self.batch_size,
+                pin_memory = self.pin_memory,
+            )
+        return loader
+
+
+def make_normalizers(normalizers_file):
     dataset = EMGDataset(no_normalizers=True)
     mfcc_samples = []
     emg_samples = []
@@ -482,11 +618,15 @@ def make_normalizers():
             break
     mfcc_norm = FeatureNormalizer(mfcc_samples, share_scale=True)
     emg_norm = FeatureNormalizer(emg_samples, share_scale=False)
-    pickle.dump((mfcc_norm, emg_norm), open(FLAGS.normalizers_file, 'wb'))
+    with open(normalizers_file, 'wb') as f:
+        pickle.dump((mfcc_norm, emg_norm), f)
 
-if __name__ == '__main__':
-    FLAGS(sys.argv)
-    d = EMGDataset()
-    for i in range(1000):
-        d[i]
-
+def ensure_folder_on_scratch(src, dst):
+    "Check if folder exists on scratch, otherwise copy. Return new path."
+    assert os.path.isdir(src)
+    split_path = src.split(os.sep)
+    name = split_path[-1] if split_path[-1] != '' else split_path[-2]
+    out = os.path.join(dst,name)
+    if not os.path.isdir(out):
+        shutil.copytree(src, out)
+    return out

@@ -25,7 +25,8 @@ class TransformerEncoderLayer(nn.Module):
         >>> out = encoder_layer(src)
     """
 
-    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, relative_positional=True, relative_positional_distance=100):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, relative_positional=True, relative_positional_distance=100,
+                 beta:float=1.):
         super(TransformerEncoderLayer, self).__init__()
         self.self_attn = MultiHeadAttention(d_model, nhead, dropout=dropout, relative_positional=relative_positional, relative_positional_distance=relative_positional_distance)
         # Implementation of Feedforward model
@@ -37,10 +38,12 @@ class TransformerEncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
-
+        # tyler added beta for resnet moment control
+        # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#moment-control
+        self.beta = beta
         self.activation = nn.ReLU()
 
-    def forward(self, src: torch.Tensor, src_mask: Optional[torch.Tensor] = None, src_key_padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, src: torch.Tensor, src_mask: Optional[torch.Tensor] = None, src_key_padding_mask: Optional[torch.Tensor] = None, is_causal=None) -> torch.Tensor:
         r"""Pass the input through the encoder layer.
 
         Args:
@@ -52,10 +55,10 @@ class TransformerEncoderLayer(nn.Module):
             see the docs in Transformer class.
         """
         src2 = self.self_attn(src)
-        src = src + self.dropout1(src2)
+        src = src + self.dropout1(src2) * self.beta
         src = self.norm1(src)
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
-        src = src + self.dropout2(src2)
+        src = src + self.dropout2(src2) * self.beta
         src = self.norm2(src)
         return src
 

@@ -25,6 +25,23 @@ First build the LLaMA environment. Then,
 > pip install jiwer torchaudio matplotlib scipy soundfile absl-py librosa numba unidecode praat-textgrids g2p_en einops opt_einsum hydra-core pytorch_lightning "neptune-client==0.16.18"
 ```
 
+### install flash-attn
+First try, `pip install flash-attn`. if failure, this may work:
+
+(sherlock)
+```
+ml cuda/11.7.1
+ml gcc/10.3.0
+# pip install flash-attn --no-build-isolation
+pip install git+https://github.com/HazyResearch/flash-attention --no-build-isolation
+```
+
+(ubuntu)
+```
+sudo apt install g++-10 gcc-10
+CXX=g++-10 CC=gcc-10 LD=g++-10 pip install flash-attn --no-build-isolation
+```
+
 ### original setup
 This code requires Python 3.6 or later.
 We strongly recommend running in a new Anaconda environment.

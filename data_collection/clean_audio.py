@@ -51,7 +51,7 @@ def clean_directory(directory):
 
         clean = nr.reduce_noise(audio_clip=data, noise_clip=silence)
         if rate != 22050:
-            clean = librosa.resample(clean, rate, 22050)
+            clean = librosa.resample(clean, orig_sr=rate, target_sr=22050)
             rate = 22050
         if not is_silent:
             clean *= target_rms / smoothed_maxes[i]

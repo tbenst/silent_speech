@@ -131,7 +131,8 @@ def train_model(trainset, devset, device, n_epochs):
     logging.info(model)
     model_parameters  = filter(lambda p: p.requires_grad, model.parameters())
     params            = sum([np.prod(p.size()) for p in model_parameters])
-    run['num_parameters'] = params
+    if FLAGS.log_neptune:
+        run['num_parameters'] = params
     logging.info(f'Number of parameters: {params}')
 
     if FLAGS.start_training_from is not None:
@@ -149,7 +150,6 @@ def train_model(trainset, devset, device, n_epochs):
     params = {}
     for flag in FLAGS:
         params[flag] = getattr(FLAGS, flag) 
-    run['hyperparameters'] = params
     
     def set_lr(new_lr):
         for param_group in optim.param_groups:
@@ -161,11 +161,12 @@ def train_model(trainset, devset, device, n_epochs):
         if iteration <= FLAGS.learning_rate_warmup:
             set_lr(iteration*target_lr/FLAGS.learning_rate_warmup)
             
-            
-    run["sys/tags"].add("MultiStepLR")
-    run["sys/tags"].add("800Hz")
-    run["sys/tags"].add("8xDownsampling")
-    run["sys/tags"].add("FCN_embedding")
+    if FLAGS.log_neptune:
+        run['hyperparameters'] = params
+        run["sys/tags"].add("MultiStepLR")
+        run["sys/tags"].add("800Hz")
+        run["sys/tags"].add("8xDownsampling")
+        run["sys/tags"].add("FCN_embedding")
 
     batch_idx = 0
     optim.zero_grad()
@@ -211,8 +212,9 @@ def train_model(trainset, devset, device, n_epochs):
         lr_sched.step() # EXPERIMENTAL
         logging.info(f'finished epoch {epoch_idx+1} - training loss: {train_loss:.4f} validation WER: {val*100:.2f}')
         
-        run["train/loss"].log(train_loss)
-        run["val/WER"].log(val * 100)
+        if FLAGS.log_neptune:
+            run["train/loss"].log(train_loss)
+            run["val/WER"].log(val * 100)
         
         
         torch.save(model.state_dict(), os.path.join(FLAGS.output_directory,'model.pt'))
@@ -228,7 +230,7 @@ def evaluate_saved():
     #testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = False, test = True)
     
     testset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = True, test = False,
-                                    togglePhones = togglePhones)
+                                    togglePhones = togglePhones, normalizers_file = normalizers_file)
     n_chars = len(testset.text_transform.chars)
     
     if FLAGS.S4:
@@ -249,10 +251,10 @@ def main():
     logging.info(sys.argv)
     
     trainset = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = True, dev = False, test = False,
-                                     togglePhones = togglePhones)
+                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
     #trainset = trainset.subset(0.01) # FOR DEBUGGING - REMOVE WHEN RUNNING
     devset   = PreprocessedEMGDataset(base_dir = FLAGS.base_dir, train = False, dev = True, test = False,
-                                     togglePhones = togglePhones)
+                                     togglePhones = togglePhones, normalizers_file = normalizers_file)
     
     logging.info('output example: %s', devset.example_indices[0])
     logging.info('train / dev split: %d %d',len(trainset),len(devset))
