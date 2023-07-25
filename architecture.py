@@ -480,7 +480,6 @@ try:
     from h3 import H3
 except:
     print('Could not import H3')
-        
 
 class H3Model(nn.Module):
     def __init__(self, num_features, num_outs, num_aux_outs=None):

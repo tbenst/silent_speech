@@ -62,9 +62,11 @@ assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this 
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
     scratch_directory = os.environ["LOCAL_SCRATCH"]
+    gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
 else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
+    gaddy_dir = '/scratch/GaddyPaper/'
 output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 ##
 auto_lr_find = False
@@ -90,16 +92,16 @@ num_layers = 6 # number of layers
 dropout = .2 # dropout
 l2 = 0
 evaluate_saved = None
-lm_directory = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/librispeech_lm/'
-data_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/processed_data/'
+lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
+data_dir = os.path.join(gaddy_dir, 'processed_data/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 seqlen       = 600
 togglePhones = False
 
-lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
+# lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
 # much faster if we intend to load data more than once during job;
 # otherwise slightly slower as we first copy to local nvme then load to RAM
-data_dir = ensure_folder_on_scratch(data_dir, data_dir)
+# data_dir = ensure_folder_on_scratch(data_dir, data_dir)
 ##
 
 os.makedirs(output_directory, exist_ok=True)
