@@ -12,6 +12,7 @@ wget -c https://download.pytorch.org/torchaudio/download-assets/librispeech-3-gr
 ##
 import pytorch_lightning as pl
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import sys
 import numpy as np
 import logging
@@ -111,7 +112,7 @@ logging.basicConfig(handlers=[
         ], level=logging.INFO, format="%(message)s")
 
 
-datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len)
+datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len, batch_size=1)
 
 logging.info('output example: %s', datamodule.val.example_indices[0])
 logging.info('train / dev split: %d %d',len(datamodule.train),len(datamodule.val))

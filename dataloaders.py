@@ -38,6 +38,10 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         alignment_dirs: Folders with TextGrid alignments
 
     Can download alignments from e.g. https://zenodo.org/record/2619474
+    
+    Warning: Huggingface does unfortunate things like encode absolute paths such as
+    /home/tyler/.cache/huggingface/datasets/librispeech_asr/...
+    This breaks portability for a pickled class. terrible design.
     """
     def __init__(self, dataset, text_transform, mfcc_norm, alignment_dirs):
         super().__init__()
@@ -180,7 +184,13 @@ def split_batch_into_emg_audio(batch):
     paired_emg_idx = []
     paired_audio_idx = [] # same length as paired_emg_idx
     
-    for i, (s,a) in enumerate(zip(batch['silent'], batch['audio_only'])):
+    # support other data collator
+    if 'audio_only' in batch:
+        audio_only = batch['audio_only']
+    else:
+        audio_only = [False] * len(batch['silent'])
+    
+    for i, (s,a) in enumerate(zip(batch['silent'], audio_only)):
         # logging.debug(f"{type(batch['phonemes'])=}")
         if s:
             # EMG
@@ -224,13 +234,13 @@ def split_batch_into_emg_audio(batch):
     idxs = (paired_emg_idx, paired_audio_idx)
     return emg_tup, audio_tup, idxs
     
-def cache_dataset(Dataset, cache_path, per_index_cache=False):
+def cache_dataset(cache_path, Dataset=None, per_index_cache=False):
     """Class factory to modify Dataset to cache getitem to disk. Returns a Callable.
     
     This allows for retaining attributes & methods of the original Dataset class.
     
     Usage:
-    >>> CachedMyDataset = cache_dataset(MyDataset, '/path/my_dataset_cache.pkl')
+    >>> CachedMyDataset = cache_dataset('/path/my_dataset_cache.pkl', MyDataset)
     >>> dset = CachedMyDataset(*args, *kwargs)
     
     Filesystem for cache_path='/path/my_dataset_cache/' if per_index_cache=False
@@ -320,6 +330,7 @@ def cache_dataset(Dataset, cache_path, per_index_cache=False):
                 except Exception as e:
                     print(e)
                     print(f"Failed to cache index {i}, skipping.")
+                    self.len -= 1
         
         def __len__(self):
             return self.len
@@ -557,7 +568,6 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                 always_include_class:int=None):        
         super().__init__(classes, class_proportion, batch_size, shuffle,
                          seed=seed, num_replicas=num_replicas)
-        self.constant_num_batches = False
         self.max_len = max_len
         self.lengths = lengths
         self.always_include_class = always_include_class
@@ -567,33 +577,36 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             for i in range(self.class_n_per_batch.shape[0])]))
         self.len = None
 
+        self.constant_num_batches = False
         if constant_num_batches:
             self.hardcode_len = self.min_len(200) # assume 200 epochs
-            self.constant_num_batches = constant_num_batches
+            self.constant_num_batches = True
             logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
 
         
     def min_len(self, num_epochs:int):
-        """Minimum number of batches in dataset"""
+        """Minimum number of batches in dataset on any GPU."""
         cur_epoch = self.epoch
         min_length = np.inf
+        # minimum per epoch
         for epoch in range(num_epochs):
             self.set_epoch(epoch)
-            N = len(list(iter(self)))
-            if N < min_length:
-                min_length = N
+            # minimum per GPU
+            for rank in range(self.num_replicas):
+                N = len(list(self.iter_batches(rank)))
+                if N < min_length:
+                    min_length = N
         self.set_epoch(cur_epoch)
         return min_length
-
-    def __iter__(self):
-        logging.debug("Initializing DistributedSizeAwareStratifiedBatchSampler")
+    
+    def iter_batches(self, rank):
         if self.shuffle:
             g = torch.Generator()
             g.manual_seed(self.seed + self.epoch)
             class_indices = [x[torch.randperm(len(x), generator=g)].tolist()
                                     for x in self.class_indices]
             # different indices per GPU
-            class_indices = [x[self.rank::self.num_replicas]
+            class_indices = [x[rank::self.num_replicas]
                                   for x in class_indices]
         else:
             class_indices = [x.tolist() for x in self.class_indices]
@@ -603,7 +616,6 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         batch_length = 0
         batches = [] # accumulates
             
-        # for b in range(self.rank,self.num_batches,self.num_replicas):
         while True:
             if self.shuffle:
                 p = torch.randperm(self.mini_batch_classes.shape[0], generator=g)
@@ -643,6 +655,10 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                         break # ensure we always include at least one example from this class
                 batch.append(idx)
                 batch_length += length
+
+    def __iter__(self):
+        logging.debug("Initializing DistributedSizeAwareStratifiedBatchSampler")
+        return self.iter_batches(self.rank)
                 
     def approx_len(self, class_indices=None):
         """Return approximate number of batches per epoch.
@@ -675,7 +691,12 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             return len(iter(self))
         
 
-@persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pkl")
+# @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pkl")
+# @persist_to_file("/tmp/2023-07-20_emg_only_dset_lengths.pkl")
+# isotime = datetime.datetime.now().isoformat()
+# @persist_to_file(f"/tmp/{isotime}.pkl")
+# @persist_to_file(f"/tmp/2023-07-24_emg-only.pkl")
+@persist_to_file(f"/tmp/2023-07-25_emg_speech_dset_lengths.pkl")
 def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
     
@@ -695,7 +716,9 @@ def emg_speech_dset_lengths(dset:torch.utils.data.Dataset):
             emg_z_len = d['raw_emg'].shape[0] // 8
             audio_z_len = d['audio_features'].shape[0]
             assert emg_z_len == audio_z_len
-            lengths.append(emg_z_len + audio_z_len)
+            # lengths.append(emg_z_len + audio_z_len)
+            # WARN/TODO: for EMG only
+            lengths.append(emg_z_len)
     return lengths
 
 class EMGAndSpeechModule(pl.LightningDataModule):
@@ -768,6 +791,7 @@ class EMGAndSpeechModule(pl.LightningDataModule):
         # # https://github.com/Lightning-AI/lightning/pull/16712#discussion_r1237629807
         # self._log_hyperparams = False
         
+    # avoids crash due to DDP when using distributed samplers
     def setup(self, stage=None):
         if self.ValSampler is None:
             self.val_sampler = None

@@ -174,7 +174,7 @@ def parent_dir_for_preprocessed_mat(mat_file):
         raise ValueError(f'Could not parse parent directory for {mat_file=}')
     return m[1]
 
-def lookup_emg_length(example):
+def lookup_preprocessed_emg_length(example):
     audio_file = loadmat(example)['audio_file'][0]
     fn = local_path_for_audio_file(audio_file)
     parent = parent_dir_for_preprocessed_mat(example)
@@ -249,6 +249,7 @@ class EMGDataset(torch.utils.data.Dataset):
                     directories.append(EMGDirectory(len(directories), os.path.join(vd, session_dir), False, exclude_from_testset=has_silent))
 
         self.example_indices = []
+        self.lengths = []
         self.voiced_data_locations = {} # map from book/sentence_index to directory_info/index
         for directory_info in directories:
             for fname in os.listdir(directory_info.directory):
@@ -264,6 +265,7 @@ class EMGDataset(torch.utils.data.Dataset):
                                     or (dev and location_in_devset and not directory_info.exclude_from_testset) \
                                     or (not test and not dev and not location_in_testset and not location_in_devset):
                                 self.example_indices.append((directory_info,int(idx_str)))
+                                self.lengths.append(sum([emg_len for emg_len, _, _ in info['chunks']]))
 
                             if not directory_info.silent:
                                 location = (info['book'], info['sentence_index'])
@@ -366,6 +368,7 @@ class EMGDataset(torch.utils.data.Dataset):
         session_ids = [ex['session_ids'] for ex in batch]
         lengths = [ex['emg'].shape[0] for ex in batch]
         silent = [ex['silent'] for ex in batch]
+        text        = [ex['text'] for ex in batch]
         text_ints = [ex['text_int'] for ex in batch]
         text_lengths = [ex['text_int'].shape[0] for ex in batch]
 
@@ -378,6 +381,7 @@ class EMGDataset(torch.utils.data.Dataset):
                   'session_ids':session_ids,
                   'lengths':lengths,
                   'silent':silent,
+                  'text':text,
                   'text_int':text_ints,
                   'text_int_lengths':text_lengths}
         return result
@@ -430,7 +434,7 @@ class PreprocessedEMGDataset(torch.utils.data.Dataset):
         if not self.no_normalizers:
             self.mfcc_norm, self.emg_norm = pickle.load(open(normalizers_file,'rb'))
             
-        self.lengths = [lookup_emg_length(ex) for ex in self.example_indices]
+        self.lengths = [lookup_preprocessed_emg_length(ex) for ex in self.example_indices]
 
     def silent_subset(self):
         result = copy(self)
@@ -515,14 +519,14 @@ class EMGDataModule(pl.LightningDataModule):
                  batch_size=None, collate_fn=None,
                  pin_memory=True) -> None:
         super().__init__()
-        self.train = cache_dataset(EMGDataset, os.path.join(base_dir, 'emg_train.pkl'))(
+        self.train = cache_dataset(os.path.join(base_dir, 'emg_train.pkl'), EMGDataset)(
             base_dir = None, dev = False, test = False, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
-        self.val   = cache_dataset(EMGDataset, os.path.join(base_dir, 'emg_val.pkl'))(
+        self.val   = cache_dataset(os.path.join(base_dir, 'emg_val.pkl'), EMGDataset)(
             base_dir = None, dev = True, test = False, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
-        
-        self.test = cache_dataset(EMGDataset, os.path.join(base_dir, 'emg_test.pkl'))(
+
+        self.test = cache_dataset(os.path.join(base_dir, 'emg_test.pkl'), EMGDataset)(
             base_dir = None, dev = False, test = True, returnRaw = True,
             togglePhones = togglePhones, normalizers_file = normalizers_file)
         #             batch_size=None, collate_fn=None, DatasetClass=PreprocessedEMGDataset,
@@ -548,16 +552,25 @@ class EMGDataModule(pl.LightningDataModule):
     def train_dataloader(self):
         collate_fn = self.collate_fn if self.collate_fn is not None else self.train.collate_raw
         batch_sampler = PreprocessedSizeAwareSampler(self.train, self.max_len) if self.batch_sampler else None
-        loader = DataLoader(
-            self.train,
-            collate_fn = collate_fn,
-            shuffle = self.shuffle,
-            drop_last = self.drop_last,
-            num_workers = self.num_workers,
-            batch_size = self.batch_size,
-            pin_memory = self.pin_memory,
-            batch_sampler = batch_sampler
-        )
+        if batch_sampler:
+            loader = DataLoader(
+                self.train,
+                collate_fn = collate_fn,
+                num_workers = self.num_workers,
+                pin_memory = self.pin_memory,
+                batch_sampler = batch_sampler
+            )
+        else:
+            loader = DataLoader(
+                self.train,
+                collate_fn = collate_fn,
+                shuffle = self.shuffle,
+                drop_last = self.drop_last,
+                num_workers = self.num_workers,
+                batch_size = self.batch_size,
+                pin_memory = self.pin_memory,
+                batch_sampler = batch_sampler
+            )
             
         return loader
 
@@ -570,7 +583,6 @@ class EMGDataModule(pl.LightningDataModule):
                 self.val,
                 collate_fn = collate_fn,
                 num_workers = self.num_workers,
-                batch_size = self.batch_size,
                 pin_memory = self.pin_memory,
                 batch_sampler = batch_sampler
             )
@@ -592,7 +604,6 @@ class EMGDataModule(pl.LightningDataModule):
                 self.test,
                 collate_fn = collate_fn,
                 num_workers=self.num_workers,
-                batch_size = self.batch_size,
                 pin_memory = self.pin_memory,
                 batch_sampler = PreprocessedSizeAwareSampler(self.test, self.max_len, shuffle=False)
             )

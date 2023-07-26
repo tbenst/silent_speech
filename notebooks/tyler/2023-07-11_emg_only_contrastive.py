@@ -9,7 +9,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512" # also works, more memory usage
 
 import pytorch_lightning as pl, pickle
-import sys
+import sys, warnings
 import numpy as np
 import logging
 import subprocess, torchmetrics
@@ -46,7 +46,7 @@ from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     DistributedStratifiedBatchSampler, StratifiedBatchSampler, cache_dataset, \
     split_batch_into_emg_audio, DistributedSizeAwareStratifiedBatchSampler, \
-    SizeAwareStratifiedBatchSampler
+    SizeAwareStratifiedBatchSampler, collate_gaddy_or_speech
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
@@ -97,8 +97,9 @@ if DEBUG:
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     
 else:
-    NUM_GPUS = 2
-    grad_accum = 3
+    NUM_GPUS = 1
+    # grad_accum = 3
+    grad_accum = 2 # EMG only, 128000 max_len
     if ON_SHERLOCK:
         NUM_GPUS = 4
         grad_accum = 1
@@ -183,7 +184,9 @@ if gpu_ram < 24:
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     # val_bz = base_bz
     val_bz = 8
-    max_len = 48000 # works for supNCE on Titan RTX
+    # max_len = 48000 # works for supNCE on Titan RTX
+    # max_len = 128000 # for emg only, no contrastive loss
+    max_len = 2 * 128000 # for emg only, no contrastive loss, 1 GPU
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
@@ -194,11 +197,14 @@ elif gpu_ram > 30:
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
+
+
 ##
 # needed for using CachedDataset
 # TODO: is this creating problems...?
 # data_dir = '/scratch/GaddyPaper/cached/' # temporarily hack for hardcoded paths
 emg_datamodule = EMGDataModule(data_dir, togglePhones, normalizers_file, max_len=max_len,
+    collate_fn=collate_gaddy_or_speech,
     pin_memory=(not DEBUG), batch_size=val_bz)
 emg_train = emg_datamodule.train
 
@@ -275,35 +281,49 @@ empty_dataset = torch.utils.data.TensorDataset(torch.tensor([]))
 speech_train, speech_val, speech_test = empty_dataset, empty_dataset, empty_dataset
 
 
-datamodule =  EMGAndSpeechModule(emg_datamodule.train,
-    emg_datamodule.val, emg_datamodule.test,
-    speech_train, speech_val, speech_test,
-    bz=bz, val_bz=val_bz, num_replicas=NUM_GPUS, pin_memory=(not DEBUG),
-    num_workers=num_workers,
-    TrainBatchSampler=TrainBatchSampler,
-    ValSampler=ValSampler,
-    TestSampler=TestSampler,
-    batch_class_proportions=np.array([0.16, 0.84])
-)
-# steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
-steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
+# TODO: switch back to EMGAndSpeechModule
+# datamodule =  EMGAndSpeechModule(emg_datamodule.train,
+#     emg_datamodule.val, emg_datamodule.test,
+#     speech_train, speech_val, speech_test,
+#     bz=bz, val_bz=val_bz, num_replicas=NUM_GPUS, pin_memory=(not DEBUG),
+#     num_workers=num_workers,
+#     TrainBatchSampler=TrainBatchSampler,
+#     ValSampler=ValSampler,
+#     TestSampler=TestSampler,
+#     batch_class_proportions=np.array([0.16, 0.84])
+# )
+# steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
+
+datamodule = emg_datamodule
+steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
 # steps_per_epoch = len(datamodule.train_dataloader())
 # print(steps_per_epoch)
 # for i,b in enumerate(datamodule.train):
 #     print(b["silent"])
 #     if i>10: break
+# count = np.zeros(len(datamodule.train))
+# for epoch in range(200):
+#     datamodule.TrainBatchSampler.set_epoch(epoch)
+#     bs = list(iter(datamodule.TrainBatchSampler))
+#     for b in bs:
+#         for i in b:
+#             count[i] += 1
+# np.min(count), np.mean(count), np.max(count)
+
+
 ##
-len(datamodule.TrainBatchSampler)
-##
-count = np.zeros(len(datamodule.train))
-for epoch in range(200):
-    datamodule.TrainBatchSampler.set_epoch(epoch)
-    bs = list(iter(datamodule.TrainBatchSampler))
-    for b in bs:
-        for i in b:
-            count[i] += 1
-np.min(count), np.mean(count), np.max(count)
+# import torch.distributed as dist
+# dist.init_process_group()
+# datamodule.setup()
+# for b in datamodule.train_dataloader():
+#     pass
+
+# for b in datamodule.val_dataloader():
+#     pass
+
+# print('done')
+# exit(0)
 
 ##
 # to Include
@@ -322,8 +342,7 @@ class SpeechOrEMGToTextConfig:
     # learning_rate:float = 5e-6
     weight_decay:float = 0.1
     adam_epsilon:float = 1e-8
-    # warmup_steps:int = 1000
-    warmup_steps:int = 1000 // grad_accum # warmup is effectilely by batch count now
+    warmup_steps:int = 500 // grad_accum # warmup by backward steps
     # batch_size:int = 8
     batch_size:int = bz
     # batch_size:int = 24
@@ -344,7 +363,7 @@ class SpeechOrEMGToTextConfig:
     
     cross_nce_lambda:float = 1.0 # how much to weight the latent loss
     audio_lambda:float = 1.0 # how much to weight the audio->text loss
-    sup_nce_lambda:float = 1.0
+    sup_nce_lambda:float = 0.1
 
     # d_inner:int = 1024
     d_inner:int = 3072 # original Gaddy
@@ -421,6 +440,8 @@ class SpeechOrEMGToText(Model):
         x = x.transpose(1,2)
         x = self.emg_latent_linear(x)
         logging.info(f"emg_encoder pre-norm: {x.shape=}")
+        # TODO: unlike Gaddy, I believe we added this norm before the latent
+        # for our best 26.7% WER, should uncomment these three lines...
         x = x.transpose(1,2) # channel first for batchnorm
         x = self.emg_latent_norm(x)
         x = x.transpose(1,2) # B x T/8 x C
@@ -528,7 +549,7 @@ class SpeechOrEMGToText(Model):
         emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
         audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
         paired_emg_idx, paired_audio_idx = idxs
-
+        audio = []
 
         
         (emg_pred, audio_pred), (emg_z, audio_z), (emg_bz, audio_bz) = self(emg, audio, length_emg, length_audio)
@@ -545,47 +566,52 @@ class SpeechOrEMGToText(Model):
         else:
             logging.info("audio_pred is None")
             audio_ctc_loss = 0.
-        
-        if emg_z is not None and audio_z is not None:
-
-            # InfoNCE contrastive loss with emg_t, audio_t as positive pairs
             
-            paired_e_z = [emg_z[i] for i in paired_emg_idx]
-            paired_a_z = [audio_z[i] for i in paired_audio_idx]
-            paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
+        with warnings.catch_warnings():
+            warnings.simplefilter("once")
+            warnings.warn("Not using contrastive loss")
+        if False:
+            pass        
+        # if emg_z is not None and audio_z is not None:
 
-            # per-utterance only
-            # emg_audio_contrastive_loss = var_length_cross_contrastive_loss(
-            #     paired_e_z, paired_a_z,
-            #     device=self.device)
+        #     # InfoNCE contrastive loss with emg_t, audio_t as positive pairs
             
-            # across batch
-            try:
-                paired_e_z = torch.concatenate(paired_e_z)
-            except Exception as e:
-                logging.error(f"paired_e_z: {paired_e_z=}")
-                raise e
-            paired_a_z = torch.concatenate(paired_a_z)
-            emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
-                                                                device=self.device)
+        #     paired_e_z = [emg_z[i] for i in paired_emg_idx]
+        #     paired_a_z = [audio_z[i] for i in paired_audio_idx]
+        #     paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
 
-            # only use vocalized emg for supervised contrastive loss as we have
-            # frame-aligned phoneme labels for those
-            z = torch.concatenate([paired_e_z, *audio_z])
-            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
-            sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
-            # sup_nce_loss = 0.
-        elif emg_z is not None:
-            # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
-            # TODO: try DTW with parallel audio/emg to align phonemes with silent emg
-            # z = torch.concatenate(emg_z)
-            # z_class = torch.concatenate(emg_phonemes)
-            emg_audio_contrastive_loss = 0.
-            sup_nce_loss = 0.
-        elif audio_z is not None:
-            raise NotImplementedError("audio only is not expected")
-            z = torch.concatenate(audio_z)
-            z_class = torch.concatenate(audio_phonemes)
+        #     # per-utterance only
+        #     # emg_audio_contrastive_loss = var_length_cross_contrastive_loss(
+        #     #     paired_e_z, paired_a_z,
+        #     #     device=self.device)
+            
+        #     # across batch
+        #     try:
+        #         paired_e_z = torch.concatenate(paired_e_z)
+        #     except Exception as e:
+        #         logging.error(f"paired_e_z: {paired_e_z=}")
+        #         raise e
+        #     paired_a_z = torch.concatenate(paired_a_z)
+        #     emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
+        #                                                         device=self.device)
+
+        #     # only use vocalized emg for supervised contrastive loss as we have
+        #     # frame-aligned phoneme labels for those
+        #     z = torch.concatenate([paired_e_z, *audio_z])
+        #     z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
+        #     sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+        #     # sup_nce_loss = 0.
+        # elif emg_z is not None:
+        #     # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
+        #     # TODO: try DTW with parallel audio/emg to align phonemes with silent emg
+        #     # z = torch.concatenate(emg_z)
+        #     # z_class = torch.concatenate(emg_phonemes)
+        #     emg_audio_contrastive_loss = 0.
+        #     sup_nce_loss = 0.
+        # elif audio_z is not None:
+        #     raise NotImplementedError("audio only is not expected")
+        #     z = torch.concatenate(audio_z)
+        #     z_class = torch.concatenate(audio_phonemes)
         else:
             emg_audio_contrastive_loss = 0.
             sup_nce_loss = 0.
@@ -680,8 +706,9 @@ class SpeechOrEMGToText(Model):
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("train/avg_emg_latent", avg_emg_latent,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
-        self.log("train/avg_audio_latent", avg_audio_latent,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
+        if not avg_audio_latent is None:
+            self.log("train/avg_audio_latent", avg_audio_latent,
+                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
         torch.cuda.empty_cache()
         return loss
 
@@ -709,7 +736,6 @@ class SpeechOrEMGToText(Model):
         self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log(f"{task}/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         
-
         return loss
     
     def test_step(self, batch, batch_idx):
@@ -754,7 +780,7 @@ model = SpeechOrEMGToText(config, text_transform)
 logging.info('made model')
 
 callbacks = [
-    # starting at epoch 0, accumulate 2 batches of grads
+    # starting at epoch 0, accumulate this many batches of gradients
     GradientAccumulationScheduler(scheduling={0: config.gradient_accumulation_steps})
 ]
 
@@ -814,7 +840,7 @@ trainer = pl.Trainer(
     devices=devices,
     accelerator="gpu",
     # accelerator="cpu",
-    gradient_clip_val=0.5,
+    gradient_clip_val=1, # was 0.5 for best 26.x% run, gaddy used 10, llama 2 uses 1.0
     logger=neptune_logger,
     default_root_dir=output_directory,
     callbacks=callbacks,
@@ -824,7 +850,7 @@ trainer = pl.Trainer(
     # strategy=strategy,
     use_distributed_sampler=False, # we need to make a custom distributed sampler
     num_sanity_val_steps=num_sanity_val_steps,
-    sync_batchnorm=True, # TODO: we should pass Audio & EMG together, not by task
+    sync_batchnorm=True,
     strategy=strategy,
     # strategy='fsdp', # errors on CTC loss being used on half-precision.
     # also model only ~250MB of params, so fsdp may be overkill
@@ -847,7 +873,7 @@ else:
     trainer.fit(model, datamodule=datamodule)
     
 if log_neptune:
-    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={model.current_epoch}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
 ##

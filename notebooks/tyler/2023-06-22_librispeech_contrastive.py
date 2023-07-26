@@ -1,5 +1,5 @@
 ##
-2
+2 # INFO: should base new notebook off of 2023-07-11_emg_only_contrastive.py
 ##
 # %load_ext autoreload
 # %autoreload 2
@@ -867,7 +867,7 @@ else:
     trainer.fit(model, datamodule=datamodule)
     
 if log_neptune:
-    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={config.num_train_epochs}.ckpt")
+    ckpt_path = os.path.join(output_directory,f"finished-training_epoch={model.current_epoch}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
 ##
