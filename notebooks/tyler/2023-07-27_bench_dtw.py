@@ -3,7 +3,8 @@ import os, numpy as np, sys, torch
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
 # import torch.utils.benchmark
-import timeit
+import timeit, torchmetrics
+import torch.nn.functional as F
 
 from align import align_from_distances
 from fastdtw import dtw
@@ -34,3 +35,11 @@ alignment = bench(align_from_distances)(costs.T.detach().cpu().numpy())
 ##
 # TODO: write our own DTW in CUDA..?
 # https://github.com/Maghoumi/pytorch-softdtw-cuda/blob/master/soft_dtw_cuda.py
+
+##
+# benchmark cos sim
+print("F.cosine_similarity")
+bench(F.cosine_similarity)(xt.unsqueeze(1), yt.unsqueeze(0), dim=2) # OOM
+##
+bench(torchmetrics.functional.pairwise_cosine_similarity)(xt, yt) # 0.7s, 88MB
+##

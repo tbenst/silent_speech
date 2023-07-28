@@ -6,7 +6,7 @@ from transformer import TransformerEncoderLayer
 from data_utils import combine_fixed_length, decollate_tensor
 
 import sys, os, jiwer
-import pytorch_lightning as pl
+import pytorch_lightning as pl, torchmetrics
 from torchaudio.models.decoder import ctc_decoder
 from s4 import S4
 from data_utils import TextTransform
@@ -798,7 +798,10 @@ class SpeechOrEMGToText(Model):
             # parallel_e_z = [emg_z[i] for i in parallel_emg_idx]
             parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
             parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
-            costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
+            # euclidean distance between silent emg and parallel audio
+            # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
+            # cosine dissimiliarity between silent emg and parallel audio
+            costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z)
             alignment = align_from_distances(costs.T.detach().cpu().numpy())
             aligned_a_z = parallel_a_z[alignment]
             aligned_a_phonemes = parallel_a_phonemes[alignment]
