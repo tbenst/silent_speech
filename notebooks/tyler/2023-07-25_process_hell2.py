@@ -1,4 +1,3 @@
-# first run of script uses 1 process, subsequent runs add the number of processes listed below:
 import numpy # adds 31 processes
 import pytorch_lightning as pl # adds 9 processes
 import scipy.signal # adds 31 processes

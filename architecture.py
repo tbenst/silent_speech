@@ -22,6 +22,7 @@ from contrastive import \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 from typing import Tuple
 from pytorch_lightning.loggers import NeptuneLogger
+from align import align_from_distances
 
 import gc
 import logging
@@ -771,9 +772,11 @@ class SpeechOrEMGToText(Model):
         emg_tup, audio_tup, idxs = split_batch_into_emg_audio(batch)
         emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
         audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
-        paired_emg_idx, paired_audio_idx = idxs
+        paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_audio_idx = idxs
         
         (emg_pred, audio_pred), (emg_z, audio_z), (emg_bz, audio_bz) = self(emg, audio, length_emg, length_audio)
+        
+        # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
         
         if emg_pred is not None:
             length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
@@ -790,35 +793,45 @@ class SpeechOrEMGToText(Model):
             
 
         if emg_z is not None and audio_z is not None:
+            # use DTW with parallel audio/emg to align phonemes with silent emg
+            silent_e_z = torch.concatenate([emg_z[i] for i in silent_emg_idx])
+            # parallel_e_z = [emg_z[i] for i in parallel_emg_idx]
+            parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
+            parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
+            costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
+            alignment = align_from_distances(costs.T.detach().cpu().numpy())
+            aligned_a_z = parallel_a_z[alignment]
+            aligned_a_phonemes = parallel_a_phonemes[alignment]
+            # print(f"{silent_e_z.shape=}, {parallel_a_z.shape=}, {parallel_a_phonemes.shape=}," \
+            #       f"{len(alignment)=}, {aligned_a_z.shape=}, {aligned_a_phonemes.shape=}")
 
-            # InfoNCE contrastive loss with emg_t, audio_t as positive pairs
             
-            paired_e_z = [emg_z[i] for i in paired_emg_idx]
-            paired_a_z = [audio_z[i] for i in paired_audio_idx]
-            paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
+            ###### InfoNCE #####
+            # contrastive loss with emg_t, audio_t as positive pairs
+            
+            matched_e_z = torch.concatenate([*[emg_z[i] for i in paired_emg_idx], silent_e_z])
+            matched_a_z = torch.concatenate([*[audio_z[i] for i in paired_audio_idx], aligned_a_z])
 
-            # per-utterance only
-            # emg_audio_contrastive_loss = var_length_cross_contrastive_loss(
-            #     paired_e_z, paired_a_z,
-            #     device=self.device)
-            
-            # across batch
-            try:
-                paired_e_z = torch.concatenate(paired_e_z)
-            except Exception as e:
-                logging.error(f"paired_e_z: {paired_e_z=}")
-                raise e
-            paired_a_z = torch.concatenate(paired_a_z)
             # TODO: need to make a memoizing cos sim function
-            emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(paired_e_z, paired_a_z,
+            emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(matched_e_z, matched_a_z,
                                                                 device=self.device)
 
-            # only use vocalized emg for supervised contrastive loss as we have
-            # frame-aligned phoneme labels for those
-            z = torch.concatenate([paired_e_z, *audio_z])
-            z_class = torch.concatenate([*paired_e_phonemes, *audio_phonemes])
+            ###### Supervised NCE #######
+            paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
+            matched_phonemes = torch.concatenate([*paired_e_phonemes, aligned_a_phonemes])
+            # for e,a in zip(paired_emg_idx,paired_audio_idx):
+            #     print(f"{emg_phonemes[e].shape=}, {emg_z[e].shape=}, {audio_phonemes[a].shape=}, {audio_z[a].shape=}")
+            # print(f"{matched_e_z.shape=}, {len(audio_z)=}, {silent_e_z.shape=}, {len(paired_e_phonemes)=}, {len(audio_phonemes)=}, {len(aligned_a_phonemes)=}")
+            # # TODO: we are duplicating some audio_z here. need to fix
+            # print(f"{matched_e_z.shape=}, {torch.concatenate([*paired_e_phonemes]).shape=})")
+            # print(f"{torch.concatenate([*audio_z]).shape=}, {torch.concatenate([*audio_phonemes]).shape=})") 
+            # print(f"{silent_e_z.shape=}, {aligned_a_phonemes.shape=}") 
+            z = torch.concatenate([matched_e_z, *audio_z])
+            z_class = torch.concatenate([matched_phonemes, *audio_phonemes])
             sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
             # sup_nce_loss = 0.
+            
+            ###### 
         elif emg_z is not None:
             # INFO: phoneme labels aren't frame-aligned with emg, so we can't use them
             # TODO: try DTW with parallel audio/emg to align phonemes with silent emg

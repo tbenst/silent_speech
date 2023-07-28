@@ -330,7 +330,10 @@ class EMGDataset(torch.utils.data.Dataset):
 
         if directory_info.silent:
             voiced_directory, voiced_idx = self.voiced_data_locations[book_location]
-            voiced_mfccs, voiced_emg, _, _, phonemes, _ = load_utterance(voiced_directory.directory, voiced_idx, False, text_align_directory=self.text_align_directory)
+            voiced_mfccs, voiced_emg, _, _, phonemes, voiced_raw_emg = load_utterance(voiced_directory.directory, voiced_idx, False, text_align_directory=self.text_align_directory)
+            voiced_raw_emg = voiced_raw_emg / 20
+            voiced_raw_emg = 50*np.tanh(voiced_raw_emg/50.)
+
 
             if not self.no_normalizers:
                 #voiced_mfccs = self.mfcc_norm.normalize(voiced_mfccs)  # HACKY WORKAROUND - AVOID MAKING MFCCS
@@ -338,7 +341,7 @@ class EMGDataset(torch.utils.data.Dataset):
                 voiced_emg = 8*np.tanh(voiced_emg/8.)
 
             result['parallel_voiced_audio_features'] = torch.from_numpy(voiced_mfccs)
-            result['parallel_voiced_emg'] = torch.from_numpy(voiced_emg)
+            result['parallel_voiced_raw_emg'] = torch.from_numpy(voiced_emg)
 
             audio_file = f'{voiced_directory.directory}/{voiced_idx}_audio_clean.flac'
 
@@ -357,7 +360,7 @@ class EMGDataset(torch.utils.data.Dataset):
             if ex['silent']:
                 audio_features.append(ex['parallel_voiced_audio_features'])
                 audio_feature_lengths.append(ex['parallel_voiced_audio_features'].shape[0])
-                parallel_emg.append(ex['parallel_voiced_emg'])
+                parallel_emg.append(ex['parallel_voiced_raw_emg'])
             else:
                 audio_features.append(ex['audio_features'])
                 audio_feature_lengths.append(ex['audio_features'].shape[0])
@@ -376,7 +379,7 @@ class EMGDataset(torch.utils.data.Dataset):
                   'audio_feature_lengths':audio_feature_lengths,
                   'emg':emg,
                   'raw_emg':raw_emg,
-                  'parallel_voiced_emg':parallel_emg,
+                  'parallel_voiced_raw_emg':parallel_emg,
                   'phonemes':phonemes,
                   'session_ids':session_ids,
                   'lengths':lengths,

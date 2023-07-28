@@ -126,12 +126,12 @@ def collate_gaddy_or_speech(batch):
     text = []
     raw_emg = []
     raw_emg_lengths = []
+    parallel_emg = []
+    parallel_emg_lengths = []
     phonemes = []
     silent = []
     audio_only = []
     for example in batch:
-        audio_features.append(example['audio_features'])
-        audio_feature_lengths.append(example['audio_features'].shape[0])
         text_int.append(example['text_int'])
         text_int_lengths.append(example['text_int'].shape[0])
         phonemes.append(example['phonemes'])
@@ -141,6 +141,10 @@ def collate_gaddy_or_speech(batch):
             text.append(example['text'])
         if 'raw_emg' not in example:
             # audio only
+            audio_features.append(example['audio_features'])
+            audio_feature_lengths.append(example['audio_features'].shape[0])
+            parallel_emg.append(None)
+            parallel_emg_lengths.append(0)
             raw_emg.append(None)
             raw_emg_lengths.append(0)
             silent.append(False)
@@ -148,18 +152,30 @@ def collate_gaddy_or_speech(batch):
         else:
             raw_emg.append(example['raw_emg'])
             raw_emg_lengths.append(example['raw_emg'].shape[0])
+            audio_only.append(False)
+            
             if example['silent']:
                 # don't use annoying array([[1]], dtype=uint8)
                 silent.append(True)
+                audio_features.append(example['parallel_voiced_audio_features'])
+                audio_feature_lengths.append(example['parallel_voiced_audio_features'].shape[0])
+                parallel_emg.append(example['parallel_voiced_raw_emg'])
+                parallel_emg_lengths.append(example['parallel_voiced_raw_emg'].shape[0])
             else:
                 silent.append(False)
-            audio_only.append(False)
+                audio_features.append(example['audio_features'])
+                audio_feature_lengths.append(example['audio_features'].shape[0])
+                parallel_emg.append(None)
+                parallel_emg_lengths.append(0)
+
     return {
         'audio_features': audio_features,
         'audio_feature_lengths':audio_feature_lengths,
         'raw_emg': raw_emg,
-        'phonemes':phonemes,
         'raw_emg_lengths': raw_emg_lengths,
+        'parallel_raw_emg': parallel_emg,
+        'parallel_raw_emg_lengths': parallel_emg_lengths,
+        'phonemes':phonemes,
         'silent': silent,
         'audio_only': audio_only,
         'text': text,
@@ -184,6 +200,9 @@ def split_batch_into_emg_audio(batch):
     paired_emg_idx = []
     paired_audio_idx = [] # same length as paired_emg_idx
     
+    silent_emg_idx = [] # silent emg
+    parallel_audio_idx = [] # vocalized audio (parallel recordind with silent emg)
+    
     # support other data collator
     if 'audio_only' in batch:
         audio_only = batch['audio_only']
@@ -192,46 +211,45 @@ def split_batch_into_emg_audio(batch):
     
     for i, (s,a) in enumerate(zip(batch['silent'], audio_only)):
         # logging.debug(f"{type(batch['phonemes'])=}")
-        if s:
-            # EMG
+        if not a:
+            # Not audio only
+            if s:
+                # Silent EMG + parallel AUDIO
+                silent_emg_idx.append(len(emg))
+                parallel_audio_idx.append(len(audio))
+                
+                # INFO: we skip parallel emg and use only the parallel audio with silent emg
+                # emg.append(batch['parallel_raw_emg'][i])
+                # length_emg.append(batch['parallel_raw_emg_lengths'][i])
+                
+                
+                # phoneme_len = len(batch['phonemes'][i])
+                # emg_len = batch['raw_emg_lengths'][i] // 8
+                # INFO: phonemes come from parallel dataset, so they are not always the same length as the emg
+                # assert phoneme_len == emg_len, f"{phoneme_len} != {emg_len}. {batch['audio_features'][i].shape=}"
+            else:
+                # Paired EMG + AUDIO
+                # TODO why doesn't this debug statement print..?
+                logging.debug(f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}")
+                # print(f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}")
+                paired_emg_idx.append(len(emg))
+                paired_audio_idx.append(len(audio))
+
             emg.append(batch['raw_emg'][i])
             length_emg.append(batch['raw_emg_lengths'][i])
             y_length_emg.append(batch['text_int_lengths'][i])
             y_emg.append(batch['text_int'][i])
             emg_phonemes.append(batch['phonemes'][i])
-            phoneme_len = len(batch['phonemes'][i])
-            emg_len = batch['raw_emg_lengths'][i] // 8
-            # INFO: phonemes come from parallel dataset, so they are not always the same length as the emg
-            # assert phoneme_len == emg_len, f"{phoneme_len} != {emg_len}. {batch['audio_features'][i].shape=}"
-        elif a:
-            # AUDIO
-            audio.append(batch['audio_features'][i])
-            length_audio.append(batch['audio_feature_lengths'][i])
-            y_length_audio.append(batch['text_int_lengths'][i])
-            y_audio.append(batch['text_int'][i])
-            audio_phonemes.append(batch['phonemes'][i])
-        else:
-            # EMG + AUDIO
-            logging.debug(f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}")
-            paired_emg_idx.append(len(emg))
-            paired_audio_idx.append(len(audio))
             
-            emg.append(batch['raw_emg'][i])
-            length_emg.append(batch['raw_emg_lengths'][i])
-            y_length_emg.append(batch['text_int_lengths'][i])
-            y_emg.append(batch['text_int'][i])
-            emg_phonemes.append(batch['phonemes'][i])
-            
-            audio.append(batch['audio_features'][i])
-            length_audio.append(batch['audio_feature_lengths'][i])
-            y_length_audio.append(batch['text_int_lengths'][i])
-            y_audio.append(batch['text_int'][i])
-            audio_phonemes.append(batch['phonemes'][i])
-            logging.debug(f"{len(emg)=}, {len(audio)=}")
+        audio.append(batch['audio_features'][i])
+        length_audio.append(batch['audio_feature_lengths'][i])
+        y_length_audio.append(batch['text_int_lengths'][i])
+        y_audio.append(batch['text_int'][i])
+        audio_phonemes.append(batch['phonemes'][i])
     
     emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg)
     audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio)
-    idxs = (paired_emg_idx, paired_audio_idx)
+    idxs = (paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_audio_idx)
     return emg_tup, audio_tup, idxs
     
 def cache_dataset(cache_path, Dataset=None, per_index_cache=False):
@@ -572,6 +590,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         self.lengths = lengths
         self.always_include_class = always_include_class
         if always_include_class is not None:
+            # prevent oversampling
             self.class_n_per_batch[self.always_include_class] -= 1
         self.mini_batch_classes = torch.from_numpy(np.concatenate([np.full(self.class_n_per_batch[i], i)
             for i in range(self.class_n_per_batch.shape[0])]))
