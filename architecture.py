@@ -799,10 +799,12 @@ class SpeechOrEMGToText(Model):
             parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
             parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
             # euclidean distance between silent emg and parallel audio
-            # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
+            costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
+            # print(f"cdist: {costs.dtype}")
             # cosine dissimiliarity between silent emg and parallel audio
-            costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z)
-            alignment = align_from_distances(costs.T.detach().cpu().numpy())
+            costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z).squeeze(0)
+            # print(f"cos dissim: {costs.dtype}")
+            alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
             aligned_a_z = parallel_a_z[alignment]
             aligned_a_phonemes = parallel_a_phonemes[alignment]
             # print(f"{silent_e_z.shape=}, {parallel_a_z.shape=}, {parallel_a_phonemes.shape=}," \
