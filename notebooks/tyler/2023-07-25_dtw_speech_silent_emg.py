@@ -1,5 +1,7 @@
 ##
 2
+# INFO: on sherlock, run with:
+# taskset -c 0-31 python 2023-07-25_dtw_speech_silent_emg.py
 ##
 # %load_ext autoreload
 # %autoreload 2
@@ -72,7 +74,8 @@ hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
 if DEBUG:
-    NUM_GPUS = 1
+    # NUM_GPUS = 1
+    NUM_GPUS = 4
     limit_train_batches = 2
     limit_val_batches = 2 # will not run on_validation_epoch_end
     # NUM_GPUS = 2
@@ -129,7 +132,10 @@ if ON_SHERLOCK:
     scratch_lengths_pkl = os.path.join(scratch_directory, "2023-07-25_emg_speech_dset_lengths.pkl")
     tmp_lengths_pkl = os.path.join("/tmp", "2023-07-25_emg_speech_dset_lengths.pkl")
     if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
+         # TODO: evidentally this is a race condition...
         shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
+        from time import sleep # hack fix this
+        sleep(5)
 else:
     # on my local machine
     sessions_dir = '/data/magneto/'
@@ -213,6 +219,7 @@ if NUM_GPUS > 1:
         rank = int(os.environ[rank_key])
     logging.info(f"SETTING CUDA DEVICE ON RANK: {rank}")
 
+    # TODO: is this necessary / causing issues...?
     torch.cuda.set_device(rank)
     torch.cuda.empty_cache()
     # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
@@ -267,7 +274,8 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs)
+config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs,
+                                 num_train_epochs=n_epochs)
 
 model = SpeechOrEMGToText(config, text_transform)
 logging.info('made model')
@@ -352,6 +360,9 @@ if auto_lr_find:
     # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#learning-rate-finder
     tuner = pl.tuner.Tuner(trainer)
     tuner.lr_find(model, datamodule)
+        
+affinity = os.sched_getaffinity(0)
+print(f"{rank=}, {affinity=}")
         
 logging.info('about to fit')
 # epoch of 242 if only train...
