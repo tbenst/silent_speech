@@ -373,7 +373,7 @@ class SupConLoss(torch.nn.Module):
                              'at least 3 dimensions are required')
         if len(features.shape) > 3:
             features = features.view(features.shape[0], features.shape[1], -1)
-
+        features = F.normalize(features, dim=2)
         batch_size = features.shape[0]
         if labels is not None and mask is not None:
             raise ValueError('Cannot define both `labels` and `mask`')
