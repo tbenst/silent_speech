@@ -216,6 +216,10 @@ if not log_neptune:
 auto_lr_find = False
 
 # precision = 32
+<<<<<<< HEAD
+=======
+# learning_rate = 3e-4
+>>>>>>> 1c4cf3e (lr=1.5e-4)
 learning_rate = 1.5e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False
