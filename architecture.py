@@ -835,8 +835,8 @@ class SpeechOrEMGToText(Model):
             # print(f"{silent_e_z.shape=}, {aligned_a_phonemes.shape=}") 
             z = torch.concatenate([matched_e_z, *audio_z])
             z_class = torch.concatenate([matched_phonemes, *audio_phonemes])
-            # sup_nce_loss = self.supervised_contrastive_loss(z, z_class, device=self.device)
-            sup_nce_loss = self.supervised_contrastive_loss(z[:, None], z_class, device=self.device)
+            # sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+            sup_nce_loss = self.supervised_contrastive_loss(z[:, None], z_class)
             # sup_nce_loss = 0.
             
             ###### 
