@@ -7,6 +7,7 @@ from functools import partial
 from joblib import Memory
 
 def persist_to_file(file_name):
+    # TODO: should open file only when function called not initialized
     cache = {}
     try:
         with open(file_name, 'rb') as f:

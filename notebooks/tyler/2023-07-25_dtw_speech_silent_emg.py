@@ -289,7 +289,7 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs)
+config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs, precision=precision)
 
 model = SpeechOrEMGToText(config, text_transform)
 logging.info('made model')
