@@ -242,7 +242,7 @@ def cross_contrastive_loss(x,y, temperature=0.1, device='cpu'):
     loss = torch.mean(loss_partial)
     return loss
 
-def nobatch_cross_contrastive_loss(x,y, temperature=0.1, device='cpu'):
+def nobatch_cross_contrastive_loss(x,y, cos_sim=None, temperature=0.1, device='cpu'):
     """Compute cross contrastive loss between two sequences of embeddings.
     
     This diverges from the SimCLR paper in that we consider y_i to be a positive example of x_i, and vice versa,
@@ -251,15 +251,16 @@ def nobatch_cross_contrastive_loss(x,y, temperature=0.1, device='cpu'):
     Args:
         x: L x D
         y: L x D
+        cos_sim (optional): L x L matrix of cosine similarities between x and y
         
     """
     L, D = x.shape
-    representations = torch.cat([x,y], dim=0)
     
     positives_mask, denominator_mask = infoNCE_masks(L, device=device)
-    
-    similarity_matrix = torch.exp(torchmetrics.functional.pairwise_cosine_similarity(
-        representations,representations) / temperature)
+    if cos_sim is None:
+        representations = torch.cat([x,y], dim=0)
+        cos_sim = torchmetrics.functional.pairwise_cosine_similarity(representations,representations)
+    similarity_matrix = torch.exp(cos_sim / temperature)
     # print(f"{similarity_matrix.shape}")
     # TODO pretty sure can do exp just once, double check & change
     nominator = similarity_matrix[positives_mask] # now L*2
@@ -289,13 +290,17 @@ def var_length_cross_contrastive_loss(x:List[torch.Tensor], y:List[torch.Tensor]
         loss += nobatch_cross_contrastive_loss(x[i], y[i], temperature=temperature, device=device)
     return loss / len(x)
 
-def supervised_contrastive_loss(embeddings, labels, temperature=0.1, device="cpu"):
+def supervised_contrastive_loss(embeddings, labels, cos_sim=None, temperature=0.1, device="cpu"):
     """
     Compute supervised contrastive loss for a batch of embeddings. Skip classes with only one sample.
+    
+    Note: precomputing cosine similarities is not faster than computing them on the fly, likely due to cost of
+    passing large tensor as argument.
     
     Args:
         embeddings (torch.Tensor): [N x D]
         labels (torch.Tensor): [N]
+        cos_sim (torch.Tensor, optional): precomputed [N x N] matrix of cosine similarities between embeddings. Defaults to None.
         temperature (float, optional): Defaults to 0.07.
         device (str, optional): Defaults to "cpu".
     """
@@ -311,8 +316,9 @@ def supervised_contrastive_loss(embeddings, labels, temperature=0.1, device="cpu
         c = int(c)
         class_masks[c] = labels == c
     
-    similarity_matrix = torchmetrics.functional.pairwise_cosine_similarity(
-        embeddings, embeddings) / temperature
+    if cos_sim is None:
+        cos_sim = torchmetrics.functional.pairwise_cosine_similarity(embeddings, embeddings)
+    similarity_matrix = cos_sim / temperature
     similarity_matrix = torch.exp(similarity_matrix)
     # print(f"{similarity_matrix.shape}")
     # calculate per-class loss, dividing by the number of positives
@@ -324,12 +330,102 @@ def supervised_contrastive_loss(embeddings, labels, temperature=0.1, device="cpu
         c = int(c)
         positives_mask, denominator_mask = supNCE_mask(labels, c, device=device)
         nominator = positives_mask * similarity_matrix
+        # nominator = similarity_matrix[positives_mask]
         nominator = torch.sum(nominator, dim=1)[class_masks[c]] # samples of proper class only
         # print(f"{nominator=}")
         denominator = denominator_mask * similarity_matrix
+        # denominator = similarity_matrix[denominator_mask]
         denominator = torch.sum(denominator, dim=1)[class_masks[c]]
         # print(f"{denominator_mask=}")
         # print(f"{denominator=}")
         # sum over samples of proper class, divide by number of positives
         class_loss[i] = -torch.log(nominator / denominator).sum() / cardinality[c]
     return class_loss.sum()
+
+class SupConLoss(torch.nn.Module):
+    """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
+    It also supports the unsupervised contrastive loss in SimCLR"""
+    def __init__(self, temperature=0.07, contrast_mode='all'):
+        super(SupConLoss, self).__init__()
+        self.temperature = temperature
+        self.contrast_mode = contrast_mode
+        self.base_temperature = temperature
+
+    def forward(self, features, labels=None, mask=None):
+        """Compute loss for model. If both `labels` and `mask` are None,
+        it degenerates to SimCLR unsupervised loss:
+        https://arxiv.org/pdf/2002.05709.pdf
+
+        Args:
+            features: hidden vector of shape [bsz, n_views, ...].
+            labels: ground truth of shape [bsz].
+            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+                has the same class as sample i. Can be asymmetric.
+        Returns:
+            A loss scalar.
+        """
+        device = (torch.device('cuda')
+                  if features.is_cuda
+                  else torch.device('cpu'))
+
+        if len(features.shape) < 3:
+            raise ValueError('`features` needs to be [bsz, n_views, ...],'
+                             'at least 3 dimensions are required')
+        if len(features.shape) > 3:
+            features = features.view(features.shape[0], features.shape[1], -1)
+
+        batch_size = features.shape[0]
+        if labels is not None and mask is not None:
+            raise ValueError('Cannot define both `labels` and `mask`')
+        elif labels is None and mask is None:
+            mask = torch.eye(batch_size, dtype=torch.float32).to(device)
+        elif labels is not None:
+            labels = labels.contiguous().view(-1, 1)
+            if labels.shape[0] != batch_size:
+                raise ValueError('Num of labels does not match num of features')
+            mask = torch.eq(labels, labels.T).float().to(device)
+        else:
+            mask = mask.float().to(device)
+
+        contrast_count = features.shape[1]
+        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
+        if self.contrast_mode == 'one':
+            anchor_feature = features[:, 0]
+            anchor_count = 1
+        elif self.contrast_mode == 'all':
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
+        else:
+            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+
+        # compute logits
+        anchor_dot_contrast = torch.div(
+            torch.matmul(anchor_feature, contrast_feature.T),
+            self.temperature)
+        # for numerical stability
+        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+        logits = anchor_dot_contrast - logits_max.detach()
+
+        # tile mask
+        mask = mask.repeat(anchor_count, contrast_count)
+        # mask-out self-contrast cases
+        logits_mask = torch.scatter(
+            torch.ones_like(mask),
+            1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+            0
+        )
+        mask = mask * logits_mask
+
+        # compute log_prob
+        exp_logits = torch.exp(logits) * logits_mask
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        # compute mean of log-likelihood over positive
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+
+        # loss
+        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+        loss = loss.view(anchor_count, batch_size).mean()
+
+        return loss
