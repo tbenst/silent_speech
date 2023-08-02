@@ -121,7 +121,8 @@ else:
     log_neptune = True
     # log_neptune = False
     n_epochs = 200
-    precision = "16-mixed"
+    # precision = "16-mixed"
+    precision = "32"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
     
@@ -178,10 +179,12 @@ if gpu_ram < 24:
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
-    base_bz = 24
+    # base_bz = 24
+    base_bz = 12 # don't think does anything..?
     val_bz = 8
     # max_len = 64000 # OOM epoch 32
-    max_len = 56000
+    # max_len = 56000
+    max_len = 48000 # possibly better performance than 56000, def less memory
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
