@@ -385,10 +385,14 @@ class SupConLoss(torch.nn.Module):
                 raise ValueError('Num of labels does not match num of features')
 
             # Find the classes with more than one sample
-            classes_with_more_than_one_sample = (labels.bincount() > 1).float().to(device)
+            class_counts = labels.view(-1).bincount()
+            classes_with_more_than_one_sample = (class_counts > 1)
 
-            # Modify the mask to only include classes with more than one sample
-            mask = torch.eq(labels, labels.T).float().to(device) * classes_with_more_than_one_sample
+            # Create a sample-wise mask indicating whether each sample belongs to a class with more than one member
+            sample_mask = classes_with_more_than_one_sample[labels.view(-1)].float().to(device)
+
+            # Modify the mask to only include samples from classes with more than one sample
+            mask = torch.eq(labels, labels.T).float().to(device) * sample_mask.view(-1, 1) * sample_mask.view(1, -1)
         else:
             mask = mask.float().to(device)
 

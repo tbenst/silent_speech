@@ -349,13 +349,7 @@ class SupConLoss(torch.nn.Module):
             labels = labels.contiguous().view(-1, 1)
             if labels.shape[0] != batch_size:
                 raise ValueError('Num of labels does not match num of features')
-
-            # Find the classes with more than one sample
-            classes_with_more_than_one_sample = (labels.bincount() > 1).float().to(device)
-
-            # Modify the mask to only include classes with more than one sample
-            mask = torch.eq(labels, labels.T).float().to(device) * classes_with_more_than_one_sample
-
+            mask = torch.eq(labels, labels.T).float().to(device)
         else:
             mask = mask.float().to(device)
 
@@ -472,9 +466,19 @@ class ModSupConLoss(torch.nn.Module):
             labels = labels.contiguous().view(-1, 1)
             if labels.shape[0] != batch_size:
                 raise ValueError('Num of labels does not match num of features')
-            mask = torch.eq(labels, labels.T).float().to(device)
+
+            # Find the classes with more than one sample
+            class_counts = labels.view(-1).bincount()
+            classes_with_more_than_one_sample = (class_counts > 1)
+
+            # Create a sample-wise mask indicating whether each sample belongs to a class with more than one member
+            sample_mask = classes_with_more_than_one_sample[labels.view(-1)].float().to(device)
+
+            # Modify the mask to only include samples from classes with more than one sample
+            mask = torch.eq(labels, labels.T).float().to(device) * sample_mask.view(-1, 1) * sample_mask.view(1, -1)
         else:
             mask = mask.float().to(device)
+
 
         contrast_count = features.shape[1]
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
