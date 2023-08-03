@@ -774,7 +774,7 @@ class SpeechOrEMGToText(Model):
         emg_tup, audio_tup, idxs = split_batch_into_emg_audio(batch)
         emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
         audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
-        paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_audio_idx = idxs
+        paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx = idxs
         
         (emg_pred, audio_pred), (emg_z, audio_z), (emg_bz, audio_bz) = self(emg, audio, length_emg, length_audio)
         
@@ -797,14 +797,19 @@ class SpeechOrEMGToText(Model):
         if emg_z is not None and audio_z is not None:
             # use DTW with parallel audio/emg to align phonemes with silent emg
             silent_e_z = torch.concatenate([emg_z[i] for i in silent_emg_idx])
-            # parallel_e_z = [emg_z[i] for i in parallel_emg_idx]
+            parallel_e_z = torch.concatenate([emg_z[i] for i in parallel_emg_idx])
             parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
             parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
             # euclidean distance between silent emg and parallel audio
             # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
             # print(f"cdist: {costs.dtype}")
+            
             # cosine dissimiliarity between silent emg and parallel audio
-            costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z).squeeze(0)
+            # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z).squeeze(0)
+            
+            # cosine dissimiliarity between silent emg and parallel emg
+            costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_e_z, silent_e_z).squeeze(0)
+            
             # print(f"cos dissim: {costs.dtype}")
             alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
             aligned_a_z = parallel_a_z[alignment]

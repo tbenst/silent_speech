@@ -109,9 +109,12 @@ else:
     NUM_GPUS = 2
     # grad_accum = 3
     grad_accum = 2 # EMG only, 128000 max_len
+    precision = "16-mixed"
+
     if ON_SHERLOCK:
         NUM_GPUS = 4
         grad_accum = 1
+        precision = "32"
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
@@ -121,8 +124,6 @@ else:
     log_neptune = True
     # log_neptune = False
     n_epochs = 200
-    # precision = "16-mixed"
-    precision = "32"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
     
@@ -215,11 +216,7 @@ if not log_neptune:
 ##
 auto_lr_find = False
 
-# precision = 32
-<<<<<<< HEAD
-=======
 # learning_rate = 3e-4
->>>>>>> 1c4cf3e (lr=1.5e-4)
 learning_rate = 1.5e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False

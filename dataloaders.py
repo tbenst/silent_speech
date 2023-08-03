@@ -203,6 +203,7 @@ def split_batch_into_emg_audio(batch):
     
     silent_emg_idx = [] # silent emg
     parallel_audio_idx = [] # vocalized audio (parallel recordind with silent emg)
+    parallel_emg_idx = [] # vocalized emg (parallel recordind with silent emg)
     
     # support other data collator
     if 'audio_only' in batch:
@@ -215,7 +216,14 @@ def split_batch_into_emg_audio(batch):
         if not a:
             # Not audio only
             if s:
-                # Silent EMG + parallel AUDIO
+                # Silent EMG + parallel AUDIO + parallel EMG
+                parallel_emg_idx.append(len(emg))
+                emg.append(batch['parallel_raw_emg'][i])
+                length_emg.append(batch['parallel_raw_emg_lengths'][i])
+                y_length_emg.append(batch['text_int_lengths'][i])
+                y_emg.append(batch['text_int'][i])
+                emg_phonemes.append(batch['phonemes'][i])
+                
                 silent_emg_idx.append(len(emg))
                 parallel_audio_idx.append(len(audio))
                 
@@ -250,7 +258,7 @@ def split_batch_into_emg_audio(batch):
     
     emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg)
     audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio)
-    idxs = (paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_audio_idx)
+    idxs = (paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx)
     return emg_tup, audio_tup, idxs
     
 def cache_dataset(cache_path, Dataset=None, per_index_cache=False):
