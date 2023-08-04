@@ -330,7 +330,9 @@ class EMGDataset(torch.utils.data.Dataset):
 
         if directory_info.silent:
             voiced_directory, voiced_idx = self.voiced_data_locations[book_location]
-            voiced_mfccs, voiced_emg, _, _, phonemes, voiced_raw_emg = load_utterance(voiced_directory.directory, voiced_idx, False, text_align_directory=self.text_align_directory)
+            voiced_mfccs, voiced_emg, _, _, phonemes, voiced_raw_emg = load_utterance(
+                voiced_directory.directory, voiced_idx, self.limit_length,
+                text_align_directory=self.text_align_directory, returnRaw = self.returnRaw)
             voiced_raw_emg = voiced_raw_emg / 20
             voiced_raw_emg = 50*np.tanh(voiced_raw_emg/50.)
 

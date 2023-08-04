@@ -208,7 +208,8 @@ else:
 
 logging.basicConfig(handlers=[
         logging.StreamHandler()
-        ], level=logger_level, format="%(message)s")
+        ], level=logger_level, format="%(message)s",
+        force=True)
 
 logging.debug("DEBUG mode")
 if not log_neptune:
