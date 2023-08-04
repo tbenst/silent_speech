@@ -71,7 +71,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 RESUME = False
 # RESUME = True
 
