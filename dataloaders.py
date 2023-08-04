@@ -168,7 +168,7 @@ def collate_gaddy_or_speech(batch):
                 audio_features.append(example['audio_features'])
                 audio_feature_lengths.append(example['audio_features'].shape[0])
                 parallel_emg.append(None)
-                parallel_emg_lengths.append(0)¡
+                parallel_emg_lengths.append(0)
 
     return {
         'audio_features': audio_features,
