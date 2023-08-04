@@ -337,13 +337,13 @@ class EMGDataset(torch.utils.data.Dataset):
             voiced_raw_emg = 50*np.tanh(voiced_raw_emg/50.)
 
 
-            if not self.no_normalizers:
-                #voiced_mfccs = self.mfcc_norm.normalize(voiced_mfccs)  # HACKY WORKAROUND - AVOID MAKING MFCCS
-                voiced_emg = self.emg_norm.normalize(voiced_emg)
-                voiced_emg = 8*np.tanh(voiced_emg/8.)
+            # if not self.no_normalizers:
+            #     #voiced_mfccs = self.mfcc_norm.normalize(voiced_mfccs)  # HACKY WORKAROUND - AVOID MAKING MFCCS
+            #     voiced_emg = self.emg_norm.normalize(voiced_emg)
+            #     voiced_emg = 8*np.tanh(voiced_emg/8.)
 
             result['parallel_voiced_audio_features'] = torch.from_numpy(voiced_mfccs)
-            result['parallel_voiced_raw_emg'] = torch.from_numpy(voiced_emg)
+            result['parallel_voiced_raw_emg'] = torch.from_numpy(voiced_raw_emg)
 
             audio_file = f'{voiced_directory.directory}/{voiced_idx}_audio_clean.flac'
 
