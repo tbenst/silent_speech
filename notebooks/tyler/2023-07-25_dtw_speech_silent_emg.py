@@ -73,7 +73,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 DEBUG = False
 # DEBUG = True
 RESUME = False
-RESUME = True
+# RESUME = True
 
 if RESUME:
     # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
