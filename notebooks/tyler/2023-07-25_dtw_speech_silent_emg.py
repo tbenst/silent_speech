@@ -73,14 +73,17 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
 DEBUG = False
 # DEBUG = True
 RESUME = False
-# RESUME = True
+RESUME = True
 
 if RESUME:
+    # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
+    # to think about: can we do this automatically on gaia/sherlock if OOM..? (maybe we don't care / can do manually)
     # INFO: when resuming logging to Neptune, we might repeat some steps,
     # e.g. if epoch 29 was lowest WER, but we resume at epoch 31, we will
     # log epoch 30 & 31 twice. mainly an issue for publication plots
-    ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
-    run_id = 'GAD-372'
+    # ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
+    ckpt_path = '/scratch/2023-08-03T21:30:03.418151_gaddy/SpeechOrEMGToText-epoch=15-val/wer=0.547.ckpt'
+    run_id = 'GAD-493'
     
 
 per_index_cache = True # read each index from disk separately

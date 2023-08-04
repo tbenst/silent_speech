@@ -724,7 +724,7 @@ class SpeechOrEMGToText(Model):
         which also may quadratically reduce memory usage due to attention. This is prob okay for
         training, but for inference we want to use the full sequence length."""
         if len(emg) > 0:
-            print(f"FORWARD emg shape: {[e.shape for e in emg]=}")
+            # print(f"FORWARD emg shape: {[e.shape for e in emg]=}")
             emg = combine_fixed_length(emg, self.seqlen*8)
             # logging.debug(f"FORWARD emg shape: {emg.shape}")
             emg_pred, emg_z = self.emg_forward(emg)
