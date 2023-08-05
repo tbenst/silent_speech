@@ -9,19 +9,20 @@ from joblib import Memory
 def persist_to_file(file_name):
     # TODO: should open file only when function called not initialized
     cache = {}
-    try:
-        with open(file_name, 'rb') as f:
-            cache['k'] = pickle.load(f)
-            logging.warn(f'Loaded cache from {file_name}')
-    except:
-        cache['k'] = None
 
     def decorator(original_func):
         def new_func(*args, **kwargs):
             if cache['k'] is None:
-                cache['k'] = original_func(*args, **kwargs)
-                with open(file_name, 'wb') as f:
-                    pickle.dump(cache['k'], f)
+                try:
+                    # load cache from disk
+                    with open(file_name, 'rb') as f:
+                        cache['k'] = pickle.load(f)
+                        logging.warn(f'Loaded cache from {file_name}')
+                except:
+                    # populate cache in memory & save to disk
+                    cache['k'] = original_func(*args, **kwargs)
+                    with open(file_name, 'wb') as f:
+                        pickle.dump(cache['k'], f)
             return cache['k']
 
         return new_func
