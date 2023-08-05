@@ -12,7 +12,7 @@ def persist_to_file(file_name):
 
     def decorator(original_func):
         def new_func(*args, **kwargs):
-            if cache['k'] is None:
+            if not 'k' in cache:
                 try:
                     # load cache from disk
                     with open(file_name, 'rb') as f:
