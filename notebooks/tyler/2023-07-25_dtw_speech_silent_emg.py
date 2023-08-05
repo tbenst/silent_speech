@@ -114,10 +114,10 @@ else:
     grad_accum = 2 # EMG only, 128000 max_len
     precision = "16-mixed"
 
-    # if ON_SHERLOCK:
-    #     NUM_GPUS = 4
-    #     grad_accum = 1
-    #     precision = "32"
+    if ON_SHERLOCK:
+        NUM_GPUS = 4
+        grad_accum = 1
+        # precision = "32"
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
