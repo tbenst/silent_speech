@@ -762,6 +762,7 @@ class SpeechOrEMGToText(Model):
         # TODO FIXME
         # ctc_loss: [p.shape for p in pred]=[torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38])], [t.shape for t in target]=[torch.Size([306])]
         # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
+        # TODO: this pads with 0. should we pad with self.n_chars for blank token instead??? What is token 0..?
         pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
         # pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, pred_len), batch_first=False) 
         # pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
@@ -801,17 +802,20 @@ class SpeechOrEMGToText(Model):
             parallel_e_z = torch.concatenate([emg_z[i] for i in parallel_emg_idx])
             parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
             parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
+            
             # euclidean distance between silent emg and parallel audio
             # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
-            # print(f"cdist: {costs.dtype}")
-            
             # cosine dissimiliarity between silent emg and parallel audio
             # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z).squeeze(0)
             
+            # euclidean distance between silent emg and parallel emg
+            costs = torch.cdist(parallel_e_z, silent_e_z).squeeze(0)
             # cosine dissimiliarity between silent emg and parallel emg
-            costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_e_z, silent_e_z).squeeze(0)
+            # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_e_z, silent_e_z).squeeze(0)
             
+            # print(f"cdist: {costs.dtype}")                
             # print(f"cos dissim: {costs.dtype}")
+            
             alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
             aligned_a_z = parallel_a_z[alignment]
             aligned_a_phonemes = parallel_a_phonemes[alignment]
