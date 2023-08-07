@@ -311,6 +311,7 @@ if log_neptune:
         "project": "neuro/Gaddy",
         "name": model.__class__.__name__,
         "tags": [model.__class__.__name__,
+                isotime,
                 f"fp{config.precision}",
                 ],
     }
@@ -327,6 +328,9 @@ if log_neptune:
             log_model_checkpoints=False
         )
         neptune_logger.log_hyperparams(vars(config))
+        neptune_logger.experiment["isotime"] = isotime
+        neptune_logger.experiment["hostname"] = hostname
+        neptune_logger.experiment["output_directory"] = output_directory
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",

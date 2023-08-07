@@ -626,6 +626,9 @@ class SpeechOrEMGToText(Model):
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
         self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model)
+        # TODO: try affine=False so emg&audio latent are both unit norm
+        # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        # self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
@@ -762,11 +765,14 @@ class SpeechOrEMGToText(Model):
         # TODO FIXME
         # ctc_loss: [p.shape for p in pred]=[torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38])], [t.shape for t in target]=[torch.Size([306])]
         # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
-        # TODO: this pads with 0. should we pad with self.n_chars for blank token instead??? What is token 0..?
+        
+        # this pads with 0, which corresponds to 'a', but by passing target_len 
+        # to CTC loss we can ignore these padded values
         pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
         # pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, pred_len), batch_first=False) 
-        # pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
+        # pred = nn.utils.rnn.pad_sequence(pred, batch_first=False)
         target    = nn.utils.rnn.pad_sequence(target, batch_first=True)
+        # print(f"\n ==== CTC ====\n{pred.shape=}, {target.shape=}\n{pred=}\n{target=}\n")
         # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
         # print(f"ctc_loss: {[p.shape for p in pred]=}, {[t.shape for t in target]=}")
         loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars)
