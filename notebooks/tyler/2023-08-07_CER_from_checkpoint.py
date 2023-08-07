@@ -70,8 +70,8 @@ def get_char_preds(model, dataloader, text_transform,
        nbest       = k,
        #sil_score   = -2,
     #    beam_size   = k+50,
-    #    beam_size   = k*50,
-       beam_size   = int(k*2),
+       beam_size   = k*50,
+    #    beam_size   = int(k*2),
     #    beam_size   = int(k*1.5),
        beam_threshold = thresh # defaults to 50
     )
