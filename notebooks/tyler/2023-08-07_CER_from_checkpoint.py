@@ -6,7 +6,7 @@ import os
 import sys
 # horrible hack to get around this repo not being a proper python package
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
-SCRIPT_DIR = "/home/tyler/code/silent_speech/"
+# SCRIPT_DIR = "/home/tyler/code/silent_speech/"
 sys.path.append(SCRIPT_DIR)
 
 import numpy as np
