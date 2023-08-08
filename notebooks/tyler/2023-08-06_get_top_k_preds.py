@@ -42,7 +42,7 @@ else:
 FLAGS = flags.FLAGS
 flags.DEFINE_integer('k', 100, 'max beams to return')
 flags.DEFINE_integer('beam_size', 500, 'maximum number of beams to search')
-flags.DEFINE_integer('beam_threshold', 150, 'prune beam search if more than this away from best score')
+flags.DEFINE_integer('beam_threshold', 75, 'prune beam search if more than this away from best score')
 flags.DEFINE_string('checkpoint', None, 'run evaluation on given model file')
 flags.DEFINE_string('gaddy_dir', gaddy_dir, 
                     'Path to GaddyPaper directory')

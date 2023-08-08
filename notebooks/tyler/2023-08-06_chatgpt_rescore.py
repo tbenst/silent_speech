@@ -11,6 +11,9 @@ from data_utils import TextTransform
 from pqdm.threads import pqdm
 import backoff  # for exponential backoff
 
+# TODO: how to deal with 502 errors?
+# maybe rebase on https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py
+# https://github.com/openai/openai-cookbook/blob/c651bfdda64ac049747c2a174cde1c946e2baf1d/examples/api_request_parallel_processor.py
 @backoff.on_exception(backoff.expo, openai.error.RateLimitError, max_value=15, max_time=90)
 def completions_with_backoff(**kwargs):
     return openai.ChatCompletion.create(**kwargs)
@@ -19,10 +22,22 @@ def completions_with_backoff(**kwargs):
 tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
 text_transform = TextTransform(togglePhones = False)
 
+#### using the 26.4% WER model
 # npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_500beams.npz",
 #               allow_pickle=True)
-npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams.npz",
+
+# best so far (top100_5000beams_thresh75.npz)
+# npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams.npz",
+#               allow_pickle=True)
+
+# npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams_thresh150.npz",
+#               allow_pickle=True)
+
+# lowest CTC loss model
+npz = np.load("/scratch/users/tbenst/2023-08-05T02:28:07.543866_gaddy/SpeechOrEMGToText-epoch=193-val/wer=0.275.ckpt",
               allow_pickle=True)
+
+
 ##
 sys_msg = """
 You are a rescoring algorithm for automatic speech recognition. \
@@ -150,6 +165,43 @@ without any introductory text.
 """.strip()
 transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
 calc_wer(clean_transcripts(transcripts), npz['sentences']) # 22.85% !!!!
+# 23.54% on the 150 threshold version
+##
+sys_msg2 = """
+Your task is automatic speech recognition. \
+Below are the candidate transcriptions along with their \
+negative log-likelihood from a Connectionist Temporal Classification (CTC) \
+prefix beam search with a 3-gram language model constraint.  \
+Respond with the correct transcription, \
+without any introductory text.
+""".strip()
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 23.86%
+##
+sys_msg2 = """
+Your task is speech recognition. Given the candidate transcriptions and their \
+negative log-likelihood from a CTC beam search, provide the correct transcription.
+""".strip()
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 25.5%
+##
+sys_msg2 = """
+Perform automatic speech recognition. Given the candidate transcriptions and their negative log-likelihood from a CTC beam search, provide the correct transcription.
+""".strip()
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 23.88%
+##
+sys_msg2 = """
+You are performing automatic speech recognition. Use the candidate transcriptions and their negative log-likelihood from a CTC beam search to determine the correct transcription.
+""".strip()
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 102%
+##
+sys_msg2 = """
+Task: Automatic speech recognition. Candidates and their negative log-likelihood from a CTC beam search are provided. Respond with the correct transcription, without any introductory text.
+""".strip()
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 24.9%
 ##
 
 for t, p, s in zip(clean_transcripts(transcripts), [p[0] for p in npz['predictions']], npz['sentences']):
