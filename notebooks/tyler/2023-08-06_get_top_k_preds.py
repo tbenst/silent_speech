@@ -42,6 +42,7 @@ else:
 FLAGS = flags.FLAGS
 flags.DEFINE_integer('k', 100, 'max beams to return')
 flags.DEFINE_integer('beam_size', 500, 'maximum number of beams to search')
+flags.DEFINE_float('lm_weight', 2., 'language model weight')
 flags.DEFINE_integer('beam_threshold', 75, 'prune beam search if more than this away from best score')
 flags.DEFINE_string('checkpoint', None, 'run evaluation on given model file')
 flags.DEFINE_string('gaddy_dir', gaddy_dir, 
@@ -49,62 +50,9 @@ flags.DEFINE_string('gaddy_dir', gaddy_dir,
 
 togglePhones = False
 
-##### k=100, beam_size=5000 (best so far!)
-
-# len(ctc_hypotheses)=100
-# len(ctc_hypotheses)=65
-# len(ctc_hypotheses)=100
-# len(ctc_hypotheses)=18
-# len(ctc_hypotheses)=100
-# len(ctc_hypotheses)=86
-# len(ctc_hypotheses)=68
-# len(ctc_hypotheses)=5
-# len(ctc_hypotheses)=12
-# len(ctc_hypotheses)=33
-# len(ctc_hypotheses)=100
-# len(ctc_hypotheses)=100
-
-# "keep back said ofer"
-# "keep bag said ofer"
-# "keep back said over"
-# "keep bag said over"
-# "keep back said offer"
-
-##### k=100, beam_size=500
-# "keep back said over"
-# "keep bag said over"
-# "keep back sad over"
-
-# len(ctc_hypotheses)=89
-# len(ctc_hypotheses)=5
-# len(ctc_hypotheses)=100
-# len(ctc_hypotheses)=100
-# len(ctc_hypotheses)=35
-# len(ctc_hypotheses)=31
-# len(ctc_hypotheses)=13
-# len(ctc_hypotheses)=5
-# len(ctc_hypotheses)=12
-# len(ctc_hypotheses)=3
-# len(ctc_hypotheses)=67
-# len(ctc_hypotheses)=46
-
-
-# k=100, beam_size=200
-# returns one hypothesis:
-# "keep back said over"
-
-
-# k=100, beam_size=150
-# returns 100 hypotheses that repeat same two
-# "keep back said"
-# "keep bag said"
-# "keep bag said"
-# "keep back said"
-# "keep bag said"
-
 def getTopK(model, dataloader, text_transform, lm_directory,
         k = 100, beam_size=500, togglePhones=False,
-        beam_threshold=100):
+        beam_threshold=100, lm_weight=2):
     model.eval()
     
     if togglePhones:
@@ -120,7 +68,9 @@ def getTopK(model, dataloader, text_transform, lm_directory,
        blank_token = '_',
        sil_token   = '|',
        nbest       = k,
-       lm_weight   = 2, # default is 2; Gaddy sets to 1.85
+       # default is 2; Gaddy sets to 1.85
+       # makes seemingly no difference with those two values
+       lm_weight   = lm_weight
        #word_score  = -3,
        #sil_score   = -2,
     #    beam_size   = k+50,
@@ -208,10 +158,14 @@ def evaluate_saved():
     model = SpeechOrEMGToText(config, text_transform)
     model.load_state_dict(checkpoint["state_dict"])
     model.cuda()
+    k = FLAGS.k
+    beam_size = FLAGS.beam_size
+    beam_threshold = FLAGS.beam_threshold
+    lm_weight = FLAGS.lm_weight
     topk_dict  = getTopK(model, testset, text_transform, lm_directory,
-        k=FLAGS.k, beam_size=FLAGS.beam_size, beam_threshold=FLAGS.beam_threshold)
+        k=k, beam_size=beam_size, beam_threshold=beam_threshold)
     save_fname = os.path.join(os.path.split(FLAGS.checkpoint)[0],
-        f'top{FLAGS.k}_{FLAGS.beam_size}beams_thresh{FLAGS.beam_threshold}.npz')
+        f'top{k}_{beam_size}beams_thresh{beam_threshold}_lmweight{lm_weight}.npz')
     
     np.savez(save_fname, **topk_dict)
     print('Predictions saved to:',  save_fname)
@@ -219,6 +173,7 @@ def evaluate_saved():
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("Usage: python get_top_k_preds.py --checkpoint=PATH_TO_MODEL")
+        print("Example: CUDA_VISIBLE_DEVICES=1 python 2023-08-06_get_top_k_preds.py --checkpoint /scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/wer=0.264.ckpt --beam_size 150 --beam_threshold 50")
     FLAGS(sys.argv)
     evaluate_saved()
 

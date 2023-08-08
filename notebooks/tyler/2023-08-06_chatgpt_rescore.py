@@ -9,12 +9,19 @@ SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
 from data_utils import TextTransform
 from pqdm.threads import pqdm
-import backoff  # for exponential backoff
 
-# TODO: how to deal with 502 errors?
-# maybe rebase on https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py
+# can use tenacity or backoff
+# https://platform.openai.com/docs/guides/rate-limits/retrying-with-exponential-backoff
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+)  # for exponential backoff
+
+
+# TODO: still hangs on last example or two. Maybe rebase to:
 # https://github.com/openai/openai-cookbook/blob/c651bfdda64ac049747c2a174cde1c946e2baf1d/examples/api_request_parallel_processor.py
-@backoff.on_exception(backoff.expo, openai.error.RateLimitError, max_value=15, max_time=90)
+@retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def completions_with_backoff(**kwargs):
     return openai.ChatCompletion.create(**kwargs)
 
@@ -32,17 +39,26 @@ text_transform = TextTransform(togglePhones = False)
 
 # npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams_thresh150.npz",
 #               allow_pickle=True)
+# npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_150beams_thresh50.npz",
+#               allow_pickle=True)
+npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_150beams_thresh50_lmweight1.85.npz",
+              allow_pickle=True)
 
-# lowest CTC loss model
-npz = np.load("/scratch/users/tbenst/2023-08-05T02:28:07.543866_gaddy/SpeechOrEMGToText-epoch=193-val/wer=0.275.ckpt",
+
+
+#### lowest CTC loss model (27.5% WER -> 26.4% w/ better beam search)
+# 24.1% WER after LLM rescoring
+npz = np.load("/scratch/users/tbenst/2023-08-05T02:28:07.543866_gaddy/SpeechOrEMGToText-epoch=193-val/top100_5000beams_thresh75.npz",
               allow_pickle=True)
 
 
 ##
 sys_msg = """
-You are a rescoring algorithm for automatic speech recognition. \
-Given the results of a beam search, with candidate hypotheses and their score, \
-respond with the correct transcription.
+Your task is automatic speech recognition. \
+Below are the candidate transcriptions along with their \
+negative log-likelihood from a CTC beam search. \
+Respond with the correct transcription, \
+without any introductory text.
 """.strip()
 
 def create_rescore_msg(predictions, scores):
@@ -131,18 +147,29 @@ def clean_transcripts(transcripts):
             
     return transcripts
 ##
+# 26.3% WER with 150 beams
+# i think 26.0% with 500 beams
 # baseline (25.5% for 5000 beams!)
 calc_wer([n[0] for n in npz['predictions']], npz['sentences'])
 ##
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'])
+calc_wer(clean_transcripts(transcripts), npz['sentences'])
+
+##
+sys_msg2 = """
+You are a rescoring algorithm for automatic speech recognition. \
+Given the results of a beam search, with candidate hypotheses and their score, \
+respond with the correct transcription.
+""".strip()
+
 # transcript = predict_from_topk(npz['predictions'][0], npz['beam_scores'][0])
 # transcript = create_rescore_msg(npz['predictions'][0], npz['beam_scores'][0])
 
-transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'])
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
 # 24.7% on 500 beams
 # 24.3% on 5000 beams
 calc_wer(clean_transcripts(transcripts), npz['sentences'])
-##
-calc_wer([p[0] for p in npz['predictions']], npz['sentences']) # 26.0%
+
 ##
 sys_msg2 = "You are a rescoring algorithm for automatic speech recognition, focusing on generating coherent and contextually relevant transcriptions. Given a list of candidate transcriptions with scores produced by a beam search, your task is to deduce the most likely transcription that makes sense contextually and grammatically, even if it's not explicitly present in the given options."
 transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
@@ -166,6 +193,7 @@ without any introductory text.
 transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
 calc_wer(clean_transcripts(transcripts), npz['sentences']) # 22.85% !!!!
 # 23.54% on the 150 threshold version
+# 23.06% on retry - some stochasticy in results...
 ##
 sys_msg2 = """
 Your task is automatic speech recognition. \
