@@ -42,6 +42,7 @@ else:
 FLAGS = flags.FLAGS
 flags.DEFINE_integer('k', 100, 'max beams to return')
 flags.DEFINE_integer('beam_size', 500, 'maximum number of beams to search')
+flags.DEFINE_integer('beam_threshold', 150, 'prune beam search if more than this away from best score')
 flags.DEFINE_string('checkpoint', None, 'run evaluation on given model file')
 flags.DEFINE_string('gaddy_dir', gaddy_dir, 
                     'Path to GaddyPaper directory')
@@ -102,7 +103,8 @@ togglePhones = False
 # "keep bag said"
 
 def getTopK(model, dataloader, text_transform, lm_directory,
-            device='cuda', k = 100, beam_size=500, togglePhones=False):
+        k = 100, beam_size=500, togglePhones=False,
+        beam_threshold=100):
     model.eval()
     
     if togglePhones:
@@ -110,7 +112,6 @@ def getTopK(model, dataloader, text_transform, lm_directory,
     else:
         lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
     # prune beam search if more than this away from best score
-    thresh = 75 # defaults to 50
  
     decoder = ctc_decoder(
        lexicon = lexicon_file,
@@ -125,12 +126,13 @@ def getTopK(model, dataloader, text_transform, lm_directory,
     #    beam_size   = k+50,
        beam_size   = beam_size,
     #    beam_size   = int(k*1.5),
-       beam_threshold = thresh # defaults to 50
+       beam_threshold = beam_threshold # defaults to 50
     )
 
     topk_dict = {
         'k'          : k,
         'beam_size'  : beam_size,
+        'beam_threshold': beam_threshold,
         'sentences'  : [],
         'predictions': [],
         'beam_scores': [],
@@ -206,9 +208,10 @@ def evaluate_saved():
     model = SpeechOrEMGToText(config, text_transform)
     model.load_state_dict(checkpoint["state_dict"])
     model.cuda()
-    topk_dict  = getTopK(model, testset, text_transform, lm_directory, k=FLAGS.k, beam_size=FLAGS.beam_size)
+    topk_dict  = getTopK(model, testset, text_transform, lm_directory,
+        k=FLAGS.k, beam_size=FLAGS.beam_size, beam_threshold=FLAGS.beam_threshold)
     save_fname = os.path.join(os.path.split(FLAGS.checkpoint)[0],
-                              f'top{FLAGS.k}_{FLAGS.beam_size}beams.npz')
+        f'top{FLAGS.k}_{FLAGS.beam_size}beams_thresh{FLAGS.beam_threshold}.npz')
     
     np.savez(save_fname, **topk_dict)
     print('Predictions saved to:',  save_fname)

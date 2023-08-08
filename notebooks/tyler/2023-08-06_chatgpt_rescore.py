@@ -11,7 +11,7 @@ from data_utils import TextTransform
 from pqdm.threads import pqdm
 import backoff  # for exponential backoff
 
-@backoff.on_exception(backoff.expo, openai.error.RateLimitError, max_value=30)
+@backoff.on_exception(backoff.expo, openai.error.RateLimitError, max_value=15, max_time=90)
 def completions_with_backoff(**kwargs):
     return openai.ChatCompletion.create(**kwargs)
 
@@ -19,7 +19,9 @@ def completions_with_backoff(**kwargs):
 tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
 text_transform = TextTransform(togglePhones = False)
 
-npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_500beams.npz",
+# npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_500beams.npz",
+#               allow_pickle=True)
+npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams.npz",
               allow_pickle=True)
 ##
 sys_msg = """
@@ -92,8 +94,8 @@ def batch_predict_from_topk(predictions, scores, sys_msg=sys_msg):
     # can only request up to 90k tokens / minute
     # njobs = 16 # rate limited
     # njobs = 4 # 2:28
-    njobs = 3 # 1:31, sometimes 2min+ tho
-    njobs = 2
+    njobs = 3 # 1:31, sometimes 10min tho..?
+    # njobs = 2 # 3:06, also sometimes 10min
     transcripts = pqdm(zip(predictions, scores), pt, n_jobs=njobs)
     for i,t in enumerate(transcripts):
         if type(t) != str:
@@ -113,14 +115,17 @@ def clean_transcripts(transcripts):
             transcripts[i] = transcripts[i].replace("the correct transcription is ", "")
             
     return transcripts
-    
 ##
-transcript = predict_from_topk(npz['predictions'][0], npz['beam_scores'][0])
-transcript = create_rescore_msg(npz['predictions'][0], npz['beam_scores'][0])
+# baseline (25.5% for 5000 beams!)
+calc_wer([n[0] for n in npz['predictions']], npz['sentences'])
+##
+# transcript = predict_from_topk(npz['predictions'][0], npz['beam_scores'][0])
+# transcript = create_rescore_msg(npz['predictions'][0], npz['beam_scores'][0])
 
 transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'])
-##
-calc_wer(clean_transcripts(transcripts), npz['sentences']) # 24.7%
+# 24.7% on 500 beams
+# 24.3% on 5000 beams
+calc_wer(clean_transcripts(transcripts), npz['sentences'])
 ##
 calc_wer([p[0] for p in npz['predictions']], npz['sentences']) # 26.0%
 ##
@@ -134,7 +139,17 @@ calc_wer(clean_transcripts(transcripts), npz['sentences']) # 26.3%
 ##
 sys_msg2 = "You are a rescoring algorithm for automatic speech recognition, focusing on generating coherent and contextually relevant transcriptions. Given a list of candidate transcriptions with scores produced by a beam search, your task is to deduce the most likely transcription that makes sense contextually and grammatically, even if it's not explicitly present in the given options. Your response should be the corrected transcription only, without any additional explanation or introductory text."
 transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
-calc_wer(clean_transcripts(transcripts), npz['sentences'])
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 24.49%
+##
+sys_msg2 = """
+Your task is automatic speech recognition. \
+Below are the candidate transcriptions along with their \
+negative log-likelihood from a CTC beam search. \
+Respond with the correct transcription, \
+without any introductory text.
+""".strip()
+transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg2)
+calc_wer(clean_transcripts(transcripts), npz['sentences']) # 22.85% !!!!
 ##
 
 for t, p, s in zip(clean_transcripts(transcripts), [p[0] for p in npz['predictions']], npz['sentences']):
