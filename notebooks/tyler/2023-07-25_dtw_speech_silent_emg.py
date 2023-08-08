@@ -336,6 +336,7 @@ if log_neptune:
         monitor="val/wer",
         mode="min",
         dirpath=output_directory,
+        save_top_k=10, # TODO: try averaging weights afterwards to see if improve WER..?
         filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
     )
     callbacks.extend([

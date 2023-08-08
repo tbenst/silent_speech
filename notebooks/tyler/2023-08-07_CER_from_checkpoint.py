@@ -70,8 +70,8 @@ def get_char_preds(model, dataloader, text_transform,
        nbest       = k,
        #sil_score   = -2,
     #    beam_size   = k+50,
-       beam_size   = k*50,
-    #    beam_size   = int(k*2),
+    #    beam_size   = k*50,
+       beam_size   = int(k*2),
     #    beam_size   = int(k*1.5),
        beam_threshold = thresh # defaults to 50
     )
@@ -107,6 +107,8 @@ def get_char_preds(model, dataloader, text_transform,
             # use top hypothesis from beam search
             # beam search adds silence token. we rid with `.strip`
             pred_text = [text_transform.int_to_text(b[0].tokens).strip() for b in beam_results]
+            # use last hypothesis (def worse)
+            # pred_text = [text_transform.int_to_text(b[-1].tokens).strip() for b in beam_results]
         
             target_text  = [text_transform.clean_2(b) for b in example['text']]
             for p,t in zip(pred_text, target_text):
