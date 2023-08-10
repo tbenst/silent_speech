@@ -624,11 +624,11 @@ class SpeechOrEMGToText(Model):
         )
         # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
-        self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
-        self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model)
-        # TODO: try affine=False so emg&audio latent are both unit norm
-        # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
-        # self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
+        # self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model)
+        # affine=False so emg&audio latent are both unit norm
+        self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,

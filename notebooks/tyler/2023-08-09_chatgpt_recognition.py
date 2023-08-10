@@ -131,7 +131,7 @@ def main(
     npz_file: str = typer.Argument(..., help="Path to the .npz file containing the predictions and scores"),
     sys_msg: str = typer.Option(None, help="System message to use as input (optional)"),
     n_jobs: int = typer.Option(3, help="Number of jobs for parallel processing"),
-    baseline_only: bool = typer.Option(False, help="Calculate only the baseline WER"),  # Added this option
+    baseline: bool = typer.Option(False, help="Calculate only the baseline WER"),  # Added this option
 ):
     # Load the .npz file
     npz = np.load(npz_file, allow_pickle=True)
@@ -150,12 +150,13 @@ def main(
     baseline_wer = calc_wer([n[0] for n in npz['predictions']], npz['sentences'])
     typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")
 
-    if not baseline_only:
+    if not baseline:
         # Get transcripts using the provided function
         transcripts = batch_predict_from_topk(npz['predictions'], npz['beam_scores'], sys_msg=sys_msg, n_jobs=n_jobs)
 
         # Clean and calculate WER for the transcripts
         wer = calc_wer(clean_transcripts(transcripts), npz['sentences'])
+        typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%") # repeat due to noisy output
         typer.echo(f"Final WER: {wer * 100:.2f}%")
 
 

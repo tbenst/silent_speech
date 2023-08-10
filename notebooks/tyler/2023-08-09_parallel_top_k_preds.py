@@ -158,8 +158,8 @@ def getTopK(
         'beam_size': beam_size,
         'beam_threshold': beam_threshold,
         'sentences': np.array(all_sentences),
-        'predictions': np.array(all_trl_top_k),
-        'beam_scores': np.array(all_trl_beam_scores),
+        'predictions': np.array(all_trl_top_k, dtype=object), # ragged array
+        'beam_scores': np.array(all_trl_beam_scores, dtype=object),
     }
 
     return topk_dict
