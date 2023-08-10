@@ -115,7 +115,7 @@ class ResBlock(nn.Module):
 class Model(pl.LightningModule):
     def __init__(self, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
                  steps_per_epoch, epochs, lm_directory, num_aux_outs=None, lr=3e-4,
-                 learning_rate_warmup = 1000, profiler = None):
+                 learning_rate_warmup = 1000, profiler = None, weight_decay=0.0):
         super().__init__()
         self.profiler = profiler or PassThroughProfiler()
         self.conv_blocks = nn.Sequential(
@@ -149,6 +149,7 @@ class Model(pl.LightningModule):
         
         self.step_target = []
         self.step_pred = []
+        self.weight_decay = weight_decay
 
     def _init_ctc_decoder(self):
         self.ctc_decoder = ctc_decoder(
@@ -326,7 +327,8 @@ class Model(pl.LightningModule):
         initial_lr = self.target_lr/self.learning_rate_warmup
         
         # for FSDP
-        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr)
+        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr,
+                                      weight_decay=self.weight_decay)
 
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
             milestones=[
@@ -571,7 +573,7 @@ class SpeechOrEMGToTextConfig:
     num_outs:int
     input_channels:int = 8
     learning_rate:float = 3e-4 # also sets initial s4 lr
-    weight_decay:float = 0.1
+    weight_decay:float = 0.01
     adam_epsilon:float = 1e-8
     warmup_steps:int = None # warmup by backward steps
     batch_size:int = 12 # not necessary depending on batch sampler
@@ -644,6 +646,7 @@ class SpeechOrEMGToText(Model):
         self.target_lr = cfg.learning_rate # will not mutate
         self.learning_rate_warmup = cfg.warmup_steps
         self.epochs = cfg.num_train_epochs
+        self.weight_decay = cfg.weight_decay
         
         # val/test procedure...
         self.text_transform = text_transform
