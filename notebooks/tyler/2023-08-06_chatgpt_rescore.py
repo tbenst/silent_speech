@@ -34,22 +34,22 @@ text_transform = TextTransform(togglePhones = False)
 #               allow_pickle=True)
 
 # best so far (top100_5000beams_thresh75.npz)
-# npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams.npz",
-#               allow_pickle=True)
+npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams.npz",
+              allow_pickle=True)
 
 # npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_5000beams_thresh150.npz",
 #               allow_pickle=True)
 # npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_150beams_thresh50.npz",
 #               allow_pickle=True)
-npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_150beams_thresh50_lmweight1.85.npz",
-              allow_pickle=True)
+# npz = np.load("/scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/top100_150beams_thresh50_lmweight1.85.npz",
+#               allow_pickle=True)
 
 
 
 #### lowest CTC loss model (27.5% WER -> 26.4% w/ better beam search)
 # 24.1% WER after LLM rescoring
-npz = np.load("/scratch/users/tbenst/2023-08-05T02:28:07.543866_gaddy/SpeechOrEMGToText-epoch=193-val/top100_5000beams_thresh75.npz",
-              allow_pickle=True)
+# npz = np.load("/scratch/users/tbenst/2023-08-05T02:28:07.543866_gaddy/SpeechOrEMGToText-epoch=193-val/top100_5000beams_thresh75.npz",
+#               allow_pickle=True)
 
 
 ##
@@ -95,7 +95,8 @@ def predict_from_topk(predictions, scores, sys_msg=sys_msg):
         messages=[
                 {"role": "system", "content": sys_msg},
                 {"role": "user", "content": rescore_msg},
-            ]
+            ],
+        temperature=0.0
     )
     
     return cc.choices[0].message.content

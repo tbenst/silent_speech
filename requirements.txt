@@ -57,3 +57,4 @@ vector-quantize-pytorch
 openai
 pqdm
 backoff
+typer

@@ -45,13 +45,14 @@ flags.DEFINE_integer('beam_size', 500, 'maximum number of beams to search')
 flags.DEFINE_float('lm_weight', 2., 'language model weight')
 flags.DEFINE_integer('beam_threshold', 75, 'prune beam search if more than this away from best score')
 flags.DEFINE_string('checkpoint', None, 'run evaluation on given model file')
+flags.DEFINE_boolean('no_lm', None, "don't use a language model (pass as --no_lm)")
 flags.DEFINE_string('gaddy_dir', gaddy_dir, 
                     'Path to GaddyPaper directory')
 
 togglePhones = False
 
 def getTopK(model, dataloader, text_transform, lm_directory,
-        k = 100, beam_size=500, togglePhones=False,
+        k = 100, beam_size=500, togglePhones=False, use_lm=True,
         beam_threshold=100, lm_weight=2):
     model.eval()
     
@@ -60,17 +61,22 @@ def getTopK(model, dataloader, text_transform, lm_directory,
     else:
         lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
     # prune beam search if more than this away from best score
+    
+    if use_lm:
+        lm = os.path.join(lm_directory, '4gram_lm.bin')
+    else:
+        lm = None
  
     decoder = ctc_decoder(
        lexicon = lexicon_file,
        tokens  = text_transform.chars + ['_'],
-       lm      = os.path.join(lm_directory, '4gram_lm.bin'),
+       lm      = lm,
        blank_token = '_',
        sil_token   = '|',
        nbest       = k,
        # default is 2; Gaddy sets to 1.85
        # makes seemingly no difference with those two values
-       lm_weight   = lm_weight
+       lm_weight   = lm_weight,
        #word_score  = -3,
        #sil_score   = -2,
     #    beam_size   = k+50,
@@ -162,10 +168,16 @@ def evaluate_saved():
     beam_size = FLAGS.beam_size
     beam_threshold = FLAGS.beam_threshold
     lm_weight = FLAGS.lm_weight
+    use_lm = FLAGS.no_lm is None
+    print(use_lm)
+    exit(0)
     topk_dict  = getTopK(model, testset, text_transform, lm_directory,
-        k=k, beam_size=beam_size, beam_threshold=beam_threshold)
+        k=k, beam_size=beam_size, beam_threshold=beam_threshold, use_lm=use_lm)
+    name = f"top{k}_{beam_size}beams_thresh{beam_threshold}_lmweight{lm_weight}"
+    if not use_lm:
+        name += "_noLM"
     save_fname = os.path.join(os.path.split(FLAGS.checkpoint)[0],
-        f'top{k}_{beam_size}beams_thresh{beam_threshold}_lmweight{lm_weight}.npz')
+        f'{name}.npz')
     
     np.savez(save_fname, **topk_dict)
     print('Predictions saved to:',  save_fname)
