@@ -273,13 +273,14 @@ def print_confusion(confusion_mat, n=10):
         print(f'{p1s} {p2s} {v*100:.1f} {(confusion_mat[p1,p1]+confusion_mat[p2,p2])/(target_counts[p1]+target_counts[p2])*100:.1f}')
 
         
-def read_phonemes(textgrid_fname, max_len=None):
+def read_phonemes(textgrid_fname, max_len=None, ms_per_frame=11.60995205089803):
+    # 1000 / 86.133 = 11.6ms per frame (used by Gaddy)
+    nframes = 1000 / ms_per_frame
     tg = TextGrid(textgrid_fname)
-    # 1000 / 86.133 = 11.6ms per frame
     # Gaddy chooses this as some recent vocoders like HiFi GAN use
     # sampling_rate = 22k, hop_length=256 and win_length=1024
     # and 256/22050 = 11.6ms per frame
-    phone_ids = np.zeros(int(tg['phones'][-1].xmax*86.133)+1, dtype=np.int64)
+    phone_ids = np.zeros(int(tg['phones'][-1].xmax*nframes)+1, dtype=np.int64)
     phone_ids[:] = -1
     phone_ids[-1] = phoneme_inventory.index('sil') # make sure list is long enough to cover full length of original sequence
     for interval in tg['phones']:
@@ -289,7 +290,7 @@ def read_phonemes(textgrid_fname, max_len=None):
         if phone[-1] in string.digits:
             phone = phone[:-1]
         ph_id = phoneme_inventory.index(phone)
-        phone_ids[int(interval.xmin*86.133):int(interval.xmax*86.133)] = ph_id
+        phone_ids[int(interval.xmin*nframes):int(interval.xmax*nframes)] = ph_id
     assert (phone_ids >= 0).all(), 'missing aligned phones'
 
     if max_len is not None:

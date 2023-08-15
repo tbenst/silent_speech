@@ -60,6 +60,8 @@ def predict_from_topk(predictions, scores, sys_msg, index=None):
     cost per validation loop: $9
     """
     rescore_msg = create_rescore_msg(predictions, scores)
+    print(rescore_msg)
+    exit()
     num_tokens = num_tokens_from_string(rescore_msg) + num_tokens_from_string(sys_msg)
     if num_tokens > 4096:
         model = "gpt-3.5-turbo-16k"

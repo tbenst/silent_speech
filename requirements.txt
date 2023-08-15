@@ -56,5 +56,5 @@ flashlight-text
 vector-quantize-pytorch
 openai
 pqdm
-backoff
 typer
+tenacity
