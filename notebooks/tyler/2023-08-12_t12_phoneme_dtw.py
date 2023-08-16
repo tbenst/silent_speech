@@ -251,109 +251,6 @@ plt.title(f"Neural data for sentence {sentenceIdx} in sentences and sentence {co
 plt.ylabel("mean spike power")
 plt.xlabel("timestep (20ms)")
 ##
-plt.plot(sentence_mat['spikePow'][go_cues[sentenceIdx,0]:go_cues[sentenceIdx,1]].mean(1))
-##
-cd = comp_dat.mean(axis=1)[0:]
-sd = sentence_dat.mean(axis=1)
-last_idx = np.where(np.isclose(cd, sd[:-1]))[0][-1]
-
-sus_seq1 = cd[last_idx+1:last_idx+11]
-plt.plot(sus_seq1)
-sus_seq2 = sd[last_idx+2:last_idx+12]
-plt.plot(sus_seq2)
-assert np.all(np.isclose(sus_seq1, sus_seq2))
-sus_seq = sus_seq1
-##
-# plt.plot(spikePow[go_cues[sentenceIdx,0]:go_cues[sentenceIdx,1]])
-plt.plot(sentence_mat['spikePow'][go_cues[sentenceIdx,0]:go_cues[sentenceIdx,1]].mean(1))
-plt.plot(comp_mat['spikePow'][0,compIdx].mean(1))
-##
-plt.plot(spikePow[offset:offset+10])
-s = go_cues[sentenceIdx,0] + last_idx
-plt.plot(spikePow[s:s+10])
-plt.plot(sus_seq+5)
-plt.legend(["data", "actual", "sus_seq"])
-##
-def find_exact_match(signal, reference):
-    """
-    Find the starting index of the reference in the signal.
-    
-    Args:
-    - signal: numpy array, the signal in which you're trying to find the reference.
-    - reference: numpy array, the array you're trying to find within the signal.
-    
-    Returns:
-    - int: the starting index of the first exact match of the reference within the signal, 
-           or -1 if there is no exact match.
-    """
-    
-    # Length of the reference
-    ref_len = len(reference)
-    
-    # Loop over the signal
-    for i in range(len(signal) - ref_len + 1):
-        # Check if the segment of the signal of the length of the reference matches the reference
-        # if np.array_equal(signal[i:i+ref_len], reference):
-        if np.all(np.isclose(signal[i:i+ref_len], reference)):
-            return i  # Return the starting position of the match
-
-    # If no match is found, return -1
-    return -1
-
-
-# search all example sentences for this sequence for each sentence_mat
-# for mat_file, sentenceIdxs in tqdm(list(competition_to_sentence_mapping_per_file.items())[22:23]):
-for mat_file, sentenceIdxs in tqdm(list(competition_to_sentence_mapping_per_file.items())):
-    # assert mat_file == '/data/data/T12_data/competitionData/train/t12.2022.05.24.mat'
-    sentence_file = competition_file_mapping[mat_file]
-    sentence_mat = mat_files[sentence_file]
-    spikePow = sentence_mat['spikePow'].mean(axis=1)
-    offset = find_exact_match(spikePow, sus_seq)
-    if offset != -1:
-        print(mat_file)
-        print(f"{offset=}")
-##
-cc = np.correlate(cd, sd, mode='full')
-peak = np.argmax(cc)
-plt.plot(cc)
-offset = peak - (len(sd) - 1)
-offset, peak, cd.shape, sd.shape, cc.shape
-##
-
-sentence_dat
-comp_dat
-##
-import matplotlib.pyplot as plt
-a = 0
-b = 20
-c = 0
-d = 100
-
-# plot sentence_dat
-fig, (ax1, ax2) = plt.subplots(2,1, figsize=(10, 5))
-
-# ax1.imshow(np.log2(sentence_dat).T[a:b,c:d], aspect='auto', origin='lower')
-# o = 24
-o = 0
-ax1.imshow(np.log2(sentence_dat).T[a:b,c+o:d+o], aspect='auto', origin='lower')
-ax1.set_title('Sentence Data (cutoff first 24 frames)')
-ax1.set_ylabel('Neuron Index')
-
-ax2.imshow(np.log2(comp_dat).T[a:b,c:d], aspect='auto', origin='lower')
-ax2.set_title('Competition Data')
-ax2.set_xlabel('Time (samples)')
-ax2.set_ylabel('Neuron Index')
-
-plt.show()
-
-##
-print(sentence_mat['sentencesFeatures'][sentenceIdx,0].shape, comp_mat['spikePow'][0,compIdx].shape, comp_mat['tx1'][0,compIdx].shape, np.diff(go_cues[0]))
-print(sentence_mat['spikePow'][go_cues[sentenceIdx,0]:go_cues[sentenceIdx,1]].shape)
-##
-nAudio = np.sum([m[0].shape[0] for m in sentence_mat['audio'][0]])
-# each feature is 20ms, and convert to 30kHz
-sentence_mat['audioEnvelope'].shape[0] * 20/1000 * 30000, nAudio
-##
 
 def compute_audio_envelope(audio, sample_rate=44100, frame_size_ms=20, hop_size_ms=20):
     """
@@ -425,14 +322,6 @@ axs[1].plot(aud[S:N])
 axs[1].set_title('Computed Audio Envelope')
 plt.show()
 ##
-cmax = np.max(np.abs(sentence_mat['audioFeatures']))
-sym_norm = SymLogNorm(linthresh=0.03, linscale=0.03,
-    vmin=-cmax, vmax=cmax)
-plt.imshow(sentence_mat['audioFeatures'].T, aspect='auto', origin='lower',
-           norm=sym_norm)
-plt.colorbar()
-plt.title('Audio Features')
-##
 S = 0
 S = 220
 N = 400
@@ -455,44 +344,14 @@ axs[1].set_title('Computed mel Spectrogram')
 axs[1].set_ylabel("Mel Frequency Cepstral Coefficients")
 axs[1].set_xlabel("# frames (20ms each)")
 plt.show()
-##
-N = 5000
-af = sentence_mat['audioFeatures'][:N]
-ms = mspec[:,:N].T
-# fix NaN in ms
-ms[np.isnan(ms)] = 0
-# # rescale af, and ms to match
-# af = (af - af.min()) / (af.max() - af.min())
-# ms = (ms - ms.min()) / (ms.max() - ms.min())
-# dists = cdist(af, ms)
-dists = 1 - sklearn.metrics.pairwise.cosine_similarity(af, ms)
-alignment = align_from_distances(dists)
-plt.plot(alignment)
 
 ##
 # concatenate all audio arrays
-audio = np.concatenate([np.squeeze(sentence_mat['audio'][0,blockIdx]) for blockIdx in range(len(sentence_mat['audio'][0]))])
-audio_envelope = compute_audio_envelope(audio, sample_rate=30000, frame_size_ms=20)
-mspec = mel_spectrogram(torch.tensor(audio[None], dtype=torch.float32),
-                              # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
-                                2048, 42, 30000, 30000//50, 30000//50, 0, 8000, center=False).squeeze()
-##
-assert str(sentence_mat['sentences'][sentenceIdx][0][0]) == comp_mat['sentenceText'][compIdx].rstrip()
-
-##
-
-# for sentence, utterances in tqdm(sentence_mapping.items()):
-#     sentence_file = competition_to_sentence_mapping_per_file[sentence]
-#     sentence_mat = mat_files[sentence_file]
-#     go_cues = sentence_mat['goTrialEpochs']
-    
-
-##
-# def get_spectrogram(audio, sr=16000, n_mels=80, hop_length=256, n_fft=1024):
-#     """Return the mel spectrogram of an audio file."""
-#     mel_spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels, hop_length=hop_length, n_fft=n_fft)
-#     log_mel_spectrogram = librosa.power_to_db(mel_spectrogram)
-#     return log_mel_spectrogram
+# audio = np.concatenate([np.squeeze(sentence_mat['audio'][0,blockIdx]) for blockIdx in range(len(sentence_mat['audio'][0]))])
+# audio_envelope = compute_audio_envelope(audio, sample_rate=30000, frame_size_ms=20)
+# mspec = mel_spectrogram(torch.tensor(audio[None], dtype=torch.float32),
+#                               # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
+#                                 2048, 42, 30000, 30000//50, 30000//50, 0, 8000, center=False).squeeze()
 
 def load_TTS_data(sentence, directory=TTS_dir, ms_per_frame=10):
     """Load corresponding TTS audio and phoneme labels for a given sentence."""
@@ -537,6 +396,7 @@ aud = compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20)
 aud = aud[relIdx:relIdx+150]
 print(aud.shape)
 plt.plot(aud)
+# not matching anymore, prob just deleted some things..?
 plt.legend(["audioEnvelope reference", "audio check"])
 ##
 # check audio length
@@ -557,102 +417,187 @@ for mat_file in sentences_files:
 plt.plot()
 
 ##
+########################## THIS IS THE KEY FUNCTION ########################################
+# save a npz file
+
 # iterate sentences mat files
 ms_per_frame = 20
 nframes_per_sec = 1000 // ms_per_frame
+mat_sentences = []
+mat_mspecs = {}
 mat_aligned_mspecs = {}
 mat_aligned_phonemes = {}
+mat_spikePow = {}
+mat_tx1 = {}
+mat_tx2 = {}
+mat_tx3 = {}
+mat_tx4 = {}
+mat_speakingMode = {}
+mat_audioEnvelope = {}
 
 # for mat_file in tqdm(sentences_files):
 for mat_file in sentences_files:
+    mat_name = os.path.split(mat_file)[-1]
     if not speaking_modes[mat_file] == "vocalized":
-        continue
-    sentence_mat = mat_files[mat_file]
-    block_start_idxs = np.concatenate([[0], 1 + np.where(np.diff(sentence_mat['blockNum'][:,0]))[0]])
-    BAD_BLOCK_IDX = -1
-    audio_block = []
-    for i in range(len(sentence_mat['audio'][0])):
-        aud = sentence_mat['audio'][0,i][0]
-        if aud.shape[0] == 0:
-            print("ahh shape is zero!")
-            assert BAD_BLOCK_IDX == -1, "there should only be one..."
-            BAD_BLOCK_IDX = i
-            audio_block.append(None)
-        else:
-            aud = librosa.util.buf_to_float(aud)
-            audio_block.append(aud)
-    # audio_block = [librosa.util.buf_to_float(sentence_mat['audio'][0,i][0]) for i in range(len(sentence_mat['audio'][0]))]
-    # volume_block = [compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20) for aud in audio_block]
-    
-    volume_block = []
-    for aud in audio_block:
-        if aud is None:
-            audio_block.append(None)
-        else:
-            volume_block.append(compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20))
-            
-    # for a in audio_block:
-    #     print(f"AB min: {np.min(a)}, max: {np.max(a)}")
-    mspec_block = []
-    for aud in audio_block:
-        if aud is None:
-            mspec_block.append(None)
-        else:
-            mspec_block.append(mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
-                # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
-                2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze())
+        mat_speakingMode[mat_name] = "silent"
+    else:
+        mat_speakingMode[mat_name] = "vocalized"
+        sentence_mat = mat_files[mat_file]
+        block_start_idxs = np.concatenate([[0], 1 + np.where(np.diff(sentence_mat['blockNum'][:,0]))[0]])
+        BAD_BLOCK_IDX = -1
+        audio_block = []
+        for i in range(len(sentence_mat['audio'][0])):
+            aud = sentence_mat['audio'][0,i][0]
+            if aud.shape[0] == 0:
+                print("ahh shape is zero!")
+                assert BAD_BLOCK_IDX == -1, "there should only be one..."
+                BAD_BLOCK_IDX = i
+                audio_block.append(None)
+            else:
+                aud = librosa.util.buf_to_float(aud)
+                aud = np.clip(aud, -1, 1)
+                audio_block.append(aud)
+        # audio_block = [librosa.util.buf_to_float(sentence_mat['audio'][0,i][0]) for i in range(len(sentence_mat['audio'][0]))]
+        # volume_block = [compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20) for aud in audio_block]
+        
+        volume_block = []
+        for aud in audio_block:
+            if aud is None:
+                volume_block.append(None)
+            else:
+                volume_block.append(compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20))
+                
+        # for a in audio_block:
+        #     print(f"AB min: {np.min(a)}, max: {np.max(a)}")
+        mspec_block = []
+        for aud in audio_block:
+            if aud is None:
+                mspec_block.append(None)
+            else:
+                mspec_block.append(mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
+                    # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
+                    2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze())
 
-    # mspec_block = [mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
-    #     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
-    #     2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
-    #                for aud in audio_block]
+        # mspec_block = [mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
+        #     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
+        #     2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
+        #                for aud in audio_block]
+        
+    assert len(audio_block) < 100
+    # always append
+    sentences = []
+    spikePow = []
+    tx1 = []
+    tx2 = []
+    tx3 = []
+    tx4 = []
+    
+    # try to append
+    mspecs = []
     aligned_mspecs = []
     aligned_phonemes = []
+    audioEnvelope = []
     for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
         sentence = sentence.rstrip()
         go_cue_idx = sentence_mat['goTrialEpochs'][sentenceIdx]
+        
+        sentences.append(sentence)
+        spikePow.append(sentence_mat['spikePow'][go_cue_idx[0]:go_cue_idx[1]])
+        tx1.append(sentence_mat['tx1'][go_cue_idx[0]:go_cue_idx[1]])
+        tx2.append(sentence_mat['tx2'][go_cue_idx[0]:go_cue_idx[1]])
+        tx3.append(sentence_mat['tx3'][go_cue_idx[0]:go_cue_idx[1]])
+        tx4.append(sentence_mat['tx4'][go_cue_idx[0]:go_cue_idx[1]])
+        
         block_idx, startIdx = go_cue_to_block_and_rel_index(go_cue_idx[0], block_start_idxs)
         block_idx2, stopIdx = go_cue_to_block_and_rel_index(go_cue_idx[1], block_start_idxs)
         if stopIdx == 0:
             block_idx2, stopIdx = go_cue_to_block_and_rel_index(go_cue_idx[1]-1, block_start_idxs)
             stopIdx += 1
         assert block_idx == block_idx2
+        
         if block_idx == BAD_BLOCK_IDX:
             # we're missing audio data
-            continue
-        t12_mspec = mspec_block[block_idx][:,startIdx:stopIdx]
-        t12_volume = volume_block[block_idx][startIdx:stopIdx]
-        try:
-            tts_audio, tts_phonemes, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
-        except FileNotFoundError:
-            print("Skipping as could not read file (prob TextGrid) for sentence: ", sentence)
+            mspecs.append(None)
             aligned_mspecs.append(None)
             aligned_phonemes.append(None)
+            audioEnvelope.append(None)
             continue
-        # print(f"TTS min audio: {np.min(tts_audio)}, max audio: {np.max(tts_audio)}")
-        tts_volume = compute_audio_envelope(tts_audio, sample_rate=sample_rate, frame_size_ms=20)
-        tts_mspec = mel_spectrogram(torch.tensor(tts_audio, dtype=torch.float32).cuda()[None],
-            2048, 80, sample_rate, sample_rate//nframes_per_sec, sample_rate//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
-        # finally, run dynamic time warping between t12_mspec and tts_mspec
         
-        # good!
-        # dists = cdist(t12_mspec.T, tts_mspec.T)
-        dists = torch.cdist(t12_mspec.T, tts_mspec.T)
-        
-        # bad...
-        # dists = 1 - torchmetrics.functional.pairwise_cosine_similarity(t12_mspec.T, tts_mspec.T).cpu().numpy()
+        if speaking_modes[mat_file] == "vocalized":
+            t12_mspec = mspec_block[block_idx][:,startIdx:stopIdx]
+            t12_volume = volume_block[block_idx][startIdx:stopIdx]
+            try:
+                tts_audio, tts_phonemes, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
+            except FileNotFoundError:
+                print("Skipping as could not read file (prob TextGrid) for sentence: ", sentence)
+                mspecs.append(None)
+                aligned_mspecs.append(None)
+                aligned_phonemes.append(None)
+                audioEnvelope.append(None)
+                continue
+            # print(f"TTS min audio: {np.min(tts_audio)}, max audio: {np.max(tts_audio)}")
+            tts_volume = compute_audio_envelope(tts_audio, sample_rate=sample_rate, frame_size_ms=20)
+            tts_mspec = mel_spectrogram(torch.tensor(tts_audio, dtype=torch.float32).cuda()[None],
+                2048, 80, sample_rate, sample_rate//nframes_per_sec, sample_rate//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
+            # finally, run dynamic time warping between t12_mspec and tts_mspec
+            
+            # good!
+            # dists = cdist(t12_mspec.T, tts_mspec.T)
+            dists = torch.cdist(t12_mspec.T, tts_mspec.T)
+            
+            # bad...
+            # dists = 1 - torchmetrics.functional.pairwise_cosine_similarity(t12_mspec.T, tts_mspec.T).cpu().numpy()
 
-        # okay...
-        # dists = cdist(t12_volume[None].T, tts_volume[None].T)
-        
-        alignment = align_from_distances(dists.cpu().numpy())
-        aligned_mspecs.append(tts_mspec[:,alignment].cpu().numpy())
-        aligned_phonemes.append(tts_phonemes[alignment])
+            # okay...
+            # dists = cdist(t12_volume[None].T, tts_volume[None].T)
+            
+            alignment = align_from_distances(dists.cpu().numpy())
+            mspecs.append(t12_mspec.cpu().numpy())
+            audioEnvelope.append(t12_volume)
+            aligned_mspecs.append(tts_mspec[:,alignment].cpu().numpy())
+            aligned_phonemes.append(tts_phonemes[alignment])
+        else:
+            mspecs.append(None)
+            aligned_mspecs.append(None)
+            aligned_phonemes.append(None)
+            audioEnvelope.append(None)
         # raise Exception("stop here")
     
-    mat_aligned_mspecs[mat_file] = aligned_mspecs
-    mat_aligned_phonemes[mat_file] = aligned_phonemes
+    mat_mspecs[mat_name] = mspecs
+    mat_aligned_mspecs[mat_name] = aligned_mspecs
+    mat_aligned_phonemes[mat_name] = aligned_phonemes
+    mat_spikePow[mat_name] = spikePow
+    mat_tx1[mat_name] = tx1
+    mat_tx2[mat_name] = tx2
+    mat_tx3[mat_name] = tx3
+    mat_tx4[mat_name] = tx4
+    mat_audioEnvelope[mat_name] = audioEnvelope
+    
+path = os.path.join(os.path.dirname(datadir), "synthetic_audio", "sentences_mspecs_and_phonemes.npz")
+np.savez(path, sentences=mat_sentences,
+         mspecs=mat_mspecs, aligned_mspecs=mat_aligned_mspecs, aligned_phonemes=mat_aligned_phonemes,
+         spikePow=mat_spikePow, tx1=mat_tx1, tx2=mat_tx2, tx3=mat_tx3, tx4=mat_tx4,
+         )
+print(f"Saved mspecs and phonemes to {path}")
+##
+# spot check 6/28 since missing audio block 5
+# not sure if okay or not
+# DTW alignment is not great overall...
+idx = -24
+idx = -4
+fig, axs = plt.subplots(4, 1, figsize=(10, 9), sharex=True)
+mat = mat_files['/data/data/T12_data/sentences/t12.2022.06.28_sentences.mat']
+ae = mat['audioEnvelope']
+start, stop = mat['goTrialEpochs'][idx]
+axs[0].plot(ae[start:stop])
+axs[0].set_title('audio volume')
+axs[1].imshow(mat['audioFeatures'][start:stop].T, aspect='auto', origin='lower')
+axs[1].set_title('audioFeatures')
+axs[2].imshow(mat_mspecs['t12.2022.06.28_sentences.mat'][idx], aspect='auto', origin='lower')
+axs[2].set_title('T12 mspec')
+axs[3].imshow(mat_aligned_mspecs['t12.2022.06.28_sentences.mat'][idx], aspect='auto', origin='lower')
+axs[3].set_title('aligned TTS mspec')
 ##
 fig, axs = plt.subplots(3, 1, figsize=(10, 6), sharey=True)
 axs[0].imshow(t12_mspec.cpu().numpy(), aspect='auto', origin='lower')
