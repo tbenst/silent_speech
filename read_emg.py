@@ -326,7 +326,10 @@ class EMGDataset(torch.utils.data.Dataset):
 
         text_int = np.array(self.text_transform.text_to_int(text), dtype=np.int64)
 
-        result = {'audio_features':torch.from_numpy(mfccs), 'emg':torch.from_numpy(emg), 'text':text, 'text_int': torch.from_numpy(text_int), 'file_label':idx, 'session_ids':torch.from_numpy(session_ids), 'book_location':book_location, 'silent':directory_info.silent, 'raw_emg':torch.from_numpy(raw_emg)}
+        result = {'audio_features':torch.from_numpy(mfccs), 'emg':torch.from_numpy(emg),
+                  'text':text, 'text_int': torch.from_numpy(text_int), 'file_label':idx,
+                  'session_ids':torch.from_numpy(session_ids), 'book_location':book_location,
+                  'silent':directory_info.silent, 'raw_emg':torch.from_numpy(raw_emg)}
 
         if directory_info.silent:
             voiced_directory, voiced_idx = self.voiced_data_locations[book_location]

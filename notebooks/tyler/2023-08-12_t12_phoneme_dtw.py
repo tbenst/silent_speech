@@ -429,6 +429,7 @@ ms_per_frame = 20
 nframes_per_sec = 1000 // ms_per_frame
 mat_sentences = {}
 mat_mspecs = {}
+mat_tts_mspecs = {}
 mat_aligned_mspecs = {}
 mat_aligned_phonemes = {}
 mat_spikePow = {}
@@ -450,7 +451,8 @@ for mat_file in sentences_files:
         sentence_mat = mat_files[mat_file]
         block_start_idxs = np.concatenate([[0], 1 + np.where(np.diff(sentence_mat['blockNum'][:,0]))[0]])
         bad_block_idx = -1
-        last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set
+        # last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set (doesn't always start at 1 / skips numbers)
+        last_block_idx = len(sentence_mat['blockList']) - 1 # last block is test set
         audio_block = []
         for i in range(len(sentence_mat['audio'][0])):
             aud = sentence_mat['audio'][0,i][0]
@@ -501,6 +503,7 @@ for mat_file in sentences_files:
     
     # try to append
     mspecs = []
+    tts_mspecs = []
     aligned_mspecs = []
     aligned_phonemes = []
     audioEnvelope = []
@@ -532,6 +535,7 @@ for mat_file in sentences_files:
         if block_idx == bad_block_idx:
             # we're missing audio data
             mspecs.append(None)
+            tts_mspecs.append(None)
             aligned_mspecs.append(None)
             aligned_phonemes.append(None)
             audioEnvelope.append(None)
@@ -545,6 +549,7 @@ for mat_file in sentences_files:
             except FileNotFoundError:
                 print("Skipping as could not read file (prob TextGrid) for sentence: ", sentence)
                 mspecs.append(None)
+                tts_mspecs.append(None)
                 aligned_mspecs.append(None)
                 aligned_phonemes.append(None)
                 audioEnvelope.append(None)
@@ -568,10 +573,12 @@ for mat_file in sentences_files:
             alignment = align_from_distances(dists.cpu().numpy())
             mspecs.append(t12_mspec.cpu().numpy())
             audioEnvelope.append(t12_volume)
+            tts_mspecs.append(tts_mspec.cpu().numpy())
             aligned_mspecs.append(tts_mspec[:,alignment].cpu().numpy())
             aligned_phonemes.append(tts_phonemes[alignment])
         else:
             mspecs.append(None)
+            tts_mspecs.append(None)
             aligned_mspecs.append(None)
             aligned_phonemes.append(None)
             audioEnvelope.append(None)
@@ -579,6 +586,7 @@ for mat_file in sentences_files:
     
     mat_sentences[mat_name] = sentences
     mat_mspecs[mat_name] = mspecs
+    mat_tts_mspecs[mat_name] = tts_mspecs
     mat_aligned_mspecs[mat_name] = aligned_mspecs
     mat_aligned_phonemes[mat_name] = aligned_phonemes
     mat_spikePow[mat_name] = spikePow
@@ -596,6 +604,7 @@ flat_session = []
 flat_dataset_partition = []
 flat_sentences = []
 flat_mspecs = []
+flat_tts_mspecs = []
 flat_aligned_mspecs = []
 flat_aligned_phonemes = []
 flat_spikePow = []
@@ -614,6 +623,8 @@ for mat_file, v in mat_mspecs.items():
     flat_sentences.extend(mat_sentences[mat_file])
     assert len(mat_dataset_partition[mat_file]) == nsentences
     flat_dataset_partition.extend(mat_dataset_partition[mat_file])
+    assert len(mat_tts_mspecs[mat_file]) == nsentences
+    flat_tts_mspecs.extend(mat_tts_mspecs[mat_file])
     assert len(mat_aligned_mspecs[mat_file]) == nsentences
     flat_aligned_mspecs.extend(mat_aligned_mspecs[mat_file])
     assert len(mat_aligned_phonemes[mat_file]) == nsentences
@@ -637,8 +648,8 @@ path = os.path.join(os.path.dirname(datadir), "synthetic_audio", f"{cur_date}_T1
 #     "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
 # }
 mdict = {
-    "session": flat_session, "sentences": flat_sentences,
-    "mspecs": flat_mspecs, "aligned_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
+    "session": flat_session, "dataset_partition": flat_dataset_partition, "sentences": flat_sentences,
+    "mspecs": flat_mspecs, "tts_mspecs": flat_tts_mspecs, "aligned_tts_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
     "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
 }
 
