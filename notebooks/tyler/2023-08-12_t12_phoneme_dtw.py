@@ -11,6 +11,8 @@ import torch.nn as nn, scipy
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchmetrics
+import datetime
+import zarr
 from scipy.spatial.distance import cdist
 import jiwer
 import sklearn
@@ -20,6 +22,8 @@ from matplotlib.colors import SymLogNorm
 import librosa
 import re, sys, pickle
 import string
+from collections import defaultdict
+import scipy
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
 from dataloaders import persist_to_file
@@ -423,7 +427,7 @@ plt.plot()
 # iterate sentences mat files
 ms_per_frame = 20
 nframes_per_sec = 1000 // ms_per_frame
-mat_sentences = []
+mat_sentences = {}
 mat_mspecs = {}
 mat_aligned_mspecs = {}
 mat_aligned_phonemes = {}
@@ -434,6 +438,7 @@ mat_tx3 = {}
 mat_tx4 = {}
 mat_speakingMode = {}
 mat_audioEnvelope = {}
+mat_dataset_partition = {}
 
 # for mat_file in tqdm(sentences_files):
 for mat_file in sentences_files:
@@ -444,14 +449,15 @@ for mat_file in sentences_files:
         mat_speakingMode[mat_name] = "vocalized"
         sentence_mat = mat_files[mat_file]
         block_start_idxs = np.concatenate([[0], 1 + np.where(np.diff(sentence_mat['blockNum'][:,0]))[0]])
-        BAD_BLOCK_IDX = -1
+        bad_block_idx = -1
+        last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set
         audio_block = []
         for i in range(len(sentence_mat['audio'][0])):
             aud = sentence_mat['audio'][0,i][0]
             if aud.shape[0] == 0:
                 print("ahh shape is zero!")
-                assert BAD_BLOCK_IDX == -1, "there should only be one..."
-                BAD_BLOCK_IDX = i
+                assert bad_block_idx == -1, "there should only be one..."
+                bad_block_idx = i
                 audio_block.append(None)
             else:
                 aud = librosa.util.buf_to_float(aud)
@@ -491,12 +497,14 @@ for mat_file in sentences_files:
     tx2 = []
     tx3 = []
     tx4 = []
+    dataset_partition = []
     
     # try to append
     mspecs = []
     aligned_mspecs = []
     aligned_phonemes = []
     audioEnvelope = []
+    
     for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
         sentence = sentence.rstrip()
@@ -516,7 +524,12 @@ for mat_file in sentences_files:
             stopIdx += 1
         assert block_idx == block_idx2
         
-        if block_idx == BAD_BLOCK_IDX:
+        if block_idx == last_block_idx:
+            dataset_partition.append("test")
+        else:
+            dataset_partition.append("train")
+        
+        if block_idx == bad_block_idx:
             # we're missing audio data
             mspecs.append(None)
             aligned_mspecs.append(None)
@@ -564,6 +577,7 @@ for mat_file in sentences_files:
             audioEnvelope.append(None)
         # raise Exception("stop here")
     
+    mat_sentences[mat_name] = sentences
     mat_mspecs[mat_name] = mspecs
     mat_aligned_mspecs[mat_name] = aligned_mspecs
     mat_aligned_phonemes[mat_name] = aligned_phonemes
@@ -573,13 +587,74 @@ for mat_file in sentences_files:
     mat_tx3[mat_name] = tx3
     mat_tx4[mat_name] = tx4
     mat_audioEnvelope[mat_name] = audioEnvelope
+    mat_dataset_partition[mat_name] = dataset_partition
+
+##
+# save to Zarr
+num_sentences_per_mat = []
+flat_session = []
+flat_dataset_partition = []
+flat_sentences = []
+flat_mspecs = []
+flat_aligned_mspecs = []
+flat_aligned_phonemes = []
+flat_spikePow = []
+flat_tx1 = []
+flat_tx2 = []
+flat_tx3 = []
+flat_tx4 = []
+for mat_file, v in mat_mspecs.items():
+    nsentences = len(v)
+    num_sentences_per_mat.append(nsentences)
+    flat_session.extend([mat_file] * nsentences)
     
-path = os.path.join(os.path.dirname(datadir), "synthetic_audio", "sentences_mspecs_and_phonemes.npz")
-np.savez(path, sentences=mat_sentences,
-         mspecs=mat_mspecs, aligned_mspecs=mat_aligned_mspecs, aligned_phonemes=mat_aligned_phonemes,
-         spikePow=mat_spikePow, tx1=mat_tx1, tx2=mat_tx2, tx3=mat_tx3, tx4=mat_tx4,
-         )
-print(f"Saved mspecs and phonemes to {path}")
+    flat_mspecs.extend(mat_mspecs[mat_file])
+    
+    assert len(mat_sentences[mat_file]) == nsentences
+    flat_sentences.extend(mat_sentences[mat_file])
+    assert len(mat_dataset_partition[mat_file]) == nsentences
+    flat_dataset_partition.extend(mat_dataset_partition[mat_file])
+    assert len(mat_aligned_mspecs[mat_file]) == nsentences
+    flat_aligned_mspecs.extend(mat_aligned_mspecs[mat_file])
+    assert len(mat_aligned_phonemes[mat_file]) == nsentences
+    flat_aligned_phonemes.extend(mat_aligned_phonemes[mat_file])
+    assert len(mat_spikePow[mat_file]) == nsentences
+    flat_spikePow.extend(mat_spikePow[mat_file])
+    assert len(mat_tx1[mat_file]) == nsentences
+    flat_tx1.extend(mat_tx1[mat_file])
+    assert len(mat_tx2[mat_file]) == nsentences
+    flat_tx2.extend(mat_tx2[mat_file])
+    assert len(mat_tx3[mat_file]) == nsentences
+    flat_tx3.extend(mat_tx3[mat_file])
+    assert len(mat_tx4[mat_file]) == nsentences
+    flat_tx4.extend(mat_tx4[mat_file])
+##
+cur_date = datetime.datetime.now().strftime("%Y-%m-%d")
+path = os.path.join(os.path.dirname(datadir), "synthetic_audio", f"{cur_date}_T12_dataset.npz")
+# mdict = {
+#     "session": session, "sentences": mat_sentences,
+#     "mspecs": flat_mspecs, "aligned_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
+#     "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
+# }
+mdict = {
+    "session": flat_session, "sentences": flat_sentences,
+    "mspecs": flat_mspecs, "aligned_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
+    "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
+}
+
+mdict_arr = {}
+for k,v in mdict.items():
+    try:
+        mdict_arr[k] = np.array(v)
+    except:
+        # support ragged array
+        mdict_arr[k] = np.array(v, dtype=object)
+np.savez(path, **mdict_arr)
+
+# may not work
+# zarr.save_group(path, **mdict)
+
+print(f"Saved T12 dataset to {path}")
 ##
 # spot check 6/28 since missing audio block 5
 # not sure if okay or not
@@ -837,7 +912,6 @@ def sentence_to_fn(sentence, directory=TTS_dir, ext=".wav"):
     return os.path.join(directory, fn+ext)
 
 # number of unique filenames should be equal to number of unique sentences. Print sentence pair if not.
-from collections import defaultdict
 uniq_sentences = np.unique(all_sentences)
 filenames = defaultdict(list)
 # halfway = len(uniq_sentences) // 2
@@ -846,8 +920,6 @@ for sentence in tqdm(uniq_sentences[1245:halfway]):
     fn = sentence_to_fn(sentence)
     filenames[fn].append(sentence)
    
-import scipy
-
 toggle_phones = True
 
 # loading data into CPU, should work but takes ~ 6-10 minutes:
