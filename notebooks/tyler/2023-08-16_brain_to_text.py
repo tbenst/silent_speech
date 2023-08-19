@@ -111,7 +111,8 @@ if DEBUG:
 else:
     NUM_GPUS = 2
     # grad_accum = 3
-    grad_accum = 2 # EMG only, 128000 max_len
+    # grad_accum = 2 # EMG only, 128000 max_len
+    grad_accum = 1
     precision = "16-mixed"
 
     if ON_SHERLOCK:
@@ -175,7 +176,7 @@ if gpu_ram < 24:
     # val_bz = 16 # OOM
     val_bz = 8
     # max_len = 24000 # OOM
-    max_len = 12000
+    max_len = 12000 # approx 11000 / 143 = 77 bz. 75 * 2 GPU = 150 bz. still high..?
     # max_len = 18000 # no OOM, approx 110 bz (frank used 64)
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
@@ -381,9 +382,10 @@ neural, length_neural
 # max([x.max() for x in t12_npz["spikePow"]])
 ##
 auto_lr_find = False
-learning_rate = 1e-3
+# see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
+# learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
 # learning_rate = 3e-4
-# learning_rate = 1.5e-4
+learning_rate = 1.5e-4
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
 ##
