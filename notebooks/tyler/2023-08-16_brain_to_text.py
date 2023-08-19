@@ -295,10 +295,10 @@ class T12DataModule(pl.LightningDataModule):
         self.TrainBatchSampler = DistributedSizeAwareSampler(lengths,
             max_len=max_len, num_replicas=num_replicas)
         if num_replicas > 1:
-            self.ValSampler = DistributedSampler(self.val,
+            self.ValSampler = lambda: DistributedSampler(self.val,
                 shuffle=False, num_replicas=num_replicas)
         else:
-            self.ValSampler = None
+            self.ValSampler = lambda: None
         self.val_bz = val_bz
         
     def train_dataloader(self):
@@ -317,7 +317,7 @@ class T12DataModule(pl.LightningDataModule):
             pin_memory=True,
             num_workers=0,
             batch_size=self.val_bz,
-            sampler=self.ValSampler
+            sampler=self.ValSampler()
         )
         
     def test_dataloader(self):
