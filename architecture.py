@@ -587,6 +587,7 @@ class MONAConfig:
     d_model:int = 768 # original Gaddy
     # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
     beta:float = 1 / np.sqrt(2) # adjust resnet initialization
+    neural_input_features:int = 256 # reduce 1280 down to this features
     
     cross_nce_lambda:float = 1.0 # how much to weight the latent loss
     audio_lambda:float = 1.0 # how much to weight the audio->text loss
@@ -635,6 +636,7 @@ class MONA(Model):
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
+        self.neural_input_encoder = nn.Linear(1280, cfg.neural_input_features)
         # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
@@ -695,6 +697,7 @@ class MONA(Model):
     
     def neural_encoder(self, x):
         "Encode neural (B x T x C) into a latent space (B x Tau x D)"
+        x = self.neural_input_encoder(x) # reduce number of inputs
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
         x = x.transpose(1,2)

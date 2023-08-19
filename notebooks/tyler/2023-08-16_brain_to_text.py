@@ -175,8 +175,8 @@ if gpu_ram < 24:
     # val_bz = 16 # OOM
     val_bz = 8
     # max_len = 24000 # OOM
-    # max_len = 12000 # no OOM but NaN loss
-    max_len = 18000
+    max_len = 12000
+    # max_len = 18000 # no OOM, approx 110 bz (frank used 64)
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
@@ -381,7 +381,8 @@ neural, length_neural
 # max([x.max() for x in t12_npz["spikePow"]])
 ##
 auto_lr_find = False
-learning_rate = 3e-4
+learning_rate = 1e-3
+# learning_rate = 3e-4
 # learning_rate = 1.5e-4
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
@@ -394,7 +395,8 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
-                    precision=precision, gradient_accumulation_steps=grad_accum)
+    precision=precision, gradient_accumulation_steps=grad_accum,
+    learning_rate=learning_rate)
 
 model = MONA(config, text_transform)
 logging.info('made model')
