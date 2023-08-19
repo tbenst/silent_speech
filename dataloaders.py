@@ -214,9 +214,11 @@ def collate_gaddy_speech_or_neural(batch):
         if 'neural_features' in example:
             # T12 data
             if example['audio_features'] is None:
-                # TODO: do we want to drop these samples instead..?
-                audio_features.append(None)
-                audio_feature_lengths.append(0)
+                # INFO: be careful here as indexing now thrown off if
+                # we don't append None for eg parallel / cross contrastive
+                # TODO: fix this
+                # audio_features.append(None)
+                # audio_feature_lengths.append(0)
             else:
                 audio_features.append(example['audio_features'])
                 audio_feature_lengths.append(example['audio_features'].shape[0])
