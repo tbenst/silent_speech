@@ -1084,9 +1084,13 @@ class MONA(Model):
         emg_ctc_loss = c['emg_ctc_loss']
         neural_ctc_loss = c['neural_ctc_loss']
         audio_ctc_loss = c['audio_ctc_loss']
-        bz = c['bz']
+        emg_bz = c['emg_bz']
+        neural_bz = c['neural_bz']
+        audio_bz = c['audio_bz']
+        paired_bz = c['paired_bz']
+        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
 
-        logging.debug(f"validation_step: {batch_idx=}, {loss=}, {emg_ctc_loss=}, {audio_ctc_loss=}, {bz=}")
+        logging.debug(f"validation_step: {batch_idx=}, {loss=}, {emg_ctc_loss=}, {audio_ctc_loss=}, {summed_bz=}")
 
         # TODO: split text by emg, audio, neural
         target_text = batch['text']
@@ -1101,10 +1105,10 @@ class MONA(Model):
                     self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
                     self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
             
-        self.log(f"{task}/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
-        self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
-        self.log(f"{task}/neural_ctc_loss", neural_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
-        self.log(f"{task}/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log(f"{task}/loss", loss, prog_bar=True, batch_size=summed_bz, sync_dist=True)
+        self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=emg_bz, sync_dist=True)
+        self.log(f"{task}/neural_ctc_loss", neural_ctc_loss, prog_bar=False, batch_size=neural_bz, sync_dist=True)
+        self.log(f"{task}/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=audio_bz, sync_dist=True)
         
         return loss
     
