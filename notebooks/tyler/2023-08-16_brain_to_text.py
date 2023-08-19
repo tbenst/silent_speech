@@ -172,12 +172,7 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    base_bz = 12
-    # TODO: need to fix by using size-aware sampling for dataloader
-    # base_bz = 4
-    # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
-    # val_bz = base_bz
-    val_bz = 8
+    val_bz = 32
     # max_len = 24000 # OOM
     # max_len = 12000 # no OOM but NaN loss
     max_len = 18000
@@ -330,7 +325,8 @@ class T12DataModule(pl.LightningDataModule):
 
     
 # train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
-datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs", max_len=max_len)
+datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
+    num_replicas=NUM_GPUS, max_len=max_len, val_bz=val_bz*NUM_GPUS)
 ##
 for t in datamodule.train:
     if torch.any(torch.isnan(t['neural_features'])):
