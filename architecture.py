@@ -990,7 +990,6 @@ class MONA(Model):
         
         paired_bz = len(paired_emg_idx)
         # paired_bz <= min(emg_bz, audio_bz)
-        bz = np.array([emg_bz, audio_bz, paired_bz])
         if not emg_z is None:
             emg_z_mean = torch.concatenate([e.reshape(-1).abs() for e in emg_z]).mean()
         else:
@@ -1016,8 +1015,11 @@ class MONA(Model):
             'emg_z_mean': emg_z_mean,
             'neural_z_mean': neural_z_mean,
             'audio_z_mean': audio_z_mean,
-            'bz': bz
-        }
+            'emg_bz': emg_bz,
+            'neural_bz': neural_bz,
+            'audio_bz': audio_bz,
+            'paired_bz': paired_bz
+       }
     
     def _beam_search_batch(self, batch):
         "Repeatedly called by validation_step & test_step."
@@ -1041,33 +1043,37 @@ class MONA(Model):
         audio_ctc_loss = c['audio_ctc_loss']
         cross_contrastive_loss = c['cross_contrastive_loss']
         sup_contrastive_loss = c['supervised_contrastive_loss']
-        bz = c['bz']
+        emg_bz = c['emg_bz']
+        neural_bz = c['neural_bz']
+        audio_bz = c['audio_bz']
+        paired_bz = c['paired_bz']
+        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
         avg_emg_latent = c['emg_z_mean']
         avg_neural_latent = c['neural_z_mean']
         avg_audio_latent = c['audio_z_mean']
         
         
         self.log("train/loss", loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
+                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=summed_bz, sync_dist=True)
         self.log("train/emg_ctc_loss", emg_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
         self.log("train/neural_ctc_loss", neural_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
         self.log("train/audio_ctc_loss", audio_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
         self.log("train/cross_contrastive_loss", cross_contrastive_loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
         self.log("train/supervised_contrastive_loss", sup_contrastive_loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
         if not avg_emg_latent is None:
             self.log("train/avg_emg_latent", avg_emg_latent,
-                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
+                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
         if not avg_audio_latent is None:
             self.log("train/avg_audio_latent", avg_audio_latent,
-                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
+                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=audio_bz, sync_dist=True)
         if not avg_neural_latent is None:
             self.log("train/avg_neural_latent", avg_neural_latent,
-                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
+                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
         torch.cuda.empty_cache()
         return loss
 
