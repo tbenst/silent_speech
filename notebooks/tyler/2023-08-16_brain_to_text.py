@@ -1,8 +1,8 @@
 ##
 2
 ##
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 ##
 import os, subprocess
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
@@ -179,7 +179,8 @@ if gpu_ram < 24:
     # val_bz = base_bz
     val_bz = 8
     # max_len = 24000 # OOM
-    max_len = 12000 # no OOM but NaN loss
+    # max_len = 12000 # no OOM but NaN loss
+    max_len = 18000
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
@@ -395,7 +396,8 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = MONAConfig(steps_per_epoch, lm_directory, num_outs, precision=precision)
+config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
+                    precision=precision, gradient_accumulation_steps=grad_accum)
 
 model = MONA(config, text_transform)
 logging.info('made model')

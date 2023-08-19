@@ -1126,3 +1126,9 @@ class MONA(Model):
     
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx, task="test")
+
+    def log(self, *args, **kwargs):
+        if 'batch_size' in kwargs and kwargs['batch_size'] == 0:
+            pass
+        else:
+            super().log(*args, **kwargs)
