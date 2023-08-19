@@ -213,8 +213,13 @@ def collate_gaddy_speech_or_neural(batch):
             text.append(example['text'])
         if 'neural_features' in example:
             # T12 data
-            audio_features.append(example['audio_features'])
-            audio_feature_lengths.append(example['audio_features'].shape[0])
+            if example['audio_features'] is None:
+                # TODO: do we want to drop these samples instead..?
+                audio_features.append(None)
+                audio_feature_lengths.append(0)
+            else:
+                audio_features.append(example['audio_features'])
+                audio_feature_lengths.append(example['audio_features'].shape[0])
             neural_features.append(example['neural_features'])
             neural_feature_lengths.append(example['neural_features'].shape[0])
             parallel_emg.append(None)
