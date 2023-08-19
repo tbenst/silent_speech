@@ -632,7 +632,7 @@ class MONA(Model):
             # where C is the number of electrodes (256)
             # and F is the number of features (5)
             # could even do a 3D conv with spatial info, T x H x W x C x F
-            ResBlock(1280, cfg.d_model, beta=cfg.beta), # 1280 neural features (5 * 256 channels)
+            ResBlock(cfg.neural_input_features, cfg.d_model, beta=cfg.beta), # 1280 neural features (5 * 256 channels)
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
