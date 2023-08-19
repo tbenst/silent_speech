@@ -214,6 +214,7 @@ def collate_gaddy_speech_or_neural(batch):
         if 'neural_features' in example:
             # T12 data
             if example['audio_features'] is None:
+                pass
                 # INFO: be careful here as indexing now thrown off if
                 # we don't append None for eg parallel / cross contrastive
                 # TODO: fix this
