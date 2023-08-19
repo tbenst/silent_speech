@@ -218,8 +218,8 @@ def collate_gaddy_speech_or_neural(batch):
                 # INFO: be careful here as indexing now thrown off if
                 # we don't append None for eg parallel / cross contrastive
                 # TODO: fix this
-                # audio_features.append(None)
-                # audio_feature_lengths.append(0)
+                audio_features.append(None)
+                audio_feature_lengths.append(0)
             else:
                 audio_features.append(example['audio_features'])
                 audio_feature_lengths.append(example['audio_features'].shape[0])
@@ -371,11 +371,13 @@ def split_batch_into_emg_neural_audio(batch):
             y_emg.append(batch['text_int'][i])
             emg_phonemes.append(batch['phonemes'][i])
             
-        audio.append(batch['audio_features'][i])
-        length_audio.append(batch['audio_feature_lengths'][i])
-        y_length_audio.append(batch['text_int_lengths'][i])
-        y_audio.append(batch['text_int'][i])
-        audio_phonemes.append(batch['phonemes'][i])
+        aud = batch['audio_features'][i]
+        if aud is not None:
+            audio.append(aud)
+            length_audio.append(batch['audio_feature_lengths'][i])
+            y_length_audio.append(batch['text_int_lengths'][i])
+            y_audio.append(batch['text_int'][i])
+            audio_phonemes.append(batch['phonemes'][i])
     
     emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg)
     neural_tup = (neural, length_neural, neural_phonemes, y_length_neural, y_neural)
