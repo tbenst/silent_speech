@@ -1,8 +1,8 @@
 ##
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
@@ -45,9 +45,9 @@ import torch.nn.functional as F
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
 
-from read_emg import EMGDataset, SizeAwareSampler, PreprocessedEMGDataset, \
+from read_emg import EMGDataset, PreprocessedEMGDataset, \
     PreprocessedSizeAwareSampler, EMGDataModule, ensure_folder_on_scratch
-from architecture import Model, S4Model, H3Model, ResBlock, SpeechOrEMGToTextConfig, SpeechOrEMGToText
+from architecture import Model, S4Model, H3Model, ResBlock, MONAConfig, MONA
 from data_utils import combine_fixed_length, decollate_tensor
 from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
@@ -64,8 +64,9 @@ from enum import Enum
 from magneto.preprocessing import ensure_data_on_scratch
 from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     DistributedStratifiedBatchSampler, StratifiedBatchSampler, cache_dataset, \
-    split_batch_into_emg_audio, DistributedSizeAwareStratifiedBatchSampler, \
-    SizeAwareStratifiedBatchSampler, collate_gaddy_or_speech
+    split_batch_into_emg_neural_audio, DistributedSizeAwareStratifiedBatchSampler, \
+    SizeAwareStratifiedBatchSampler, collate_gaddy_or_speech, \
+    collate_gaddy_speech_or_neural, DistributedSizeAwareSampler
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
@@ -81,8 +82,7 @@ if RESUME:
     # INFO: when resuming logging to Neptune, we might repeat some steps,
     # e.g. if epoch 29 was lowest WER, but we resume at epoch 31, we will
     # log epoch 30 & 31 twice. mainly an issue for publication plots
-    # ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
-    ckpt_path = '/scratch/2023-08-03T21:30:03.418151_gaddy/SpeechOrEMGToText-epoch=15-val/wer=0.547.ckpt'
+    ckpt_path = '/scratch/2023-'
     run_id = 'GAD-493'
     
 
@@ -158,7 +158,7 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-16_T12_dataset.npz"
+    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-19_T12_dataset.npz"
     
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
@@ -178,18 +178,15 @@ if gpu_ram < 24:
     # base_bz = 16 # OOM epoch 9 with Titan RTX for batch-level infoNCE
     # val_bz = base_bz
     val_bz = 8
-    max_len = 48000 # works for supNCE on Titan RTX
-    # max_len = 128000 # for emg only, no contrastive loss
-    # max_len = 2 * 128000 # for emg only, no contrastive loss, 1 GPU
+    # max_len = 24000 # OOM
+    max_len = 12000
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
     # base_bz = 24
     base_bz = 12 # don't think does anything..?
     val_bz = 8
-    # max_len = 64000 # OOM epoch 32
-    # max_len = 56000
-    max_len = 48000 # possibly better performance than 56000, def less memory
+    max_len = 48000
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
@@ -197,6 +194,17 @@ else:
 
 ##
 t12_npz = np.load(t12_npz_path, allow_pickle=True)
+##
+tot_trials = len(t12_npz['spikePow'])
+missing_phones = np.sum(np.array([p is None for p in t12_npz['aligned_phonemes']]))
+silent_trials = np.sum(np.array([p is None for p in t12_npz['mspecs']]))
+missing_synth_audio = np.sum(np.array([p is None for p in t12_npz['tts_mspecs']]))
+
+print("tot_trials:", tot_trials)
+print("missing_phones:", missing_phones)
+print("silent_trials:", silent_trials)
+print("missing_synth_audio:", missing_synth_audio)
+##
 
 if ON_SHERLOCK:
     # TODO: should we just use the scratch directory over LOCAL_SCRATCH?
@@ -212,11 +220,9 @@ logging.basicConfig(handlers=[
 logging.debug("DEBUG mode")
 if not log_neptune:
     logging.warning("not logging to neptune")
-    
 ##
-
-class NeuralDataset(torch.Dataset):
-    def __init__(self, neural, audio, phonemes, sentences, text_transform)
+class NeuralDataset(torch.utils.data.Dataset):
+    def __init__(self, neural, audio, phonemes, sentences, text_transform):
         self.neural = neural
         self.audio = audio
         self.phonemes = phonemes
@@ -226,100 +232,158 @@ class NeuralDataset(torch.Dataset):
     
     def __getitem__(self, idx):
         text_int = np.array(self.text_transform.text_to_int(self.sentences[idx]), dtype=np.int64)
+        aud = self.audio[idx]
+        aud = aud if aud is None else torch.from_numpy(aud)
+        phon = self.phonemes[idx]
+        phon = phon if phon is None else torch.from_numpy(phon)
         return {
-            "audio_features": self.audio[idx],
-            "neural_features": self.neural[idx],
+            "audio_features": aud,
+            "neural_features": torch.from_numpy(self.neural[idx]),
             "text": self.sentences[idx],
-            "text_int": text_int,
-            "phonemes": self.phonemes[idx],
+            "text_int": torch.from_numpy(text_int),
+            "phonemes": phon,
         }
-class T12Dataset(torch.Dataset):
-    def __init__(self, t12_npz, partition="train"):
-        "partition is train or test"
+        
+    def __len__(self):
+        return len(self.neural)
+
+class T12Dataset(NeuralDataset):
+    def __init__(self, t12_npz, partition="train",
+                 audio_type="tts_mspecs"):
+                #  audio_type="tts_mspecs"):
+        """T12 BCI dataset.
+        
+        partition: train or test
+        audio_type: mspecs, tts_mspecs, or aligned_tts_mspecs
+        
+        """
         idx = np.where(t12_npz["dataset_partition"] == partition)[0]
-        test_idx = np.where(t12_npz["dataset_partition"] == "test")[0]
+        neural = []
+        audio = []
+        spikePow = t12_npz["spikePow"]
+        # max([x.max() for x in t12_npz["tx1"]])
+        tx1 = t12_npz["tx1"]
+        tx2 = t12_npz["tx2"]
+        tx3 = t12_npz["tx3"]
+        tx4 = t12_npz["tx4"]
+        aud = t12_npz[audio_type]
+        for i in tqdm(idx, desc="concatenating neural data"):
+            neural.append(np.concatenate([
+                    np.log10(spikePow[i]+1) / 4, # map to approx 0-1
+                    tx1[i] / 25, # max val is 56
+                    tx2[i] / 25,
+                    tx3[i] / 25,
+                    tx4[i] / 25] # max val is 52
+                , axis=1).astype(np.float32))
+            if aud[i] is None:
+                # for example, if audio_type is "mspecs" then we have no
+                # audio for the silent trials
+                if audio_type == "tts_mspecs":
+                    print(f"WARNING: no audio for index {i}")
+                audio.append(None)
+            else:
+                audio.append((aud[i]+5) / 5) # TODO: match librispeech
+        phonemes = t12_npz["aligned_phonemes"][idx]
+        sentences = t12_npz["sentences"][idx]
+        text_transform = TextTransform(togglePhones = False)
+        super().__init__(neural, audio, phonemes, sentences, text_transform)
+        
+class T12DataModule(pl.LightningDataModule):
+    def __init__(self, t12_npz, audio_type="tts_mspecs", max_len=32000,
+                 num_replicas=1, val_bz:int=16):
         super().__init__()
+        self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
+        self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs")
+        self.collate_fn = collate_gaddy_speech_or_neural
+        lengths = [t['neural_features'].shape[0] for t in self.train]
+        self.TrainBatchSampler = DistributedSizeAwareSampler(lengths,
+            max_len=max_len, num_replicas=num_replicas)
+        if num_replicas > 1:
+            self.ValSampler = DistributedSampler(self.val,
+                shuffle=False, num_replicas=num_replicas)
+        else:
+            self.ValSampler = None
+        self.val_bz = val_bz
+        
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.train,
+            collate_fn=self.collate_fn,
+            pin_memory=True,
+            num_workers=0,
+            batch_sampler=self.TrainBatchSampler
+        )
+        
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.val,
+            collate_fn=self.collate_fn,
+            pin_memory=True,
+            num_workers=0,
+            batch_size=self.val_bz,
+            sampler=self.ValSampler
+        )
+        
+    def test_dataloader(self):
+        return None
+
     
+# train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
+datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs", max_len=max_len)
+##
+emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(collate_gaddy_speech_or_neural([datamodule.train[i] for i in range(5)]))
+(neural, length_neural, neural_phonemes, y_length_neural, y_neural) = neural_tup
+neural, length_neural
+##
+# import matplotlib.pyplot as plt
+
+# neural_features = train_dset[10]['neural_features'].reshape(-1)
+# plt.hist(np.sqrt(neural_features), bins=50)
+# plt.title("Histogram of sqrt(Neural Features)")
+# plt.xlabel("Value")
+# plt.ylabel("Frequency")
+# plt.show()
+
+# neural_features = train_dset[10]['neural_features'].reshape(-1)
+# plt.hist(np.log2(neural_features+1), bins=50)
+# plt.title("Histogram of log2(Neural Features + 1)")
+# plt.xlabel("Value")
+# plt.ylabel("Frequency")
+# plt.show()
+
+# neural_features = train_dset[10]['neural_features'].reshape(-1)
+# plt.hist(np.log10(neural_features+1)/4, bins=50)
+# plt.title("Histogram of log10(Neural Features + 1)/4")
+# plt.xlabel("Value")
+# plt.ylabel("Frequency")
+# plt.show()
+
+# mspec = train_dset[10]['audio_features'].reshape(-1)
+# plt.hist((mspec+5)/5, bins=50)
+# plt.title("Histogram of (mspec+5)/5")
+# plt.xlabel("Value")
+# plt.ylabel("Frequency")
+# plt.show()
+
+##
+# max([x.max() for x in t12_npz["spikePow"]])
 ##
 auto_lr_find = False
-
 # learning_rate = 3e-4
 learning_rate = 1.5e-4
-# 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
 ##
+os.makedirs(output_directory, exist_ok=True)
 
-n_chars = len(text_transform.chars)
-
-if NUM_GPUS > 1:
-    num_workers=0 # nccl backend doesn't support num_workers>0
-    rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
-    bz = base_bz * NUM_GPUS
-    if rank_key not in os.environ:
-        rank = 0
-    else:
-        rank = int(os.environ[rank_key])
-    logging.info(f"SETTING CUDA DEVICE ON RANK: {rank}")
-
-    torch.cuda.set_device(rank)
-    torch.cuda.empty_cache()
-    # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
-    # or we get this error:
-    # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
-    # always include at least one example of class 0 (silent EMG & parallel Audio) in batch
-    # always include at least one example of class 1 (EMG & Audio) in batch
-    # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-    #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
-    # TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
-    #     num_replicas=NUM_GPUS)
-    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=0)
-    ValSampler = lambda: DistributedSampler(emg_datamodule.val,
-        shuffle=False, num_replicas=NUM_GPUS)
-    TestSampler = lambda: DistributedSampler(emg_datamodule.test,
-        shuffle=False, num_replicas=NUM_GPUS)
-else:
-    # TrainBatchSampler = SizeAwareStratifiedBatchSampler
-    TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=0)
-    # num_workers=32
-    num_workers=0 # prob better now that we're caching
-    bz = base_bz
-    ValSampler = None
-    TestSampler = None
-    rank = 0
-
-if rank == 0:
-    os.makedirs(output_directory, exist_ok=True)
-
-
-# must run 2023-07-17_cache_dataset_with_attrs_.py first
-librispeech_train_cache = os.path.join(scratch_directory, "librispeech", "librispeech_960_train_phoneme_cache")
-librispeech_val_cache = os.path.join(scratch_directory, "librispeech", "librispeech_val_phoneme_cache")
-librispeech_test_cache = os.path.join(scratch_directory, "librispeech", "librispeech_test_phoneme_cache")
-
-speech_val = cache_dataset(librispeech_val_cache, LibrispeechDataset, per_index_cache)()
-speech_train = cache_dataset(librispeech_train_cache, LibrispeechDataset, per_index_cache)()
-speech_train.len = 281185 # TODO: recompute cache and remove this hack
-speech_test = cache_dataset(librispeech_test_cache, LibrispeechDataset, per_index_cache)()
-##
-datamodule =  EMGAndSpeechModule(emg_datamodule.train,
-    emg_datamodule.val, emg_datamodule.test,
-    speech_train, speech_val, speech_test,
-    bz=bz, val_bz=val_bz, num_replicas=NUM_GPUS, pin_memory=(not DEBUG),
-    num_workers=num_workers,
-    TrainBatchSampler=TrainBatchSampler,
-    ValSampler=ValSampler,
-    TestSampler=TestSampler
-)
 steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
+n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs, precision=precision)
+config = MONAConfig(steps_per_epoch, lm_directory, num_outs, precision=precision)
 
-model = SpeechOrEMGToText(config, text_transform)
+model = MONA(config, text_transform)
 logging.info('made model')
 
 callbacks = [

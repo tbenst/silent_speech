@@ -129,25 +129,42 @@ class EMGDirectory(object):
     def __repr__(self):
         return self.directory
 
-class SizeAwareSampler(torch.utils.data.Sampler):
+class DistributedSizeAwareSampler(torch.utils.data.Sampler):
     """Sample batches of examples from the dataset,
     ensuring that each batch fits within max_len."""
-    def __init__(self, emg_dataset, max_len):
-        self.dataset = emg_dataset
+    def __init__(self, lengths:np.ndarray, max_len:int=256000,
+                 shuffle:bool=True, seed:int=20230819, epoch:int=0,
+                 num_replicas:int=1, constant_num_batches:bool=True):
+        self.lengths = lengths
         self.max_len = max_len
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = epoch
+        
+        # for distributed training
+        rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
+        self.rank = int(os.environ[rank_key]) if rank_key in os.environ else 0
+        self.num_replicas = num_replicas
+        
+        self.constant_num_batches = False
+        if constant_num_batches:
+            self.hardcode_len = self.min_len(200) # assume 200 epochs
+            self.constant_num_batches = True
+            logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
+
 
     def __iter__(self):
-        indices = list(range(len(self.dataset)))
-        random.shuffle(indices)
+        return self.iter_batches(self.rank)
+    
+    def iter_batches(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+        indices = torch.randperm(len(self.dataset), generator=g).tolist()
+        indices = indices[self.rank::self.num_replicas]
         batch = []
         batch_length = 0
         for idx in indices:
-            directory_info, file_idx = self.dataset.example_indices[idx]
-            with open(os.path.join(directory_info.directory, f'{file_idx}_info.json')) as f:
-                info = json.load(f)
-            if not np.any([l in string.ascii_letters for l in info['text']]):
-                continue
-            length = sum([emg_len for emg_len, _, _ in info['chunks']])
+            length = self.lengths[idx]
             if length > self.max_len:
                 logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
             if length + batch_length > self.max_len:
@@ -157,6 +174,32 @@ class SizeAwareSampler(torch.utils.data.Sampler):
             batch.append(idx)
             batch_length += length
         # dropping last incomplete batch
+        
+    def set_epoch(self, epoch:int):
+        self.epoch = epoch
+        
+    def min_len(self, num_epochs:int):
+        """Minimum number of batches in any epoch."""
+        cur_epoch = self.epoch
+        min_length = np.inf
+        # minimum per epoch
+        for epoch in range(num_epochs):
+            self.set_epoch(epoch)
+            # minimum per GPU
+            for rank in range(self.num_replicas):
+                N = len(list(self.iter_batches(rank)))
+                if N < min_length:
+                    min_length = N
+        self.set_epoch(cur_epoch)
+        return min_length
+        
+    def __len__(self):
+        "Return approximate number of batches per epoch"
+        # https://github.com/Lightning-AI/lightning/issues/18023
+        if self.constant_num_batches:
+            return self.hardcode_len
+        else:
+            return len(iter(self))
 
 _local_regex = re.compile(r'^.*(emg_data/.*)$')
 def local_path_for_audio_file(audio_file):

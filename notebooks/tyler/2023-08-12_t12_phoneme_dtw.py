@@ -220,7 +220,8 @@ def compute_offset_1d(signal1, reference_signal):
     offset = (len(signal1) - 1) - idx_peak
 
     return offset
-for mat_file, sentenceIdxs in tqdm(list(competition_to_sentence_mapping_per_file.items())[10:]):
+# for mat_file, sentenceIdxs in tqdm(list(competition_to_sentence_mapping_per_file.items())[10:]):
+for mat_file, sentenceIdxs in tqdm(list(competition_to_sentence_mapping_per_file.items())[0:]):
     mat = mat_files[mat_file]
     sentence_file = competition_file_mapping[mat_file]
     sentence_mat = mat_files[sentence_file]
@@ -238,8 +239,8 @@ for mat_file, sentenceIdxs in tqdm(list(competition_to_sentence_mapping_per_file
             # raise e
             sentence_dat = sentence_dat[offset:]
             # known issue sadly, two sentences can't be fixed like this
-            assert np.all(np.isclose(sentence_dat, comp_dat)), f"still doesn't match with offset {offset}"
-            print(f"fixed alignment to {mat_file} with offset {offset}")
+            # assert np.all(np.isclose(sentence_dat, comp_dat)), f"still doesn't match with offset {offset}"
+            # print(f"fixed alignment to {mat_file} with offset {offset}")
 
     # break
     #     go_cue = go_cues[idx]
@@ -366,14 +367,6 @@ def load_TTS_data(sentence, directory=TTS_dir, ms_per_frame=10):
     audio, sample_rate = librosa.load(tts_audio_path)
     return audio, phonemes, sample_rate
 
-def DTW_between_audio_files(file1, file2):
-    """Run DTW between two audio files and return the path."""
-    spectrogram1 = get_spectrogram(file1)   
-    spectrogram2 = get_spectrogram(file2)
-    distance_matrix = cdist(spectrogram1.T, spectrogram2.T)
-    path = align_from_distances(distance_matrix)
-    return path
-
 # TODO: get phoneme labels for each timestep T of competitionData
 
 # Main loop for processing sentences
@@ -430,6 +423,7 @@ nframes_per_sec = 1000 // ms_per_frame
 mat_sentences = {}
 mat_mspecs = {}
 mat_tts_mspecs = {}
+mat_tts_phonemes = {}
 mat_aligned_mspecs = {}
 mat_aligned_phonemes = {}
 mat_spikePow = {}
@@ -441,6 +435,7 @@ mat_speakingMode = {}
 mat_audioEnvelope = {}
 mat_dataset_partition = {}
 
+saw_bad_audio = False
 # for mat_file in tqdm(sentences_files):
 for mat_file in sentences_files:
     mat_name = os.path.split(mat_file)[-1]
@@ -450,16 +445,15 @@ for mat_file in sentences_files:
         mat_speakingMode[mat_name] = "vocalized"
         sentence_mat = mat_files[mat_file]
         block_start_idxs = np.concatenate([[0], 1 + np.where(np.diff(sentence_mat['blockNum'][:,0]))[0]])
-        bad_block_idx = -1
+
         # last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set (doesn't always start at 1 / skips numbers)
         last_block_idx = len(sentence_mat['blockList']) - 1 # last block is test set
         audio_block = []
         for i in range(len(sentence_mat['audio'][0])):
             aud = sentence_mat['audio'][0,i][0]
             if aud.shape[0] == 0:
-                print("ahh shape is zero!")
-                assert bad_block_idx == -1, "there should only be one..."
-                bad_block_idx = i
+                assert not saw_bad_audio, "there should only be one..."
+                saw_bad_audio = True
                 audio_block.append(None)
             else:
                 aud = librosa.util.buf_to_float(aud)
@@ -482,9 +476,10 @@ for mat_file in sentences_files:
             if aud is None:
                 mspec_block.append(None)
             else:
-                mspec_block.append(mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
+                au = torch.tensor(aud[None], dtype=torch.float32).cuda().clip(-1,1)
+                mspec_block.append(mel_spectrogram(au,
                     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
-                    2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze())
+                    2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze().T)
 
         # mspec_block = [mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
         #     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
@@ -504,6 +499,7 @@ for mat_file in sentences_files:
     # try to append
     mspecs = []
     tts_mspecs = []
+    tts_phonemes = []
     aligned_mspecs = []
     aligned_phonemes = []
     audioEnvelope = []
@@ -532,37 +528,44 @@ for mat_file in sentences_files:
         else:
             dataset_partition.append("train")
         
-        if block_idx == bad_block_idx:
-            # we're missing audio data
+        try:
+            tts_audio, tts_phones, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
+        except FileNotFoundError:
+            print("Skipping as could not read file (prob TextGrid) for sentence: ", sentence)
             mspecs.append(None)
             tts_mspecs.append(None)
+            tts_phonemes.append(None)
             aligned_mspecs.append(None)
             aligned_phonemes.append(None)
             audioEnvelope.append(None)
             continue
         
+        # print(f"TTS min audio: {np.min(tts_audio)}, max audio: {np.max(tts_audio)}")
+        tts_volume = compute_audio_envelope(tts_audio, sample_rate=sample_rate, frame_size_ms=20)
+        tts_au = torch.tensor(tts_audio, dtype=torch.float32).cuda()[None].clip(-1,1)
+        tts_mspec = mel_spectrogram(tts_au,
+            2048, 80, sample_rate, sample_rate//nframes_per_sec, sample_rate//(nframes_per_sec//2), 0, 8000, center=False).squeeze().T
+        
+        tts_mspecs.append(tts_mspec.cpu().numpy())
+        tts_phonemes.append(tts_phones)
+        
+        if mspec_block[block_idx] is None:
+            # we're missing audio data
+            audioEnvelope.append(None)
+            mspecs.append(None)
+            aligned_mspecs.append(None)
+            aligned_phonemes.append(None)
+            continue
+        
+        t12_mspec = mspec_block[block_idx][startIdx:stopIdx]
+        t12_volume = volume_block[block_idx][startIdx:stopIdx]
+        
         if speaking_modes[mat_file] == "vocalized":
-            t12_mspec = mspec_block[block_idx][:,startIdx:stopIdx]
-            t12_volume = volume_block[block_idx][startIdx:stopIdx]
-            try:
-                tts_audio, tts_phonemes, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
-            except FileNotFoundError:
-                print("Skipping as could not read file (prob TextGrid) for sentence: ", sentence)
-                mspecs.append(None)
-                tts_mspecs.append(None)
-                aligned_mspecs.append(None)
-                aligned_phonemes.append(None)
-                audioEnvelope.append(None)
-                continue
-            # print(f"TTS min audio: {np.min(tts_audio)}, max audio: {np.max(tts_audio)}")
-            tts_volume = compute_audio_envelope(tts_audio, sample_rate=sample_rate, frame_size_ms=20)
-            tts_mspec = mel_spectrogram(torch.tensor(tts_audio, dtype=torch.float32).cuda()[None],
-                2048, 80, sample_rate, sample_rate//nframes_per_sec, sample_rate//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
             # finally, run dynamic time warping between t12_mspec and tts_mspec
             
             # good!
             # dists = cdist(t12_mspec.T, tts_mspec.T)
-            dists = torch.cdist(t12_mspec.T, tts_mspec.T)
+            dists = torch.cdist(t12_mspec, tts_mspec)
             
             # bad...
             # dists = 1 - torchmetrics.functional.pairwise_cosine_similarity(t12_mspec.T, tts_mspec.T).cpu().numpy()
@@ -571,22 +574,21 @@ for mat_file in sentences_files:
             # dists = cdist(t12_volume[None].T, tts_volume[None].T)
             
             alignment = align_from_distances(dists.cpu().numpy())
-            mspecs.append(t12_mspec.cpu().numpy())
             audioEnvelope.append(t12_volume)
-            tts_mspecs.append(tts_mspec.cpu().numpy())
-            aligned_mspecs.append(tts_mspec[:,alignment].cpu().numpy())
-            aligned_phonemes.append(tts_phonemes[alignment])
+            mspecs.append(t12_mspec.cpu().numpy())
+            aligned_mspecs.append(tts_mspec[alignment].cpu().numpy())
+            aligned_phonemes.append(tts_phones[alignment])
         else:
+            audioEnvelope.append(None)
             mspecs.append(None)
-            tts_mspecs.append(None)
             aligned_mspecs.append(None)
             aligned_phonemes.append(None)
-            audioEnvelope.append(None)
         # raise Exception("stop here")
     
     mat_sentences[mat_name] = sentences
     mat_mspecs[mat_name] = mspecs
     mat_tts_mspecs[mat_name] = tts_mspecs
+    mat_tts_phonemes[mat_name] = tts_phonemes
     mat_aligned_mspecs[mat_name] = aligned_mspecs
     mat_aligned_phonemes[mat_name] = aligned_phonemes
     mat_spikePow[mat_name] = spikePow
@@ -605,6 +607,7 @@ flat_dataset_partition = []
 flat_sentences = []
 flat_mspecs = []
 flat_tts_mspecs = []
+flat_tts_phonemes = []
 flat_aligned_mspecs = []
 flat_aligned_phonemes = []
 flat_spikePow = []
@@ -625,6 +628,8 @@ for mat_file, v in mat_mspecs.items():
     flat_dataset_partition.extend(mat_dataset_partition[mat_file])
     assert len(mat_tts_mspecs[mat_file]) == nsentences
     flat_tts_mspecs.extend(mat_tts_mspecs[mat_file])
+    assert len(mat_tts_phonemes[mat_file]) == nsentences
+    flat_tts_phonemes.extend(mat_tts_phonemes[mat_file])
     assert len(mat_aligned_mspecs[mat_file]) == nsentences
     flat_aligned_mspecs.extend(mat_aligned_mspecs[mat_file])
     assert len(mat_aligned_phonemes[mat_file]) == nsentences
@@ -649,7 +654,8 @@ path = os.path.join(os.path.dirname(datadir), "synthetic_audio", f"{cur_date}_T1
 # }
 mdict = {
     "session": flat_session, "dataset_partition": flat_dataset_partition, "sentences": flat_sentences,
-    "mspecs": flat_mspecs, "tts_mspecs": flat_tts_mspecs, "aligned_tts_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
+    "mspecs": flat_mspecs, "tts_mspecs": flat_tts_mspecs, "tts_phonemes": flat_tts_phonemes,
+    "aligned_tts_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
     "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
 }
 
@@ -665,6 +671,7 @@ np.savez(path, **mdict_arr)
 # may not work
 # zarr.save_group(path, **mdict)
 
+# Prob don't need to run script below here unless exploring data
 print(f"Saved T12 dataset to {path}")
 ##
 # spot check 6/28 since missing audio block 5
@@ -688,7 +695,7 @@ axs[3].set_title('aligned TTS mspec')
 fig, axs = plt.subplots(3, 1, figsize=(10, 6), sharey=True)
 axs[0].imshow(t12_mspec.cpu().numpy(), aspect='auto', origin='lower')
 axs[0].set_title('t12 mspec')
-axs[1].imshow(tts_mspec[:,alignment].cpu().numpy(), aspect='auto', origin='lower')
+axs[1].imshow(tts_mspec[alignment].cpu().numpy(), aspect='auto', origin='lower')
 axs[1].set_title('aligned TTS mspec')
 axs[2].imshow(tts_mspec.cpu().numpy(), aspect='auto', origin='lower')
 axs[2].set_title('TTS mspec')
@@ -716,7 +723,7 @@ axs[0].set_title("T12 mspec")
 axs[1].plot(tts_phonemes[alignment])
 axs[1].set_title("T12 (aligned) phonemes")
 axs[1].set_ylabel("phoneme")
-axs[2].imshow(tts_mspec[:,alignment], aspect='auto', origin='lower')
+axs[2].imshow(tts_mspec[alignment], aspect='auto', origin='lower')
 axs[2].set_title('aligned TTS mspec')
 axs[2].set_ylabel("MFCC")
 axs[2].set_xlabel("time (20ms)")

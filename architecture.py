@@ -17,7 +17,7 @@ from magneto.models.s4d import S4D
 from pytorch_lightning.profilers import PassThroughProfiler
 from dataclasses import dataclass
 from typing import Tuple, List
-from dataloaders import split_batch_into_emg_audio
+from dataloaders import split_batch_into_emg_neural_audio
 from contrastive import \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss, SupConLoss
 from typing import Tuple
@@ -567,7 +567,7 @@ class H3Model(nn.Module):
 
 
 @dataclass
-class SpeechOrEMGToTextConfig:
+class MONAConfig:
     steps_per_epoch:int
     lm_directory:str
     num_outs:int
@@ -590,6 +590,7 @@ class SpeechOrEMGToTextConfig:
     
     cross_nce_lambda:float = 1.0 # how much to weight the latent loss
     audio_lambda:float = 1.0 # how much to weight the audio->text loss
+    neural_lambda:float = 1.0 # how much to weight the neural->text loss
     sup_nce_lambda:float = 0.1
 
     d_inner:int = 3072 # original Gaddy
@@ -605,9 +606,10 @@ class SpeechOrEMGToTextConfig:
         if self.warmup_steps is None:
             self.warmup_steps = 500 // self.gradient_accumulation_steps
 
-class SpeechOrEMGToText(Model):
+class MONA(Model):
+    "Multimodal Orofacial Neural Audio"
     
-    def __init__(self, cfg:SpeechOrEMGToTextConfig, text_transform:TextTransform,
+    def __init__(self, cfg:MONAConfig, text_transform:TextTransform,
                  profiler = None):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
@@ -624,12 +626,23 @@ class SpeechOrEMGToText(Model):
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
+        self.neural_conv_blocks = nn.Sequential(
+            # TODO: should we do a 2D conv here..? T x C x F,
+            # where C is the number of electrodes (256)
+            # and F is the number of features (5)
+            # could even do a 3D conv with spatial info, T x H x W x C x F
+            ResBlock(1280, cfg.d_model, beta=cfg.beta), # 1280 neural features (5 * 256 channels)
+            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
+            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
+        )
         # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
         # self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model)
         # affine=False so emg&audio latent are both unit norm
         self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
@@ -656,6 +669,7 @@ class SpeechOrEMGToText(Model):
         self._init_ctc_decoder()
         self.cross_nce_lambda = cfg.cross_nce_lambda
         self.audio_lambda = cfg.audio_lambda
+        self.neural_lambda = cfg.neural_lambda
         self.steps_per_epoch = cfg.steps_per_epoch
         
         self.step_target = []
@@ -665,7 +679,7 @@ class SpeechOrEMGToText(Model):
         # self.supervised_contrastive_loss = SupConLoss(temperature=0.1)
     
     def emg_encoder(self, x):
-        "Encode emg (B x T x C) into a latent space (B x T/8 x C)"
+        "Encode emg (B x T x C) into a latent space (B x T/8 x D)"
         # print(f"emg_encoder: {x.shape=}")
         x = x.transpose(1,2) # put channel before time for conv
         x = self.emg_conv_blocks(x)
@@ -678,9 +692,22 @@ class SpeechOrEMGToText(Model):
         x = self.emg_latent_norm(x)
         x = x.transpose(1,2) # B x T/8 x C
         return x
+    
+    def neural_encoder(self, x):
+        "Encode neural (B x T x C) into a latent space (B x Tau x D)"
+        x = x.transpose(1,2)
+        x = self.neural_conv_blocks(x)
+        x = x.transpose(1,2)
+        x = self.neural_latent_linear(x)
+        # logging.info(f"neural_encoder pre-norm: {x.shape=}")
+        x = x.transpose(1,2) # channel first for batchnorm
+        x = self.neural_latent_norm(x)
+        x = x.transpose(1,2) # B x T/8 x C
+        return x     
+
         
     def audio_encoder(self, x):
-        "Encode emg (B x T x C) into a latent space (B x T/8 x C)"
+        "Encode emg (B x T x C) into a latent space (B x T/8 x D)"
         x = x.transpose(1,2) # put channel before time for conv
         x = self.audio_conv_blocks(x)
         x = x.transpose(1,2)
@@ -692,7 +719,7 @@ class SpeechOrEMGToText(Model):
         return x     
         
     def decoder(self, x):
-        """Predict characters from latent space (B x T/8 x C)"""
+        """Predict characters from latent space (B x T/8 x D)"""
         x = x.transpose(0,1) # put time first
         # print(f"before transformer: {x.shape=}")
         x = self.transformer(x)
@@ -717,12 +744,22 @@ class SpeechOrEMGToText(Model):
         z = self.emg_encoder(x) # latent space
         return self.decoder(z), z
     
+    def neural_forward(self, x):
+        """Predict characters from neural features (B x Tau x 1280)
+        
+        20ms frames for neural
+        
+        """
+        z = self.neural_encoder(x) # latent space
+        return self.decoder(z), z
+
     def audio_forward(self, x):
-        "Predict characters from audio mfcc (B x T/8 x 80)"
+        "Predict characters from audio mel spectrogram (B x T/8 x 80)"
         z = self.audio_encoder(x) # latent space
         return self.decoder(z), z
     
-    def forward(self, emg:List[torch.Tensor], audio:List[torch.Tensor], length_emg, length_audio):
+    def forward(self, emg:List[torch.Tensor], neural:List[torch.Tensor], audio:List[torch.Tensor],
+                length_emg, length_neural, length_audio):
         """Group x by task and predict characters for the batch.
         
         Note that forward will call combine_fixed_length, re-splitting the batch into
@@ -746,6 +783,16 @@ class SpeechOrEMGToText(Model):
             # logging.debug(f"after decollate {len(emg_z)=}, {emg_z[0].shape=}")
         else:
             emg_pred, emg_z, emg_bz = None, None, 0
+            
+        if len(neural) > 0:
+            neural = combine_fixed_length(neural, self.seqlen)
+            # logging.debug(f"FORWARD neural shape: {neural.shape}")
+            neural_pred, neural_z = self.neural_forward(neural)
+            neural_bz = len(neural)
+            neural_pred = decollate_tensor(neural_pred, length_neural)
+            neural_z = decollate_tensor(neural_z, length_neural)
+        else:
+            neural_pred, neural_z, neural_bz = None, None, 0
 
         if len(audio) > 0:
             audio = combine_fixed_length(audio, self.seqlen)
@@ -758,7 +805,8 @@ class SpeechOrEMGToText(Model):
             audio_pred, audio_z, audio_bz = None, None, 0
         
         # logging.debug("finished FORWARD")
-        return (emg_pred, audio_pred), (emg_z, audio_z), (emg_bz, audio_bz)
+        return (emg_pred, neural_pred, audio_pred), (emg_z, neural_z, audio_z), \
+               (emg_bz, neural_bz, audio_bz)
         
     def ctc_loss(self, pred, target, pred_len, target_len):
         # INFO: Gaddy passes emg length, but shouldn't this actually be divided by 8?
@@ -781,14 +829,39 @@ class SpeechOrEMGToText(Model):
         loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars)
         return loss
 
-    def calc_loss(self, batch):
-        emg_tup, audio_tup, idxs = split_batch_into_emg_audio(batch)
+    def batch_forward(self, batch):
+        emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
         emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
+        neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
         audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
         paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx = idxs
         
-        (emg_pred, audio_pred), (emg_z, audio_z), (emg_bz, audio_bz) = self(emg, audio, length_emg, length_audio)
-        
+        (emg_pred, neural_pred, audio_pred), \
+            (emg_z, neural_z, audio_z), \
+            (emg_bz, neural_bz, audio_bz) = self(emg, neural, audio, length_emg, length_neural, length_audio)
+        ret = {
+            'emg_pred': emg_pred, 'neural_pred': neural_pred, 'audio_pred': audio_pred,
+            'emg_z': emg_z, 'neural_z': neural_z, 'audio_z': audio_z,
+            'y_emg': y_emg, 'y_neural': y_neural, 'y_audio': y_audio,
+            'y_length_emg': y_length_emg, 'y_length_neural': y_length_neural, 'y_length_audio': y_length_audio,
+            'length_emg': length_emg, 'length_neural': length_neural, 'length_audio': length_audio,
+            'emg_phonemes': emg_phonemes, 'neural_phonemes': neural_phonemes, 'audio_phonemes': audio_phonemes,
+            'paired_emg_idx': paired_emg_idx, 'paired_audio_idx': paired_audio_idx,
+            'silent_emg_idx': silent_emg_idx,
+            'parallel_emg_idx': parallel_emg_idx, 'parallel_audio_idx': parallel_audio_idx,
+            'emg_bz': emg_bz, 'neural_bz': neural_bz, 'audio_bz': audio_bz
+        }
+        return ret
+
+    # TODO: can we simplify this somehow..? 23 required args is a lot
+    def calc_loss(self, emg_pred, neural_pred, audio_pred,
+                  emg_z, neural_z, audio_z,
+                  y_emg, y_neural, y_audio,
+                  y_length_emg, y_length_neural, y_length_audio,
+                  length_emg, length_neural, length_audio,
+                  emg_phonemes, neural_phonemes, audio_phonemes,
+                  paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx,
+                  emg_bz, neural_bz, audio_bz):
         # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
         
         if emg_pred is not None:
@@ -797,6 +870,12 @@ class SpeechOrEMGToText(Model):
         else:
             logging.info("emg_pred is None")
             emg_ctc_loss = 0.
+            
+        if neural_pred is not None:
+            neural_ctc_loss = self.ctc_loss(neural_pred, y_neural, length_neural, y_length_neural)
+        else:
+            logging.info("neural_pred is None")
+            neural_ctc_loss = 0.
         
         if audio_pred is not None:
             audio_ctc_loss = self.ctc_loss(audio_pred, y_audio, length_audio, y_length_audio)
@@ -804,7 +883,9 @@ class SpeechOrEMGToText(Model):
             logging.info("audio_pred is None")
             audio_ctc_loss = 0.
             
-
+        # TODO: we should refactor into another function...
+        # and also figure out how not to write code for cartesian product
+        # INFO: this block is for Audio&EMG contrastive loss only
         if emg_z is not None and audio_z is not None:
             # use DTW with parallel audio/emg to align phonemes with silent emg
             silent_e_z = torch.concatenate([emg_z[i] for i in silent_emg_idx])
@@ -866,13 +947,17 @@ class SpeechOrEMGToText(Model):
             # z_class = torch.concatenate(emg_phonemes)
             emg_audio_contrastive_loss = 0.
             sup_nce_loss = 0.
-        elif audio_z is not None:
-            raise NotImplementedError("audio only is not expected")
-            z = torch.concatenate(audio_z)
-            z_class = torch.concatenate(audio_phonemes)
+        # elif audio_z is not None:
+        #     raise NotImplementedError("audio only is not expected")
+        #     z = torch.concatenate(audio_z)
+        #     z_class = torch.concatenate(audio_phonemes)
         else:
             emg_audio_contrastive_loss = 0.
             sup_nce_loss = 0.
+            
+        # TODO: add neural sup contrastive loss
+        if neural_z is not None:
+            pass
         
         # logging.debug(f"{z_class=}")
         
@@ -881,6 +966,7 @@ class SpeechOrEMGToText(Model):
                         f"emg_audio_contrastive_loss: {emg_audio_contrastive_loss}, " \
                         f"sup_nce_loss: {sup_nce_loss}")
         loss = emg_ctc_loss + \
+            self.neural_lambda * neural_ctc_loss + \
             self.audio_lambda * audio_ctc_loss + \
             self.cross_nce_lambda * emg_audio_contrastive_loss + \
             self.sup_nce_lambda * sup_nce_loss
@@ -905,50 +991,55 @@ class SpeechOrEMGToText(Model):
             emg_z_mean = torch.concatenate([e.reshape(-1).abs() for e in emg_z]).mean()
         else:
             emg_z_mean = None
+        
+        if not neural_z is None:
+            neural_z_mean = torch.concatenate([n.reshape(-1).abs() for n in neural_z]).mean()
+        else:
+            neural_z_mean = None
+            
         if not audio_z is None:
             audio_z_mean = torch.concatenate([a.reshape(-1).abs() for a in audio_z]).mean()
         else:
             audio_z_mean = None
+            
         return {
             'loss': loss,
             'emg_ctc_loss': emg_ctc_loss,
+            'neural_ctc_loss': neural_ctc_loss,
             'audio_ctc_loss': audio_ctc_loss,
             'cross_contrastive_loss': emg_audio_contrastive_loss,
             'supervised_contrastive_loss': sup_nce_loss,
             'emg_z_mean': emg_z_mean,
+            'neural_z_mean': neural_z_mean,
             'audio_z_mean': audio_z_mean,
             'bz': bz
         }
     
     def _beam_search_batch(self, batch):
         "Repeatedly called by validation_step & test_step."
-        X = nn.utils.rnn.pad_sequence(batch['raw_emg'], batch_first=True)
-        # X = batch['raw_emg'][0].unsqueeze(0) 
-
-        logging.debug(f"calling emg_forward with {X.shape=}")
-        pred  = self.emg_forward(X)[0].cpu()
+        
+        # TODO: refactor so easy to call on nerual, emg, audio
+        X = nn.utils.rnn.pad_sequence(batch['neural_features'], batch_first=True)
+        # X = nn.utils.rnn.pad_sequence(batch['raw_emg'], batch_first=True)
+        pred  = self.neural_forward(X)[0].cpu()
+        # pred  = self.emg_forward(X)[0].cpu()
 
         beam_results = self.ctc_decoder(pred)
-        # print(f"{beam_results=}")
-        # pred_text    = ' '.join(beam_results[0][0].words).strip().lower()
-        # use top hypothesis from beam search
         pred_text = [' '.join(b[0].words).strip().lower() for b in beam_results]
-        
-        # target_text  = self.text_transform.clean_2(batch['text'][0])
         target_text  = [self.text_transform.clean_2(b) for b in batch['text']]
-        
-        # print(f"{target_text=}, {pred_text=}")
         return target_text, pred_text
     
     def training_step(self, batch, batch_idx):
-        c = self.calc_loss(batch)
+        c = self.calc_loss(**self.batch_forward(batch))
         loss = c['loss']
         emg_ctc_loss = c['emg_ctc_loss']
+        neural_ctc_loss = c['neural_ctc_loss']
         audio_ctc_loss = c['audio_ctc_loss']
         cross_contrastive_loss = c['cross_contrastive_loss']
         sup_contrastive_loss = c['supervised_contrastive_loss']
         bz = c['bz']
         avg_emg_latent = c['emg_z_mean']
+        avg_neural_latent = c['neural_z_mean']
         avg_audio_latent = c['audio_z_mean']
         
         
@@ -956,30 +1047,40 @@ class SpeechOrEMGToText(Model):
                  on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
         self.log("train/emg_ctc_loss", emg_ctc_loss,
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log("train/neural_ctc_loss", neural_ctc_loss,
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("train/audio_ctc_loss", audio_ctc_loss,
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log("train/cross_contrastive_loss", cross_contrastive_loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
         self.log("train/supervised_contrastive_loss", sup_contrastive_loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[2], sync_dist=True)
-        self.log("train/avg_emg_latent", avg_emg_latent,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        if not avg_emg_latent is None:
+            self.log("train/avg_emg_latent", avg_emg_latent,
+                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[0], sync_dist=True)
         if not avg_audio_latent is None:
             self.log("train/avg_audio_latent", avg_audio_latent,
+                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
+        if not avg_neural_latent is None:
+            self.log("train/avg_neural_latent", avg_neural_latent,
                     on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=bz[1], sync_dist=True)
         torch.cuda.empty_cache()
         return loss
 
     def validation_step(self, batch, batch_idx, task="val"):
-        c = self.calc_loss(batch)
+        ret = self.batch_forward(batch)
+        c = self.calc_loss(**ret)
         loss = c['loss']
         emg_ctc_loss = c['emg_ctc_loss']
+        neural_ctc_loss = c['neural_ctc_loss']
         audio_ctc_loss = c['audio_ctc_loss']
         bz = c['bz']
 
         logging.debug(f"validation_step: {batch_idx=}, {loss=}, {emg_ctc_loss=}, {audio_ctc_loss=}, {bz=}")
 
-        target_texts, pred_texts = self._beam_search_batch(batch) # TODO: also validate on audio
+        # TODO: split text by emg, audio, neural
+        target_text = batch['text']
+        target_texts, pred_texts = self._beam_search_batch(batch)
         # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
         for i, (target_text, pred_text) in enumerate(zip(target_texts, pred_texts)):
             if len(target_text) > 0:
@@ -992,9 +1093,36 @@ class SpeechOrEMGToText(Model):
             
         self.log(f"{task}/loss", loss, prog_bar=True, batch_size=bz.sum(), sync_dist=True)
         self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
+        self.log(f"{task}/neural_ctc_loss", neural_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         self.log(f"{task}/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=bz[0], sync_dist=True)
         
         return loss
+    
+    def on_validation_epoch_end(self) -> None:
+        # TODO: this may not be implemented correctly for DDP
+        # raise NotImplementedError("on_validation_epoch_end not implemented neural, librispeech")
+        logging.warning(f"start on_validation_epoch_end")
+        step_target = []
+        step_pred = []
+        for t,p in zip(self.step_target, self.step_pred):
+            if len(t) > 0:
+                step_target.append(t)
+                step_pred.append(p)
+            else:
+                print("WARN: got target length of zero during validation.")
+            if len(p) == 0:
+                print("WARN: got prediction length of zero during validation.")
+        logging.warning(f"on_validation_epoch_end: calc wer")
+        wer = jiwer.wer(step_target, step_pred)
+        self.step_target.clear()
+        self.step_pred.clear()
+        self.log("val/wer", wer, prog_bar=True, sync_dist=True)
+        # self.profiler.stop(f"validation loop")
+        # self.profiler.describe()
+        logging.warning(f"on_validation_epoch_end: gc.collect()")
+        gc.collect()
+        torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
+
     
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx, task="test")

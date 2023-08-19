@@ -186,7 +186,100 @@ def collate_gaddy_or_speech(batch):
         'text_int_lengths': text_int_lengths,
     }
     
-def split_batch_into_emg_audio(batch):
+def collate_gaddy_speech_or_neural(batch):
+    batch_size = len(batch)
+    audio_features = []
+    audio_feature_lengths = []
+    neural_features = []
+    neural_feature_lengths = []
+    text_int = []
+    text_int_lengths = []
+    text = []
+    raw_emg = []
+    raw_emg_lengths = []
+    parallel_emg = []
+    parallel_emg_lengths = []
+    phonemes = []
+    silent = []
+    audio_only = []
+    has_neural = []
+    for example in batch:
+        text_int.append(example['text_int'])
+        text_int_lengths.append(example['text_int'].shape[0])
+        phonemes.append(example['phonemes'])
+        if type(example['text']) == np.ndarray:
+            text.append(example['text'][0]) # use a string instead of array([string])
+        else:
+            text.append(example['text'])
+        if 'neural_features' in example:
+            # T12 data
+            audio_features.append(example['audio_features'])
+            audio_feature_lengths.append(example['audio_features'].shape[0])
+            neural_features.append(example['neural_features'])
+            neural_feature_lengths.append(example['neural_features'].shape[0])
+            parallel_emg.append(None)
+            parallel_emg_lengths.append(0)
+            raw_emg.append(None)
+            raw_emg_lengths.append(0)
+            silent.append(False)
+            audio_only.append(False)
+            has_neural.append(True)
+
+        elif 'raw_emg' not in example:
+            # audio only
+            audio_features.append(example['audio_features'])
+            audio_feature_lengths.append(example['audio_features'].shape[0])
+            neural_features.append(None)
+            neural_feature_lengths.append(None)
+            parallel_emg.append(None)
+            parallel_emg_lengths.append(0)
+            raw_emg.append(None)
+            raw_emg_lengths.append(0)
+            silent.append(False)
+            audio_only.append(True)
+            has_neural.append(False)
+        else:
+            raw_emg.append(example['raw_emg'])
+            raw_emg_lengths.append(example['raw_emg'].shape[0])
+            audio_only.append(False)
+            has_neural.append(False)
+            neural_features.append(None)
+            neural_feature_lengths.append(None)
+            
+            if example['silent']:
+                # don't use annoying array([[1]], dtype=uint8)
+                silent.append(True)
+                audio_features.append(example['parallel_voiced_audio_features'])
+                audio_feature_lengths.append(example['parallel_voiced_audio_features'].shape[0])
+                # logging.debug(f'append parrallel emg {example["parallel_voiced_raw_emg"].shape}')
+                parallel_emg.append(example['parallel_voiced_raw_emg'])
+                parallel_emg_lengths.append(example['parallel_voiced_raw_emg'].shape[0])
+            else:
+                silent.append(False)
+                audio_features.append(example['audio_features'])
+                audio_feature_lengths.append(example['audio_features'].shape[0])
+                parallel_emg.append(None)
+                parallel_emg_lengths.append(0)
+
+    return {
+        'audio_features': audio_features,
+        'audio_feature_lengths':audio_feature_lengths,
+        'neural_features': neural_features,
+        'neural_feature_lengths':neural_feature_lengths,
+        'raw_emg': raw_emg,
+        'raw_emg_lengths': raw_emg_lengths,
+        'parallel_raw_emg': parallel_emg,
+        'parallel_raw_emg_lengths': parallel_emg_lengths,
+        'phonemes':phonemes,
+        'silent': silent,
+        'audio_only': audio_only,
+        'has_neural': has_neural,
+        'text': text,
+        'text_int': text_int,
+        'text_int_lengths': text_int_lengths,
+    }
+    
+def split_batch_into_emg_neural_audio(batch):
     # Can compose with collate_gaddy_or_speech
     emg = []
     emg_phonemes = []
@@ -200,6 +293,12 @@ def split_batch_into_emg_audio(batch):
     y_length_audio = []
     y_audio = []
     
+    neural = []
+    neural_phonemes = []
+    length_neural = []
+    y_length_neural = []
+    y_neural = []
+    
     paired_emg_idx = []
     paired_audio_idx = [] # same length as paired_emg_idx
     
@@ -212,10 +311,22 @@ def split_batch_into_emg_audio(batch):
         audio_only = batch['audio_only']
     else:
         audio_only = [False] * len(batch['silent'])
+    if 'has_neural' in batch:
+        has_neural = batch['has_neural']
+    else:
+        audio_only = [False] * len(batch['silent'])
     
-    for i, (s,a) in enumerate(zip(batch['silent'], audio_only)):
+    for i, (s,a,n) in enumerate(zip(batch['silent'], audio_only, has_neural)):
         # logging.debug(f"{type(batch['phonemes'])=}")
-        if not a:
+        if n:
+            # T12 neural data
+            neural.append(batch['neural_features'][i])
+            length_neural.append(batch['neural_feature_lengths'][i])
+            y_length_neural.append(batch['text_int_lengths'][i])
+            y_neural.append(batch['text_int'][i])
+            neural_phonemes.append(batch['phonemes'][i])
+
+        elif not a:
             # Not audio only
             if s:
                 # Silent EMG + parallel AUDIO + parallel EMG
@@ -259,9 +370,10 @@ def split_batch_into_emg_audio(batch):
         audio_phonemes.append(batch['phonemes'][i])
     
     emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg)
+    neural_tup = (neural, length_neural, neural_phonemes, y_length_neural, y_neural)
     audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio)
     idxs = (paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx)
-    return emg_tup, audio_tup, idxs
+    return emg_tup, neural_tup, audio_tup, idxs
     
 def cache_dataset(cache_path, Dataset=None, per_index_cache=False):
     """Class factory to modify Dataset to cache getitem to disk. Returns a Callable.
@@ -859,3 +971,75 @@ class EMGAndSpeechModule(pl.LightningDataModule):
             batch_size=self.val_bz,
             sampler=self.test_sampler
         )
+
+class DistributedSizeAwareSampler(torch.utils.data.Sampler):
+    """Sample batches of examples from the dataset,
+    ensuring that each batch fits within max_len."""
+    def __init__(self, lengths:np.ndarray, max_len:int=256000,
+                 shuffle:bool=True, seed:int=20230819, epoch:int=0,
+                 num_replicas:int=1, constant_num_batches:bool=True):
+        self.lengths = lengths
+        self.max_len = max_len
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = epoch
+        
+        # for distributed training
+        rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
+        self.rank = int(os.environ[rank_key]) if rank_key in os.environ else 0
+        self.num_replicas = num_replicas
+        
+        self.constant_num_batches = False
+        if constant_num_batches:
+            self.hardcode_len = self.min_len(200) # assume 200 epochs
+            self.constant_num_batches = True
+            logging.warning(f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work")
+
+
+    def __iter__(self):
+        return self.iter_batches(self.rank)
+    
+    def iter_batches(self, rank):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+        indices = torch.randperm(len(self.lengths), generator=g).tolist()
+        indices = indices[rank::self.num_replicas]
+        batch = []
+        batch_length = 0
+        for idx in indices:
+            length = self.lengths[idx]
+            if length > self.max_len:
+                logging.warning(f'Warning: example {idx} cannot fit within desired batch length')
+            if length + batch_length > self.max_len:
+                yield batch
+                batch = []
+                batch_length = 0
+            batch.append(idx)
+            batch_length += length
+        # dropping last incomplete batch
+        
+    def set_epoch(self, epoch:int):
+        self.epoch = epoch
+        
+    def min_len(self, num_epochs:int):
+        """Minimum number of batches in any epoch."""
+        cur_epoch = self.epoch
+        min_length = np.inf
+        # minimum per epoch
+        for epoch in range(num_epochs):
+            self.set_epoch(epoch)
+            # minimum per GPU
+            for rank in range(self.num_replicas):
+                N = len(list(self.iter_batches(rank)))
+                if N < min_length:
+                    min_length = N
+        self.set_epoch(cur_epoch)
+        return min_length
+        
+    def __len__(self):
+        "Return approximate number of batches per epoch"
+        # https://github.com/Lightning-AI/lightning/issues/18023
+        if self.constant_num_batches:
+            return self.hardcode_len
+        else:
+            return len(iter(self))
