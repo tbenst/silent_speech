@@ -1,8 +1,8 @@
 ##
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
@@ -179,7 +179,7 @@ if gpu_ram < 24:
     # val_bz = base_bz
     val_bz = 8
     # max_len = 24000 # OOM
-    max_len = 12000
+    max_len = 12000 # no OOM but NaN loss
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
@@ -331,6 +331,20 @@ class T12DataModule(pl.LightningDataModule):
 # train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
 datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs", max_len=max_len)
 ##
+for t in datamodule.train:
+    if torch.any(torch.isnan(t['neural_features'])):
+        print("got NaN for neural_features")
+        break
+    if t['audio_features'] is not None and torch.any(torch.isnan(t['audio_features'])):
+        print("got NaN for audio_features")
+        break
+    if t['phonemes'] is not None and torch.any(torch.isnan(t['phonemes'])):
+        print("got NaN for phones")
+        break
+    if torch.any(torch.isnan(t['text_int'])):
+        print("got NaN for text_int")
+        break
+##
 emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(collate_gaddy_speech_or_neural([datamodule.train[i] for i in range(5)]))
 (neural, length_neural, neural_phonemes, y_length_neural, y_neural) = neural_tup
 neural, length_neural
@@ -369,8 +383,8 @@ neural, length_neural
 # max([x.max() for x in t12_npz["spikePow"]])
 ##
 auto_lr_find = False
-# learning_rate = 3e-4
-learning_rate = 1.5e-4
+learning_rate = 3e-4
+# learning_rate = 1.5e-4
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
 ##
