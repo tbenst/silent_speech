@@ -172,7 +172,7 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
     # Titan RTX
-    val_bz = 32
+    val_bz = 16
     # max_len = 24000 # OOM
     # max_len = 12000 # no OOM but NaN loss
     max_len = 18000

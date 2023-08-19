@@ -792,6 +792,7 @@ class MONA(Model):
             neural_pred = decollate_tensor(neural_pred, length_neural)
             neural_z = decollate_tensor(neural_z, length_neural)
         else:
+            raise ValueError("Expecting neural right now")
             neural_pred, neural_z, neural_bz = None, None, 0
 
         if len(audio) > 0:
