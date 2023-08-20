@@ -508,15 +508,21 @@ for mat_file in sentences_files:
     assert len(sentence_mat['blockList']) == len(block_start_idxs)
     assert len(sentence_mat['blockList']) == len(block_end_idxs)
     for block_idx, start,end in zip(sentence_mat['blockList'].squeeze(), block_start_idxs, block_end_idxs):
-        spikePow_stats[block_idx] = np.array([np.mean(sentence_mat['spikePow'][start:end]), np.var(sentence_mat['spikePow'][start:end])])
-        tx1_stats[block_idx] = np.array([np.mean(sentence_mat['tx1'][start:end], axis=0),
-                                         np.var(sentence_mat['tx1'][start:end], axis=0)])
-        tx2_stats[block_idx] = np.array([np.mean(sentence_mat['tx2'][start:end], axis=0),
-                                         np.var(sentence_mat['tx2'][start:end], axis=0)])
-        tx3_stats[block_idx] = np.array([np.mean(sentence_mat['tx3'][start:end], axis=0),
-                                         np.var(sentence_mat['tx3'][start:end], axis=0)])
-        tx4_stats[block_idx] = np.array([np.mean(sentence_mat['tx4'][start:end], axis=0),
-                                         np.var(sentence_mat['tx4'][start:end], axis=0)])
+        spikePow_stats[block_idx] = np.array([
+            np.mean(sentence_mat['spikePow'][start:end], axis=0),
+            np.var(sentence_mat['spikePow'][start:end], axis=0)])
+        tx1_stats[block_idx] = np.array([
+            np.mean(sentence_mat['tx1'][start:end], axis=0),
+            np.var(sentence_mat['tx1'][start:end], axis=0)])
+        tx2_stats[block_idx] = np.array([
+            np.mean(sentence_mat['tx2'][start:end], axis=0),
+            np.var(sentence_mat['tx2'][start:end], axis=0)])
+        tx3_stats[block_idx] = np.array([
+            np.mean(sentence_mat['tx3'][start:end], axis=0),
+            np.var(sentence_mat['tx3'][start:end], axis=0)])
+        tx4_stats[block_idx] = np.array([
+            np.mean(sentence_mat['tx4'][start:end], axis=0),
+            np.var(sentence_mat['tx4'][start:end], axis=0)])
     
     mat_spikePow_stats[mat_name] = spikePow_stats
     mat_tx1_stats[mat_name] = tx1_stats
@@ -556,6 +562,9 @@ for mat_file in sentences_files:
         tx3.append(sentence_mat['tx3'][go_cue_idx[0]:go_cue_idx[1]])
         tx4.append(sentence_mat['tx4'][go_cue_idx[0]:go_cue_idx[1]])
         
+        block.append(sentence_mat['blockNum'][go_cue_idx[0]])
+        
+        # note block_idx here starts at 0, but doesn't in sentence_mat['blockList']
         block_idx, startIdx = go_cue_to_block_and_rel_index(go_cue_idx[0], block_start_idxs)
         block_idx2, stopIdx = go_cue_to_block_and_rel_index(go_cue_idx[1], block_start_idxs)
         if stopIdx == 0:
@@ -568,7 +577,6 @@ for mat_file in sentences_files:
         else:
             dataset_partition.append("train")
         
-        block.append(block_idx)
         
         try:
             tts_audio, tts_phones, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
@@ -642,7 +650,7 @@ for mat_file in sentences_files:
     mat_audioEnvelope[mat_name] = audioEnvelope
     mat_dataset_partition[mat_name] = dataset_partition
 
-##
+ ##
 # save to Zarr
 # flatten to 1D arrays of length num_sentences
 num_sentences_per_mat = []

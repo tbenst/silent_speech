@@ -265,19 +265,24 @@ class T12Dataset(NeuralDataset):
         tx3 = t12_npz["tx3"]
         tx4 = t12_npz["tx4"]
         # mean, variance per block
-        spikePow_stats = t12_npz["spikePow_stats"]
-        tx1_stats = t12_npz["tx1_stats"]
-        tx2_stats = t12_npz["tx2_stats"]
-        tx3_stats = t12_npz["tx3_stats"]
-        tx4_stats = t12_npz["tx4_stats"]
+        spikePow_stats = t12_npz["spikePow_stats"][()]
+        tx1_stats = t12_npz["tx1_stats"][()]
+        tx2_stats = t12_npz["tx2_stats"][()]
+        tx3_stats = t12_npz["tx3_stats"][()]
+        tx4_stats = t12_npz["tx4_stats"][()]
         aud = t12_npz[audio_type]
         for i in tqdm(idx, desc="concatenating neural data"):
-            block_idx = t12_npz["block"][i]
-            spikePow_mean, spikePow_var = spikePow_stats[block_idx]
-            tx1_mean, tx1_var = tx1_stats[block_idx]
-            tx2_mean, tx2_var = tx2_stats[block_idx]
-            tx3_mean, tx3_var = tx3_stats[block_idx]
-            tx4_mean, tx4_var = tx4_stats[block_idx]
+            block_idx = t12_npz["block"][i][0]
+            session = t12_npz["session"][i]
+            # print(session, block_idx)
+            # print(f"{spikePow_stats[session]=}")
+            spikePow_mean, spikePow_var = spikePow_stats[session][block_idx]
+            tx1_mean, tx1_var = tx1_stats[session][block_idx]
+            tx2_mean, tx2_var = tx2_stats[session][block_idx]
+            tx3_mean, tx3_var = tx3_stats[session][block_idx]
+            tx4_mean, tx4_var = tx4_stats[session][block_idx]
+            # print(f"{spikePow_mean.shape=}")
+            # print(f"{tx1_mean.shape=}")
             neural.append(np.concatenate([
                     # np.log10(spikePow[i][:,:128]+1) / 4, # map to approx 0-1
                     (spikePow[i][:,:128] - spikePow_mean[:128]) / np.sqrt(spikePow_var[:128]),
