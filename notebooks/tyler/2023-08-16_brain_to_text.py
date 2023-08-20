@@ -226,6 +226,7 @@ class NeuralDataset(torch.utils.data.Dataset):
         self.phonemes = phonemes
         self.sentences = sentences
         self.text_transform = text_transform
+        self.n_features = neural[0].shape[1]
         super().__init__()
     
     def __getitem__(self, idx):
@@ -269,9 +270,10 @@ class T12Dataset(NeuralDataset):
             neural.append(np.concatenate([
                     np.log10(spikePow[i]+1) / 4, # map to approx 0-1
                     tx1[i] / 25, # max val is 56
-                    tx2[i] / 25,
-                    tx3[i] / 25,
-                    tx4[i] / 25] # max val is 52
+                    # tx2[i] / 25,
+                    # tx3[i] / 25,
+                    # tx4[i] / 25
+                    ] # max val is 52
                 , axis=1).astype(np.float32))
             if aud[i] is None:
                 # for example, if audio_type is "mspecs" then we have no
@@ -398,7 +400,8 @@ n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
-    learning_rate=learning_rate, audio_lambda=0.)
+    learning_rate=learning_rate, audio_lambda=0.,
+    neural_input_features=datamodule.train.n_features)
 
 model = MONA(config, text_transform)
 logging.info('made model')

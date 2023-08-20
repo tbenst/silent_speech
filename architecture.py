@@ -587,7 +587,8 @@ class MONAConfig:
     d_model:int = 768 # original Gaddy
     # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
     beta:float = 1 / np.sqrt(2) # adjust resnet initialization
-    neural_input_features:int = 256 # reduce 1280 down to this features
+    neural_input_features:int = 1280
+    neural_reduced_features:int = 256 # reduce 1280 down to this features
     
     cross_nce_lambda:float = 1.0 # how much to weight the latent loss
     audio_lambda:float = 1.0 # how much to weight the audio->text loss
@@ -632,17 +633,18 @@ class MONA(Model):
             # where C is the number of electrodes (256)
             # and F is the number of features (5)
             # could even do a 3D conv with spatial info, T x H x W x C x F
-            ResBlock(cfg.neural_input_features, cfg.d_model, beta=cfg.beta), # 1280 neural features (5 * 256 channels)
+            ResBlock(cfg.neural_reduced_features, cfg.d_model, beta=cfg.beta), # 1280 neural features (5 * 256 channels)
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
-        self.neural_input_encoder = nn.Linear(1280, cfg.neural_input_features)
+        self.neural_input_encoder = nn.Linear(cfg.neural_input_features, cfg.neural_reduced_features)
         # equivalent to w_raw_in in Gaddy's model
         self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
         # self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model)
         # affine=False so emg&audio latent are both unit norm
         self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        self.neural_pre_norm = nn.BatchNorm1d(cfg.neural_input_features)
         self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
@@ -697,6 +699,7 @@ class MONA(Model):
     
     def neural_encoder(self, x):
         "Encode neural (B x T x C) into a latent space (B x Tau x D)"
+        x = self.neural_pre_norm(x)
         x = self.neural_input_encoder(x) # reduce number of inputs
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
