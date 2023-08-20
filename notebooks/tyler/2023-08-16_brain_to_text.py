@@ -268,8 +268,8 @@ class T12Dataset(NeuralDataset):
         aud = t12_npz[audio_type]
         for i in tqdm(idx, desc="concatenating neural data"):
             neural.append(np.concatenate([
-                    np.log10(spikePow[i]+1) / 4, # map to approx 0-1
-                    tx1[i] / 25, # max val is 56
+                    np.log10(spikePow[i][:,:128]+1) / 4, # map to approx 0-1
+                    tx1[i][:,:128] / 25, # max val is 56
                     # tx2[i] / 25,
                     # tx3[i] / 25,
                     # tx4[i] / 25
