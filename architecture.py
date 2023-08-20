@@ -1058,9 +1058,9 @@ class MONA(Model):
         self.log("train/emg_ctc_loss", emg_ctc_loss,
             on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
         self.log("train/neural_ctc_loss", neural_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
         self.log("train/audio_ctc_loss", audio_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=audio_bz, sync_dist=True)
         self.log("train/cross_contrastive_loss", cross_contrastive_loss,
                  on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
         self.log("train/supervised_contrastive_loss", sup_contrastive_loss,
