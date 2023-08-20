@@ -384,8 +384,8 @@ neural, length_neural
 auto_lr_find = False
 # see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
 # learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
-# learning_rate = 3e-4
-learning_rate = 1.5e-4
+learning_rate = 3e-4
+# learning_rate = 1.5e-4
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
 ##
@@ -398,7 +398,7 @@ n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
-    learning_rate=learning_rate)
+    learning_rate=learning_rate, audio_lambda=0.)
 
 model = MONA(config, text_transform)
 logging.info('made model')
