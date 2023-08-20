@@ -699,9 +699,9 @@ class MONA(Model):
     
     def neural_encoder(self, x):
         "Encode neural (B x T x C) into a latent space (B x Tau x D)"
-        x = x.transpose(1,2)
-        x = self.neural_pre_norm(x)
-        x = x.transpose(1,2)
+        # x = x.transpose(1,2)
+        # x = self.neural_pre_norm(x)
+        # x = x.transpose(1,2)
         x = self.neural_input_encoder(x) # reduce number of inputs
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
