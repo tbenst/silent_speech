@@ -159,7 +159,7 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-19_T12_dataset.npz"
+    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-20_T12_dataset.npz"
     
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
@@ -260,16 +260,29 @@ class T12Dataset(NeuralDataset):
         neural = []
         audio = []
         spikePow = t12_npz["spikePow"]
-        # max([x.max() for x in t12_npz["tx1"]])
         tx1 = t12_npz["tx1"]
         tx2 = t12_npz["tx2"]
         tx3 = t12_npz["tx3"]
         tx4 = t12_npz["tx4"]
+        # mean, variance per block
+        spikePow_stats = t12_npz["spikePow_stats"]
+        tx1_stats = t12_npz["tx1_stats"]
+        tx2_stats = t12_npz["tx2_stats"]
+        tx3_stats = t12_npz["tx3_stats"]
+        tx4_stats = t12_npz["tx4_stats"]
         aud = t12_npz[audio_type]
         for i in tqdm(idx, desc="concatenating neural data"):
+            block_idx = t12_npz["block"][i]
+            spikePow_mean, spikePow_var = spikePow_stats[block_idx]
+            tx1_mean, tx1_var = tx1_stats[block_idx]
+            tx2_mean, tx2_var = tx2_stats[block_idx]
+            tx3_mean, tx3_var = tx3_stats[block_idx]
+            tx4_mean, tx4_var = tx4_stats[block_idx]
             neural.append(np.concatenate([
-                    np.log10(spikePow[i][:,:128]+1) / 4, # map to approx 0-1
-                    tx1[i][:,:128] / 25, # max val is 56
+                    # np.log10(spikePow[i][:,:128]+1) / 4, # map to approx 0-1
+                    (spikePow[i][:,:128] - spikePow_mean[:128]) / np.sqrt(spikePow_var[:128]),
+                    (tx1[i][:,:128] - tx1_mean[:128]) / np.sqrt(tx1_var[:128]),
+                    # tx1[i][:,:128] / 25, # max val is 56
                     # tx2[i] / 25,
                     # tx3[i] / 25,
                     # tx4[i] / 25

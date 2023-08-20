@@ -421,6 +421,7 @@ plt.plot()
 ms_per_frame = 20
 nframes_per_sec = 1000 // ms_per_frame
 mat_sentences = {}
+mat_block = {}
 mat_mspecs = {}
 mat_tts_mspecs = {}
 mat_tts_phonemes = {}
@@ -431,6 +432,11 @@ mat_tx1 = {}
 mat_tx2 = {}
 mat_tx3 = {}
 mat_tx4 = {}
+mat_spikePow_stats = {}
+mat_tx1_stats = {}
+mat_tx2_stats = {}
+mat_tx3_stats = {}
+mat_tx4_stats = {}
 mat_speakingMode = {}
 mat_audioEnvelope = {}
 mat_dataset_partition = {}
@@ -444,7 +450,14 @@ for mat_file in sentences_files:
     else:
         mat_speakingMode[mat_name] = "vocalized"
         sentence_mat = mat_files[mat_file]
-        block_start_idxs = np.concatenate([[0], 1 + np.where(np.diff(sentence_mat['blockNum'][:,0]))[0]])
+        block_start_idxs = np.concatenate([
+            [0],
+            1 + np.where(np.diff(sentence_mat['blockNum'].squeeze()))[0]
+        ])
+        block_end_idxs = np.concatenate([
+            block_start_idxs[1:],
+            [len(sentence_mat['blockNum'].squeeze())]
+        ])
 
         # last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set (doesn't always start at 1 / skips numbers)
         last_block_idx = len(sentence_mat['blockList']) - 1 # last block is test set
@@ -485,7 +498,32 @@ for mat_file in sentences_files:
         #     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
         #     2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
         #                for aud in audio_block]
-        
+    
+    # calculate mean & variance per block for spikePow, tx1, tx2, tx3, tx4
+    spikePow_stats = {}
+    tx1_stats = {}
+    tx2_stats = {}
+    tx3_stats = {}
+    tx4_stats = {}
+    assert len(sentence_mat['blockList']) == len(block_start_idxs)
+    assert len(sentence_mat['blockList']) == len(block_end_idxs)
+    for block_idx, start,end in zip(sentence_mat['blockList'].squeeze(), block_start_idxs, block_end_idxs):
+        spikePow_stats[block_idx] = np.array([np.mean(sentence_mat['spikePow'][start:end]), np.var(sentence_mat['spikePow'][start:end])])
+        tx1_stats[block_idx] = np.array([np.mean(sentence_mat['tx1'][start:end], axis=0),
+                                         np.var(sentence_mat['tx1'][start:end], axis=0)])
+        tx2_stats[block_idx] = np.array([np.mean(sentence_mat['tx2'][start:end], axis=0),
+                                         np.var(sentence_mat['tx2'][start:end], axis=0)])
+        tx3_stats[block_idx] = np.array([np.mean(sentence_mat['tx3'][start:end], axis=0),
+                                         np.var(sentence_mat['tx3'][start:end], axis=0)])
+        tx4_stats[block_idx] = np.array([np.mean(sentence_mat['tx4'][start:end], axis=0),
+                                         np.var(sentence_mat['tx4'][start:end], axis=0)])
+    
+    mat_spikePow_stats[mat_name] = spikePow_stats
+    mat_tx1_stats[mat_name] = tx1_stats
+    mat_tx2_stats[mat_name] = tx2_stats
+    mat_tx3_stats[mat_name] = tx3_stats
+    mat_tx4_stats[mat_name] = tx4_stats
+    
     assert len(audio_block) < 100
     # always append
     sentences = []
@@ -495,6 +533,7 @@ for mat_file in sentences_files:
     tx3 = []
     tx4 = []
     dataset_partition = []
+    block = []
     
     # try to append
     mspecs = []
@@ -503,6 +542,7 @@ for mat_file in sentences_files:
     aligned_mspecs = []
     aligned_phonemes = []
     audioEnvelope = []
+    
     
     for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
@@ -527,6 +567,8 @@ for mat_file in sentences_files:
             dataset_partition.append("test")
         else:
             dataset_partition.append("train")
+        
+        block.append(block_idx)
         
         try:
             tts_audio, tts_phones, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
@@ -586,6 +628,7 @@ for mat_file in sentences_files:
         # raise Exception("stop here")
     
     mat_sentences[mat_name] = sentences
+    mat_block[mat_name] = block
     mat_mspecs[mat_name] = mspecs
     mat_tts_mspecs[mat_name] = tts_mspecs
     mat_tts_phonemes[mat_name] = tts_phonemes
@@ -601,7 +644,9 @@ for mat_file in sentences_files:
 
 ##
 # save to Zarr
+# flatten to 1D arrays of length num_sentences
 num_sentences_per_mat = []
+flat_block = []
 flat_session = []
 flat_dataset_partition = []
 flat_sentences = []
@@ -615,6 +660,7 @@ flat_tx1 = []
 flat_tx2 = []
 flat_tx3 = []
 flat_tx4 = []
+
 for mat_file, v in mat_mspecs.items():
     nsentences = len(v)
     num_sentences_per_mat.append(nsentences)
@@ -624,6 +670,8 @@ for mat_file, v in mat_mspecs.items():
     
     assert len(mat_sentences[mat_file]) == nsentences
     flat_sentences.extend(mat_sentences[mat_file])
+    assert(len(mat_block[mat_file]) == nsentences)
+    flat_block.extend(mat_block[mat_file])
     assert len(mat_dataset_partition[mat_file]) == nsentences
     flat_dataset_partition.extend(mat_dataset_partition[mat_file])
     assert len(mat_tts_mspecs[mat_file]) == nsentences
@@ -644,6 +692,7 @@ for mat_file, v in mat_mspecs.items():
     flat_tx3.extend(mat_tx3[mat_file])
     assert len(mat_tx4[mat_file]) == nsentences
     flat_tx4.extend(mat_tx4[mat_file])
+
 ##
 cur_date = datetime.datetime.now().strftime("%Y-%m-%d")
 path = os.path.join(os.path.dirname(datadir), "synthetic_audio", f"{cur_date}_T12_dataset.npz")
@@ -654,9 +703,15 @@ path = os.path.join(os.path.dirname(datadir), "synthetic_audio", f"{cur_date}_T1
 # }
 mdict = {
     "session": flat_session, "dataset_partition": flat_dataset_partition, "sentences": flat_sentences,
+    "block": flat_block,
     "mspecs": flat_mspecs, "tts_mspecs": flat_tts_mspecs, "tts_phonemes": flat_tts_phonemes,
     "aligned_tts_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
     "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
+    "spikePow_stats": mat_spikePow_stats,
+    "tx1_stats": mat_tx1_stats,
+    "tx2_stats": mat_tx2_stats,
+    "tx3_stats": mat_tx3_stats,
+    "tx4_stats": mat_tx4_stats,
 }
 
 mdict_arr = {}
