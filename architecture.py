@@ -1039,6 +1039,7 @@ class MONA(Model):
         pred_text = []
         for b in beam_results:
             if len(b) > 0:
+                # not sure why length would be zero, but it happens..
                 pred_text.append(' '.join(b[0].words).strip().lower())
             else:
                 pred_text.append('')
