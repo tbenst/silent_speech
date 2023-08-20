@@ -1036,7 +1036,12 @@ class MONA(Model):
         # pred  = self.emg_forward(X)[0].cpu()
 
         beam_results = self.ctc_decoder(pred)
-        pred_text = [' '.join(b[0].words).strip().lower() for b in beam_results]
+        pred_text = []
+        for b in beam_results:
+            if len(b) > 0:
+                pred_text.append(' '.join(b[0].words).strip().lower())
+            else:
+                pred_text.append('')
         target_text  = [self.text_transform.clean_2(b) for b in batch['text']]
         return target_text, pred_text
     
