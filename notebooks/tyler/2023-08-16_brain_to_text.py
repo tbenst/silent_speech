@@ -77,10 +77,10 @@ RESUME = False
 # RESUME = True
 
 
-# constant_offset_sd = 0.2
-# white_noise_sd = 1
-constant_offset_sd = 0
-white_noise_sd = 0
+constant_offset_sd = 0.2
+white_noise_sd = 1
+# constant_offset_sd = 0
+# white_noise_sd = 0
 auto_lr_find = False
 
 # see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
