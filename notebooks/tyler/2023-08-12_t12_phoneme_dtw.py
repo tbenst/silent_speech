@@ -34,7 +34,7 @@ from align import align_from_distances
 from helpers import sentence_to_fn
 from data_utils import read_phonemes, mel_spectrogram
 
-import bottleneck
+import bottleneck 
 
 from bark import SAMPLE_RATE as TTS_SAMPLE_RATE
 SCRIPT_DIR = "/home/tyler/code/silent_speech"
@@ -66,6 +66,11 @@ for train_file in train_files + test_files:
 unique = np.unique(days)
 session_mapping = dict(zip(unique, np.arange(len(unique))))
 print('Unique days:', len(session_mapping.keys()))
+# INFO: these days are missing:
+# - 2022.08.16
+# - 2022.09.06
+# - 2022.09.08
+# - 2022.09.13
 ##
 @persist_to_file(os.path.join(os.path.dirname(datadir), "sentence_mapping_per_file.pkl"))
 def get_competition_to_sentence_mapping_per_file(train_files, test_files, competition_file_mapping):
@@ -412,8 +417,6 @@ for mat_file in sentences_files:
         print(f"{nAudio=}\n{audio_seconds=}")
         break
 # sentences/t12.2022.06.28_sentences.mat audio block 5 has length of zero
-##
-plt.plot()
 
 ##
 ########################## THIS IS THE KEY FUNCTION ########################################
@@ -458,21 +461,24 @@ window_size = int(np.ceil(total_T/n_sentences)) * 20
 
 def moving_mean(x, window):
     "For T x N matrix, compute the rolling mean over window timesteps."
-    x_mean = x.unfold(0,window,1).mean(dim=2)
+    x_mean = torch.mean(x.unfold(0,window,1), dim=2)
+    # print(f"{x_mean.shape=}")
     # use first mean for first window-1 timesteps
     # technically acausal for first window-1 timesteps
-    x[:window-1] = x_mean[0]
-    x[window-1:] = x_mean
-    return x
+    x_new = torch.zeros_like(x)
+    x_new[:window-1] = x_mean[0]
+    x_new[window-1:] = x_mean
+    return x_new
 
 def moving_std(x, window):
     "For T x N matrix, compute the rolling mean over window timesteps."
-    x_mean = x.unfold(0,window,1).std(dim=2)
+    x_std = torch.std(x.unfold(0,window,1), dim=2)
     # use first mean for first window-1 timesteps
     # technically acausal for first window-1 timesteps
-    x[:window-1] = x_mean[0]
-    x[window-1:] = x_mean
-    return x
+    x_new = torch.zeros_like(x)
+    x_new[:window-1] = x_std[0]
+    x_new[window-1:] = x_std
+    return x_new
 
 def moving_zscore(x, window, eps=1e-6):
     "For T x N matrix, compute the rolling z-score over window timesteps."
@@ -482,7 +488,36 @@ def moving_zscore(x, window, eps=1e-6):
     return zscored
     
 # movet = moving_mean(sentence_mat['spikePow'], window_size)
+s,e = sentence_mat['goTrialEpochs'][0]
+# sp =  sentence_mat['spikePow'][:window_size]
+sp =  sentence_mat['tx1'][:window_size]
+spc = torch.from_numpy(sp).float().cuda()
+# fig, axs = plt.subplots(4, 1, figsize=(10, 10))
+# axs[0].plot(sp[:,0])
+# axs[1].plot(spc[:,0].cpu().numpy())
+# axs[2].plot(spc.unfold(0,500,1)[0,0].cpu().numpy())
+# axs[3].plot(spc[:,0].cpu().numpy())
 
+spz = moving_zscore(spc, window_size,1).cpu().numpy()
+spm = moving_mean(spc, window_size).cpu().numpy()
+spm = moving_std(spc, window_size).cpu().numpy()
+fig, axs = plt.subplots(4, 1, figsize=(10, 10))
+axs[0].plot(sp[:,0])
+axs[0].set_title("original")
+axs[1].plot((sp[:,0]-np.mean(sp[:,0]))/sp[:,0].std())
+axs[1].set_title("proper zscore")
+axs[2].plot(spz[:,0])
+axs[2].set_title("moving zscore")
+axs[3].plot(spm[:,0])
+axs[3].set_title("mean")
+
+##
+
+# plt.imshow(sp[s:e])
+# plt.imshow((spikePow[s:e]-sp.mean(axis=0)[None])/sp.std(axis=0)[None])
+# plt.colorbar()
+##
+##
 saw_bad_audio = False
 # for mat_file in tqdm(sentences_files):
 for mat_file in sentences_files:
@@ -786,7 +821,7 @@ np.savez(path, **mdict_arr)
 
 # Prob don't need to run script below here unless exploring data
 print(f"Saved T12 dataset to {path}")
-exit(0)
+# exit(0)
 ##
 # spot check 6/28 since missing audio block 5
 # not sure if okay or not
