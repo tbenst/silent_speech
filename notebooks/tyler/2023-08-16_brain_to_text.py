@@ -316,9 +316,10 @@ class T12DataModule(pl.LightningDataModule):
         else:
             self.ValSampler = lambda: None
         self.val_bz = val_bz
+        self.fixed_length = fixed_length
         
     def train_dataloader(self):
-        if fixed_length:
+        if self.fixed_length:
             return torch.utils.data.DataLoader(
                 self.train,
                 collate_fn=self.collate_fn,
