@@ -1158,8 +1158,8 @@ class MONA(Model):
         else:
             super().log(*args, **kwargs)
             
-    def on_before_optimizer_step(self, optimizer):
-        # Compute the 2-norm for each layer
-        # If using mixed precision, the gradients are already unscaled here
-        norms = pl.utilities.grad_norm(self.layer, norm_type=2)
-        self.log_dict(norms)
+    # def on_before_optimizer_step(self, optimizer):
+    #     # Compute the 2-norm for each layer
+    #     # If using mixed precision, the gradients are already unscaled here
+    #     norms = pl.utilities.grad_norm(self.layer, norm_type=2)
+    #     self.log_dict(norms)
