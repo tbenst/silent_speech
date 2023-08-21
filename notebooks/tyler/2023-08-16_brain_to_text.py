@@ -344,7 +344,7 @@ class T12DataModule(pl.LightningDataModule):
 datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
     num_replicas=NUM_GPUS, max_len=max_len, val_bz=val_bz*NUM_GPUS)
 ##
-for t in datamodule.train:
+for t in tqdm(datamodule.train, desc="checking for NaNs"):
     if torch.any(torch.isnan(t['neural_features'])):
         print("got NaN for neural_features")
         break
