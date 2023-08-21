@@ -560,32 +560,56 @@ for mat_file in sentences_files:
     aligned_phonemes = []
     audioEnvelope = []
 
-    zscored_spikePow = moving_zscore(
-        torch.from_numpy(sentence_mat['spikePow']).float().cuda(),
-        window_size).cpu().numpy()
-    zscored_tx1 = moving_zscore(
-        torch.from_numpy(sentence_mat['tx1']).float().cuda(),
-        window_size).cpu().numpy()
-    zscored_tx2 = moving_zscore(
-        torch.from_numpy(sentence_mat['tx2']).float().cuda(),
-        window_size).cpu().numpy()
-    zscored_tx3 = moving_zscore(
-        torch.from_numpy(sentence_mat['tx3']).float().cuda(),
-        window_size).cpu().numpy()
-    zscored_tx4 = moving_zscore(
-        torch.from_numpy(sentence_mat['tx4']).float().cuda(),
-        window_size).cpu().numpy()
+
+    session_spikePow = torch.from_numpy(sentence_mat['spikePow']).float().cuda()
+    session_tx1 = torch.from_numpy(sentence_mat['tx1']).float().cuda()
+    session_tx2 = torch.from_numpy(sentence_mat['tx2']).float().cuda()
+    session_tx3 = torch.from_numpy(sentence_mat['tx3']).float().cuda()
+    session_tx4 = torch.from_numpy(sentence_mat['tx4']).float().cuda()
+    
+    spikePow_mean = moving_mean(session_spikePow, window_size)
+    tx1_mean = moving_mean(session_tx1, window_size)
+    tx2_mean = moving_mean(session_tx2, window_size)
+    tx3_mean = moving_mean(session_tx3, window_size)
+    tx4_mean = moving_mean(session_tx4, window_size)
+    spikePow_std = moving_std(session_spikePow, window_size) + 1
+    tx1_std = moving_std(session_tx1, window_size) + 1
+    tx2_std = moving_std(session_tx2, window_size) + 1
+    tx3_std = moving_std(session_tx3, window_size) + 1
+    tx4_std = moving_std(session_tx4, window_size) + 1
+    
+    # session_spikePow = session_spikePow.cpu().numpy()
+    # session_tx1 = session_tx1.cpu().numpy()
+    # session_tx2 = session_tx2.cpu().numpy()
+    # session_tx3 = session_tx3.cpu().numpy()
+    # session_tx4 = session_tx4.cpu().numpy()
+
+    # TODO: try taking sqrt before zscore
     
     for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
         sentence = sentence.rstrip()
         go_cue_idx = sentence_mat['goTrialEpochs'][sentenceIdx]
         
-        sentence_spikePow = zscored_spikePow[go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx1 = zscored_tx1[go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx2 = zscored_tx2[go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx3 = zscored_tx3[go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx4 = zscored_tx4[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_spikePow = session_spikePow[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx1 = session_tx1[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx2 = session_tx2[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx3 = session_tx3[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx4 = session_tx4[go_cue_idx[0]:go_cue_idx[1]]
+        
+        wi = go_cue_idx[1] - 1
+        sentence_spikePow = (sentence_spikePow - spikePow_mean[wi]) / spikePow_std[wi]
+        sentence_tx1 = (sentence_tx1 - tx1_mean[wi]) / tx1_std[wi]
+        sentence_tx2 = (sentence_tx2 - tx2_mean[wi]) / tx2_std[wi]
+        sentence_tx3 = (sentence_tx3 - tx3_mean[wi]) / tx3_std[wi]
+        sentence_tx4 = (sentence_tx4 - tx4_mean[wi]) / tx4_std[wi]
+        
+        sentence_spikePow = sentence_spikePow.cpu().numpy()
+        sentence_tx1 = sentence_tx1.cpu().numpy()
+        sentence_tx2 = sentence_tx2.cpu().numpy()
+        sentence_tx3 = sentence_tx3.cpu().numpy()
+        sentence_tx4 = sentence_tx4.cpu().numpy()
+        
         
         sentences.append(sentence)
         spikePow.append(sentence_spikePow)
@@ -762,6 +786,7 @@ np.savez(path, **mdict_arr)
 
 # Prob don't need to run script below here unless exploring data
 print(f"Saved T12 dataset to {path}")
+exit(0)
 ##
 # spot check 6/28 since missing audio block 5
 # not sure if okay or not
