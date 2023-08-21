@@ -108,7 +108,7 @@ def update_configs(
     max_len_cli: int = typer.Option(48000, "--max-len"),
     seqlen_cli: int = typer.Option(300, "--seqlen")
 ):
-    """Update configurations with command-line values."""
+    """Update configurations with command-line values. Must pass --cli to use"""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
 
@@ -123,6 +123,7 @@ def update_configs(
     val_bz = val_bz_cli
     max_len = max_len_cli
     seqlen = seqlen_cli
+    print("Updated configurations using command-line arguments.")
 
 
 if RESUME:
@@ -245,8 +246,11 @@ elif gpu_ram > 30:
 else:
     raise ValueError("Unknown GPU")
 
-if __name__ == "__main__" and "--cli" in sys.argv:
-    app()
+if __name__ == "__main__":
+    try:
+        app()
+    except SystemExit as e:
+        pass
 
 
 ##
