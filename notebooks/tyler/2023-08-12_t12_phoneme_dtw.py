@@ -34,6 +34,8 @@ from align import align_from_distances
 from helpers import sentence_to_fn
 from data_utils import read_phonemes, mel_spectrogram
 
+import bottleneck
+
 from bark import SAMPLE_RATE as TTS_SAMPLE_RATE
 SCRIPT_DIR = "/home/tyler/code/silent_speech"
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
@@ -441,6 +443,8 @@ mat_speakingMode = {}
 mat_audioEnvelope = {}
 mat_dataset_partition = {}
 
+window_size = 
+
 saw_bad_audio = False
 # for mat_file in tqdm(sentences_files):
 for mat_file in sentences_files:
@@ -508,8 +512,9 @@ for mat_file in sentences_files:
     assert len(sentence_mat['blockList']) == len(block_start_idxs)
     assert len(sentence_mat['blockList']) == len(block_end_idxs)
     for block_idx, start,end in zip(sentence_mat['blockList'].squeeze(), block_start_idxs, block_end_idxs):
+        block_idx = f"block{block_idx}" # summary stat for block
         spikePow_stats[block_idx] = np.array([
-            np.mean(sentence_mat['spikePow'][start:end], axis=0),
+            np.mean(    ['spikePow'][start:end], axis=0),
             np.var(sentence_mat['spikePow'][start:end], axis=0)])
         tx1_stats[block_idx] = np.array([
             np.mean(sentence_mat['tx1'][start:end], axis=0),
@@ -549,18 +554,25 @@ for mat_file in sentences_files:
     aligned_phonemes = []
     audioEnvelope = []
     
-    
+    prev_block_start_idx = 0
+    sentence_rel_n = 0 # relative sentence number within block
     for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
         sentence = sentence.rstrip()
         go_cue_idx = sentence_mat['goTrialEpochs'][sentenceIdx]
         
+        sentence_spikePow = sentence_mat['spikePow'][go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx1 = sentence_mat['tx1'][go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx2 = sentence_mat['tx2'][go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx3 = sentence_mat['tx3'][go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx4 = sentence_mat['tx4'][go_cue_idx[0]:go_cue_idx[1]]
+        
         sentences.append(sentence)
-        spikePow.append(sentence_mat['spikePow'][go_cue_idx[0]:go_cue_idx[1]])
-        tx1.append(sentence_mat['tx1'][go_cue_idx[0]:go_cue_idx[1]])
-        tx2.append(sentence_mat['tx2'][go_cue_idx[0]:go_cue_idx[1]])
-        tx3.append(sentence_mat['tx3'][go_cue_idx[0]:go_cue_idx[1]])
-        tx4.append(sentence_mat['tx4'][go_cue_idx[0]:go_cue_idx[1]])
+        spikePow.append(sentence_spikePow)
+        tx1.append(sentence_tx1)
+        tx2.append(sentence_tx2)
+        tx3.append(sentence_tx3)
+        tx4.append(sentence_tx4)
         
         block.append(sentence_mat['blockNum'][go_cue_idx[0]])
         
@@ -576,6 +588,36 @@ for mat_file in sentences_files:
             dataset_partition.append("test")
         else:
             dataset_partition.append("train")
+        
+        
+        # Per Willet, et al 2023:
+        # "For the first ten sentences of a new block, we used a weighted
+        # average of the prior block's mean estimate and the mean of
+        # whatever sentences were collected so far in the current block"
+        if sentenceIdx < 10:
+            prev_block_idx = f"block{sentence_mat['blockNum'][go_cue_idx[0]]-1}"
+            spikePow_stats[sentenceIdx] = np.array([
+                (10-sentenceIdx)/10 * spikePow_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(spikePow).mean(axis=0),
+                (10-sentenceIdx)/10 * spikePow_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(spikePow).var(axis=0),
+            ])
+            tx1_stats[sentenceIdx] = np.array([
+                (10-sentenceIdx)/10 * tx1_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx1).mean(axis=0),
+                (10-sentenceIdx)/10 * tx1_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx1).var(axis=0),
+            ])
+            tx2_stats[sentenceIdx] = np.array([
+                (10-sentenceIdx)/10 * tx2_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx2).mean(axis=0),
+                (10-sentenceIdx)/10 * tx2_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx2).var(axis=0),
+            ])
+            tx3_stats[sentenceIdx] = np.array([
+                (10-sentenceIdx)/10 * tx3_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx3).mean(axis=0),
+                (10-sentenceIdx)/10 * tx3_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx3).var(axis=0),
+            ])
+            tx4_stats[sentenceIdx] = np.array([
+                (10-sentenceIdx)/10 * tx4_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx4).mean(axis=0),
+                (10-sentenceIdx)/10 * tx4_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx4).var(axis=0),
+            ])
+        else:
+        
         
         
         try:
