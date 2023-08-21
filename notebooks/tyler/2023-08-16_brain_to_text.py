@@ -175,6 +175,7 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 if gpu_ram < 24:
     # Titan RTX
     # val_bz = 16 # OOM
+    base_bz = 32
     val_bz = 8
     # max_len = 24000 # OOM
     max_len = 12000 # approx 11000 / 143 = 77 bz. 75 * 2 GPU = 150 bz. still high..?
@@ -183,7 +184,7 @@ if gpu_ram < 24:
 elif gpu_ram > 30:
     # V100
     # base_bz = 24
-    base_bz = 12 # don't think does anything..?
+    base_bz = 32
     val_bz = 8
     max_len = 48000
     # assert NUM_GPUS == 4
@@ -297,14 +298,18 @@ class T12Dataset(NeuralDataset):
         
 class T12DataModule(pl.LightningDataModule):
     def __init__(self, t12_npz, audio_type="tts_mspecs", max_len=32000,
-                 num_replicas=1, val_bz:int=16):
+                 num_replicas=1, val_bz:int=16, fixed_length=False):
         super().__init__()
         self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
         self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs")
         self.collate_fn = collate_gaddy_speech_or_neural
         lengths = [t['neural_features'].shape[0] for t in self.train]
-        self.TrainBatchSampler = DistributedSizeAwareSampler(lengths,
-            max_len=max_len, num_replicas=num_replicas)
+        if fixed_length:
+            self.TrainBatchSampler = lambda: DistributedSizeAwareSampler(lengths,
+                max_len=max_len, num_replicas=num_replicas)
+        else:
+            self.TrainBatchSampler = lambda: DistributedSampler(self.train,
+                shuffle=True, num_replicas=num_replicas)
         if num_replicas > 1:
             self.ValSampler = lambda: DistributedSampler(self.val,
                 shuffle=False, num_replicas=num_replicas)
@@ -318,7 +323,7 @@ class T12DataModule(pl.LightningDataModule):
             collate_fn=self.collate_fn,
             pin_memory=True,
             num_workers=0,
-            batch_sampler=self.TrainBatchSampler
+            batch_sampler=self.TrainBatchSampler()
         )
         
     def val_dataloader(self):
@@ -400,7 +405,8 @@ text_transform = TextTransform(togglePhones = togglePhones)
 ##
 os.makedirs(output_directory, exist_ok=True)
 
-steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
+# steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
+steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
 n_chars = len(text_transform.chars)
