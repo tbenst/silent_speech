@@ -53,6 +53,7 @@ from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
 # import neptune, shutil
 import neptune.new as neptune, shutil
+import typer
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler, PassThroughProfiler
@@ -81,6 +82,7 @@ constant_offset_sd = 0.2
 white_noise_sd = 1
 # constant_offset_sd = 0
 # white_noise_sd = 0
+seqlen = 600
 auto_lr_find = False
 
 # see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
@@ -89,6 +91,38 @@ learning_rate = 3e-4
 # learning_rate = 1.5e-4
 togglePhones = False
 
+
+app = typer.Typer()
+
+@app.command()
+def update_configs(
+    constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
+    white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
+    debug_cli: bool = typer.Option(False, "--debug"),
+    resume_cli: bool = typer.Option(False, "--resume"),
+    grad_accum_cli: int = typer.Option(1, "--grad-accum"),
+    precision_cli: str = typer.Option("16-mixed", "--precision"),
+    logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
+    base_bz_cli: int = typer.Option(24, "--base-bz"),
+    val_bz_cli: int = typer.Option(8, "--val-bz"),
+    max_len_cli: int = typer.Option(48000, "--max-len"),
+    seqlen_cli: int = typer.Option(300, "--seqlen")
+):
+    """Update configurations with command-line values."""
+    global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
+    global precision, logger_level, base_bz, val_bz, max_len, seqlen
+
+    constant_offset_sd = constant_offset_sd_cli
+    white_noise_sd = white_noise_sd_cli
+    DEBUG = debug_cli
+    RESUME = resume_cli
+    grad_accum = grad_accum_cli
+    precision = precision_cli
+    logger_level = getattr(logging, logger_level_cli.upper())
+    base_bz = base_bz_cli
+    val_bz = val_bz_cli
+    max_len = max_len_cli
+    seqlen = seqlen_cli
 
 
 if RESUME:
@@ -210,6 +244,9 @@ elif gpu_ram > 30:
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
+
+if __name__ == "__main__" and "--cli" in sys.argv:
+    app()
 
 
 ##
@@ -438,7 +475,7 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate, audio_lambda=0.,
     neural_input_features=datamodule.train.n_features,
-    seqlen=300, max_len=max_len,
+    seqlen=seqlen, max_len=max_len,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
 model = MONA(config, text_transform)
@@ -501,6 +538,8 @@ elif NUM_GPUS == 1:
 else:
     devices = 'auto'
     strategy = "auto"
+    
+# TODO: why are there only 16 * 35 = 560 sentences in validation..? shouldn't there be 1000?
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
     devices=devices,
