@@ -209,7 +209,13 @@ else:
 
 
 ##
-t12_npz = np.load(t12_npz_path, allow_pickle=True)
+def load_npz_to_memory(npz_path):
+    npz = np.load(npz_path, allow_pickle=True)
+    loaded_data = {k: npz[k] for k in npz}
+    npz.close()
+    return loaded_data
+
+t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
 ##
 tot_trials = len(t12_npz['spikePow'])
 missing_phones = np.sum(np.array([p is None for p in t12_npz['aligned_phonemes']]))
@@ -362,6 +368,8 @@ datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
     num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz*NUM_GPUS,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 ##
+# TODO: why is this super slow on sherlock now (5 minutes..?) It was seconds before...
+# we must be hitting filesystem...
 for t in tqdm(datamodule.train, desc="checking for NaNs"):
     if torch.any(torch.isnan(t['neural_features'])):
         print("got NaN for neural_features")
