@@ -98,6 +98,7 @@ app = typer.Typer()
 def update_configs(
     constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
     white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
+    learning_rate_cli: float = typer.Option(1, "--learning-rate"),
     debug_cli: bool = typer.Option(False, "--debug"),
     resume_cli: bool = typer.Option(False, "--resume"),
     grad_accum_cli: int = typer.Option(1, "--grad-accum"),
@@ -111,7 +112,9 @@ def update_configs(
     """Update configurations with command-line values. Must pass --cli to use"""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
+    global learning_rate
 
+    learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
     white_noise_sd = white_noise_sd_cli
     DEBUG = debug_cli
