@@ -492,7 +492,7 @@ trainer = pl.Trainer(
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
     num_sanity_val_steps=0,
     # https://lightning.ai/docs/pytorch/stable/debug/debugging_intermediate.html#detect-autograd-anomalies
-    detect_anomaly=True # slooooow
+    # detect_anomaly=True # slooooow
 )
 
 if auto_lr_find:
