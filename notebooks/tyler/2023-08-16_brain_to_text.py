@@ -170,6 +170,8 @@ if ON_SHERLOCK:
     if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
         shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
     t12_npz_path = os.path.join(scratch_directory, "2023-08-21_T12_dataset.npz")
+    if len(os.sched_getaffinity(0)) > 16:
+        print("WARNING: if you are running more than one script, you may want to use `taskset -c 0-16` or similar")
 else:
     # on my local machine
     sessions_dir = '/data/magneto/'
