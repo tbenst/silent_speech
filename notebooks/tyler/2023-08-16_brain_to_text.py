@@ -5,6 +5,7 @@
 # %autoreload 2
 ##
 import os, subprocess
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
@@ -222,13 +223,16 @@ if not log_neptune:
     logging.warning("not logging to neptune")
 ##
 class NeuralDataset(torch.utils.data.Dataset):
-    def __init__(self, neural, audio, phonemes, sentences, text_transform):
+    def __init__(self, neural, audio, phonemes, sentences, text_transform,
+                 white_noise_sd=0, constant_offset_sd=0):
         self.neural = neural
         self.audio = audio
         self.phonemes = phonemes
         self.sentences = sentences
         self.text_transform = text_transform
         self.n_features = neural[0].shape[1]
+        self.white_noise_sd = white_noise_sd
+        self.constant_offset_sd = constant_offset_sd
         super().__init__()
     
     def __getitem__(self, idx):
@@ -237,9 +241,14 @@ class NeuralDataset(torch.utils.data.Dataset):
         aud = aud if aud is None else torch.from_numpy(aud)
         phon = self.phonemes[idx]
         phon = phon if phon is None else torch.from_numpy(phon)
+        nf = torch.from_numpy(self.neural[idx])
+        if self.white_noise_sd > 0:
+            nf += torch.randn_like(nf) * self.white_noise_sd
+        if self.constant_offset_sd > 0:
+            nf += torch.randn(1) * self.constant_offset_sd
         return {
             "audio_features": aud,
-            "neural_features": torch.from_numpy(self.neural[idx]),
+            "neural_features": nf,
             "text": self.sentences[idx],
             "text_int": torch.from_numpy(text_int),
             "phonemes": phon,
@@ -250,7 +259,7 @@ class NeuralDataset(torch.utils.data.Dataset):
 
 class T12Dataset(NeuralDataset):
     def __init__(self, t12_npz, partition="train",
-                 audio_type="tts_mspecs"):
+            audio_type="tts_mspecs", white_noise_sd=0, constant_offset_sd=0):
                 #  audio_type="tts_mspecs"):
         """T12 BCI dataset.
         
@@ -294,13 +303,16 @@ class T12Dataset(NeuralDataset):
         phonemes = t12_npz["aligned_phonemes"][idx]
         sentences = t12_npz["sentences"][idx]
         text_transform = TextTransform(togglePhones = False)
-        super().__init__(neural, audio, phonemes, sentences, text_transform)
+        super().__init__(neural, audio, phonemes, sentences, text_transform,
+            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
         
 class T12DataModule(pl.LightningDataModule):
     def __init__(self, t12_npz, audio_type="tts_mspecs", max_len=32000,
-                 num_replicas=1, train_bz:int=32, val_bz:int=16, fixed_length=False):
+                 num_replicas=1, train_bz:int=32, val_bz:int=16, fixed_length=False,
+                 white_noise_sd=1.0, constant_offset_sd=0.2):
         super().__init__()
-        self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
+        self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs",
+                white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
         self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs")
         self.collate_fn = collate_gaddy_speech_or_neural
 
