@@ -209,8 +209,8 @@ else:
 
 
 ##
-def load_npz_to_memory(npz_path):
-    npz = np.load(npz_path, allow_pickle=True)
+def load_npz_to_memory(npz_path, **kwargs):
+    npz = np.load(npz_path, **kwargs)
     loaded_data = {k: npz[k] for k in npz}
     npz.close()
     return loaded_data
