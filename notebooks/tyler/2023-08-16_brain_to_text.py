@@ -72,7 +72,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 RESUME = False
 # RESUME = True
 
@@ -298,42 +298,23 @@ class T12Dataset(NeuralDataset):
         
 class T12DataModule(pl.LightningDataModule):
     def __init__(self, t12_npz, audio_type="tts_mspecs", max_len=32000,
-                 num_replicas=1, val_bz:int=16, fixed_length=False):
+                 num_replicas=1, train_bz:int=32, val_bz:int=16, fixed_length=False):
         super().__init__()
         self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
         self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs")
         self.collate_fn = collate_gaddy_speech_or_neural
-        lengths = [t['neural_features'].shape[0] for t in self.train]
-        if fixed_length:
-            self.TrainBatchSampler = lambda: DistributedSizeAwareSampler(lengths,
-                max_len=max_len, num_replicas=num_replicas)
-        else:
-            self.TrainBatchSampler = lambda: DistributedSampler(self.train,
-                shuffle=True, num_replicas=num_replicas)
-        if num_replicas > 1:
-            self.ValSampler = lambda: DistributedSampler(self.val,
-                shuffle=False, num_replicas=num_replicas)
-        else:
-            self.ValSampler = lambda: None
+
+        self.train_bz = train_bz
         self.val_bz = val_bz
         self.fixed_length = fixed_length
         
     def train_dataloader(self):
-        if self.fixed_length:
-            return torch.utils.data.DataLoader(
+        return torch.utils.data.DataLoader(
                 self.train,
                 collate_fn=self.collate_fn,
                 pin_memory=True,
                 num_workers=0,
-                batch_sampler=self.TrainBatchSampler()
-            )
-        else:
-            return torch.utils.data.DataLoader(
-                self.train,
-                collate_fn=self.collate_fn,
-                pin_memory=True,
-                num_workers=0,
-                sampler=self.TrainBatchSampler()
+                batch_size=self.train_bz,
             )
         
     def val_dataloader(self):
@@ -343,7 +324,6 @@ class T12DataModule(pl.LightningDataModule):
             pin_memory=True,
             num_workers=0,
             batch_size=self.val_bz,
-            sampler=self.ValSampler()
         )
         
     def test_dataloader(self):
@@ -352,7 +332,7 @@ class T12DataModule(pl.LightningDataModule):
     
 # train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
 datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
-    num_replicas=NUM_GPUS, max_len=max_len, val_bz=val_bz*NUM_GPUS)
+    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz*NUM_GPUS)
 ##
 for t in tqdm(datamodule.train, desc="checking for NaNs"):
     if torch.any(torch.isnan(t['neural_features'])):
@@ -500,7 +480,7 @@ trainer = pl.Trainer(
     limit_train_batches=limit_train_batches,
     limit_val_batches=limit_val_batches,
     # strategy=strategy,
-    use_distributed_sampler=False, # we need to make a custom distributed sampler
+    # use_distributed_sampler=False, # we need to make a custom distributed sampler
     # num_sanity_val_steps=num_sanity_val_steps,
     sync_batchnorm=True,
     strategy=strategy,
