@@ -178,7 +178,9 @@ else:
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
     t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset.npz"
-    
+
+print(f"CPU affinity: {os.sched_getaffinity(0)}")
+
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
