@@ -434,16 +434,54 @@ mat_tx1 = {}
 mat_tx2 = {}
 mat_tx3 = {}
 mat_tx4 = {}
-mat_spikePow_stats = {}
-mat_tx1_stats = {}
-mat_tx2_stats = {}
-mat_tx3_stats = {}
-mat_tx4_stats = {}
 mat_speakingMode = {}
 mat_audioEnvelope = {}
 mat_dataset_partition = {}
 
-window_size = 
+
+total_T = 0
+n_sentences = 0
+for mat_file in sentences_files:
+    sentence_mat = mat_files[mat_file]
+    total_T += sentence_mat['spikePow'].shape[0]
+    n_sentences += len(sentence_mat['sentences'])
+# npz = np.load('/data/data/T12_data/synthetic_audio/2023-08-20_T12_dataset.npz',
+#               allow_pickle=True)
+# np.sum([n.shape[0] for n in npz['spikePow']]) / len(npz['spikePow'])
+# 311.06
+# rolling window of 20 sentences.
+# Avg sentence is: 312 during goCue and 555.8 in total on average
+# 20 sentences rolling z-score idea from Willett et al. 2023
+# my implementation a bit different as constant in time steps
+window_size = int(np.ceil(total_T/n_sentences)) * 20
+##
+
+def moving_mean(x, window):
+    "For T x N matrix, compute the rolling mean over window timesteps."
+    x_mean = x.unfold(0,window,1).mean(dim=2)
+    # use first mean for first window-1 timesteps
+    # technically acausal for first window-1 timesteps
+    x[:window-1] = x_mean[0]
+    x[window-1:] = x_mean
+    return x
+
+def moving_std(x, window):
+    "For T x N matrix, compute the rolling mean over window timesteps."
+    x_mean = x.unfold(0,window,1).std(dim=2)
+    # use first mean for first window-1 timesteps
+    # technically acausal for first window-1 timesteps
+    x[:window-1] = x_mean[0]
+    x[window-1:] = x_mean
+    return x
+
+def moving_zscore(x, window, eps=1e-6):
+    "For T x N matrix, compute the rolling z-score over window timesteps."
+    x_mean = moving_mean(x, window)
+    x_std = moving_std(x, window)
+    zscored = (x - x_mean) / (x_std + eps)
+    return zscored
+    
+# movet = moving_mean(sentence_mat['spikePow'], window_size)
 
 saw_bad_audio = False
 # for mat_file in tqdm(sentences_files):
@@ -503,38 +541,6 @@ for mat_file in sentences_files:
         #     2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
         #                for aud in audio_block]
     
-    # calculate mean & variance per block for spikePow, tx1, tx2, tx3, tx4
-    spikePow_stats = {}
-    tx1_stats = {}
-    tx2_stats = {}
-    tx3_stats = {}
-    tx4_stats = {}
-    assert len(sentence_mat['blockList']) == len(block_start_idxs)
-    assert len(sentence_mat['blockList']) == len(block_end_idxs)
-    for block_idx, start,end in zip(sentence_mat['blockList'].squeeze(), block_start_idxs, block_end_idxs):
-        block_idx = f"block{block_idx}" # summary stat for block
-        spikePow_stats[block_idx] = np.array([
-            np.mean(    ['spikePow'][start:end], axis=0),
-            np.var(sentence_mat['spikePow'][start:end], axis=0)])
-        tx1_stats[block_idx] = np.array([
-            np.mean(sentence_mat['tx1'][start:end], axis=0),
-            np.var(sentence_mat['tx1'][start:end], axis=0)])
-        tx2_stats[block_idx] = np.array([
-            np.mean(sentence_mat['tx2'][start:end], axis=0),
-            np.var(sentence_mat['tx2'][start:end], axis=0)])
-        tx3_stats[block_idx] = np.array([
-            np.mean(sentence_mat['tx3'][start:end], axis=0),
-            np.var(sentence_mat['tx3'][start:end], axis=0)])
-        tx4_stats[block_idx] = np.array([
-            np.mean(sentence_mat['tx4'][start:end], axis=0),
-            np.var(sentence_mat['tx4'][start:end], axis=0)])
-    
-    mat_spikePow_stats[mat_name] = spikePow_stats
-    mat_tx1_stats[mat_name] = tx1_stats
-    mat_tx2_stats[mat_name] = tx2_stats
-    mat_tx3_stats[mat_name] = tx3_stats
-    mat_tx4_stats[mat_name] = tx4_stats
-    
     assert len(audio_block) < 100
     # always append
     sentences = []
@@ -553,19 +559,33 @@ for mat_file in sentences_files:
     aligned_mspecs = []
     aligned_phonemes = []
     audioEnvelope = []
+
+    zscored_spikePow = moving_zscore(
+        torch.from_numpy(sentence_mat['spikePow']).float().cuda(),
+        window_size).cpu().numpy()
+    zscored_tx1 = moving_zscore(
+        torch.from_numpy(sentence_mat['tx1']).float().cuda(),
+        window_size).cpu().numpy()
+    zscored_tx2 = moving_zscore(
+        torch.from_numpy(sentence_mat['tx2']).float().cuda(),
+        window_size).cpu().numpy()
+    zscored_tx3 = moving_zscore(
+        torch.from_numpy(sentence_mat['tx3']).float().cuda(),
+        window_size).cpu().numpy()
+    zscored_tx4 = moving_zscore(
+        torch.from_numpy(sentence_mat['tx4']).float().cuda(),
+        window_size).cpu().numpy()
     
-    prev_block_start_idx = 0
-    sentence_rel_n = 0 # relative sentence number within block
     for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
         sentence = sentence.rstrip()
         go_cue_idx = sentence_mat['goTrialEpochs'][sentenceIdx]
         
-        sentence_spikePow = sentence_mat['spikePow'][go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx1 = sentence_mat['tx1'][go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx2 = sentence_mat['tx2'][go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx3 = sentence_mat['tx3'][go_cue_idx[0]:go_cue_idx[1]]
-        sentence_tx4 = sentence_mat['tx4'][go_cue_idx[0]:go_cue_idx[1]]
+        sentence_spikePow = zscored_spikePow[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx1 = zscored_tx1[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx2 = zscored_tx2[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx3 = zscored_tx3[go_cue_idx[0]:go_cue_idx[1]]
+        sentence_tx4 = zscored_tx4[go_cue_idx[0]:go_cue_idx[1]]
         
         sentences.append(sentence)
         spikePow.append(sentence_spikePow)
@@ -588,37 +608,6 @@ for mat_file in sentences_files:
             dataset_partition.append("test")
         else:
             dataset_partition.append("train")
-        
-        
-        # Per Willet, et al 2023:
-        # "For the first ten sentences of a new block, we used a weighted
-        # average of the prior block's mean estimate and the mean of
-        # whatever sentences were collected so far in the current block"
-        if sentenceIdx < 10:
-            prev_block_idx = f"block{sentence_mat['blockNum'][go_cue_idx[0]]-1}"
-            spikePow_stats[sentenceIdx] = np.array([
-                (10-sentenceIdx)/10 * spikePow_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(spikePow).mean(axis=0),
-                (10-sentenceIdx)/10 * spikePow_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(spikePow).var(axis=0),
-            ])
-            tx1_stats[sentenceIdx] = np.array([
-                (10-sentenceIdx)/10 * tx1_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx1).mean(axis=0),
-                (10-sentenceIdx)/10 * tx1_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx1).var(axis=0),
-            ])
-            tx2_stats[sentenceIdx] = np.array([
-                (10-sentenceIdx)/10 * tx2_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx2).mean(axis=0),
-                (10-sentenceIdx)/10 * tx2_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx2).var(axis=0),
-            ])
-            tx3_stats[sentenceIdx] = np.array([
-                (10-sentenceIdx)/10 * tx3_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx3).mean(axis=0),
-                (10-sentenceIdx)/10 * tx3_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx3).var(axis=0),
-            ])
-            tx4_stats[sentenceIdx] = np.array([
-                (10-sentenceIdx)/10 * tx4_stats[prev_block_idx][0] + sentenceIdx/10 * np.array(tx4).mean(axis=0),
-                (10-sentenceIdx)/10 * tx4_stats[prev_block_idx][1] + sentenceIdx/10 * np.array(tx4).var(axis=0),
-            ])
-        else:
-        
-        
         
         try:
             tts_audio, tts_phones, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
@@ -692,7 +681,7 @@ for mat_file in sentences_files:
     mat_audioEnvelope[mat_name] = audioEnvelope
     mat_dataset_partition[mat_name] = dataset_partition
 
- ##
+##
 # save to Zarr
 # flatten to 1D arrays of length num_sentences
 num_sentences_per_mat = []
@@ -757,11 +746,6 @@ mdict = {
     "mspecs": flat_mspecs, "tts_mspecs": flat_tts_mspecs, "tts_phonemes": flat_tts_phonemes,
     "aligned_tts_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
     "spikePow": flat_spikePow, "tx1": flat_tx1, "tx2": flat_tx2, "tx3": flat_tx3, "tx4": flat_tx4,
-    "spikePow_stats": mat_spikePow_stats,
-    "tx1_stats": mat_tx1_stats,
-    "tx2_stats": mat_tx2_stats,
-    "tx3_stats": mat_tx3_stats,
-    "tx4_stats": mat_tx4_stats,
 }
 
 mdict_arr = {}
