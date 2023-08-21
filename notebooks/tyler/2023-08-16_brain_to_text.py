@@ -72,7 +72,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 
 DEBUG = False
-# DEBUG = True
+DEBUG = True
 RESUME = False
 # RESUME = True
 
@@ -318,13 +318,22 @@ class T12DataModule(pl.LightningDataModule):
         self.val_bz = val_bz
         
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.train,
-            collate_fn=self.collate_fn,
-            pin_memory=True,
-            num_workers=0,
-            batch_sampler=self.TrainBatchSampler()
-        )
+        if fixed_length:
+            return torch.utils.data.DataLoader(
+                self.train,
+                collate_fn=self.collate_fn,
+                pin_memory=True,
+                num_workers=0,
+                batch_sampler=self.TrainBatchSampler()
+            )
+        else:
+            return torch.utils.data.DataLoader(
+                self.train,
+                collate_fn=self.collate_fn,
+                pin_memory=True,
+                num_workers=0,
+                sampler=self.TrainBatchSampler()
+            )
         
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
