@@ -5,7 +5,6 @@
 # %autoreload 2
 ##
 import os, subprocess
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
