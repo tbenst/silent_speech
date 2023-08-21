@@ -602,6 +602,7 @@ class MONAConfig:
     resid_dropout:float = 0.0
     max_len:int = 480000
     num_heads:int = 8
+    fixed_length:bool = False # gaddy style fixed length of combining examples
     
     def __post_init__(self):
         if self.warmup_steps is None:
@@ -678,6 +679,8 @@ class MONA(Model):
         self.step_target = []
         self.step_pred = []
         self.sup_nce_lambda = cfg.sup_nce_lambda
+        
+        self.fixed_length = cfg.fixed_length
         
         # self.supervised_contrastive_loss = SupConLoss(temperature=0.1)
     
@@ -766,49 +769,63 @@ class MONA(Model):
         return self.decoder(z), z
     
     def forward(self, emg:List[torch.Tensor], neural:List[torch.Tensor], audio:List[torch.Tensor],
-                length_emg, length_neural, length_audio):
+                length_emg, length_neural, length_audio, fixed_length=None):
         """Group x by task and predict characters for the batch.
         
         Note that forward will call combine_fixed_length, re-splitting the batch into
         self.seqlen chunks. I believe this is done to avoid having to pad the batch to the max,
         which also may quadratically reduce memory usage due to attention. This is prob okay for
         training, but for inference we want to use the full sequence length."""
+        if fixed_length is None:
+            fixed_length = self.fixed_length
         if len(emg) > 0:
             # print(f"FORWARD emg shape: {[e.shape for e in emg]=}")
-            emg = combine_fixed_length(emg, self.seqlen*8)
+            if fixed_length:
+                emg = combine_fixed_length(emg, self.seqlen*8)
+            else:
+                emg = nn.utils.rnn.pad_sequence(emg, batch_first=True)
             # logging.debug(f"FORWARD emg shape: {emg.shape}")
             emg_pred, emg_z = self.emg_forward(emg)
             emg_bz = len(emg) # batch size not known until after combine_fixed_length
             length_emg = [l // 8 for l in length_emg]
-            logging.debug(f"before decollate {len(emg_pred)=}, {emg_pred[0].shape=}")
-            emg_pred = decollate_tensor(emg_pred, length_emg)
-            logging.debug(f"after decollate {len(emg_pred)=}, {emg_pred[0].shape=}")
+            # logging.debug(f"before decollate {len(emg_pred)=}, {emg_pred[0].shape=}")
+            if fixed_length:
+                emg_pred = decollate_tensor(emg_pred, length_emg)
+                emg_z = decollate_tensor(emg_z, length_emg)
+            # logging.debug(f"after decollate {len(emg_pred)=}, {emg_pred[0].shape=}")
             # logging.debug(f"before decollate {len(emg_z)=}, {emg_z[0].shape=}")
             # # TODO: perhaps we shouldn't decollate z, since we need to use it cross contrastive loss
             # INFO: but we have to decollate or else we don't know which audio to pair with which emg
-            emg_z = decollate_tensor(emg_z, length_emg)
             # logging.debug(f"after decollate {len(emg_z)=}, {emg_z[0].shape=}")
         else:
             emg_pred, emg_z, emg_bz = None, None, 0
             
         if len(neural) > 0:
-            neural = combine_fixed_length(neural, self.seqlen)
+            if fixed_length:
+                neural = combine_fixed_length(neural, self.seqlen)
+            else:
+                neural = nn.utils.rnn.pad_sequence(neural, batch_first=True)
             # logging.debug(f"FORWARD neural shape: {neural.shape}")
             neural_pred, neural_z = self.neural_forward(neural)
             neural_bz = len(neural)
-            neural_pred = decollate_tensor(neural_pred, length_neural)
-            neural_z = decollate_tensor(neural_z, length_neural)
+            if fixed_length:
+                neural_pred = decollate_tensor(neural_pred, length_neural)
+                neural_z = decollate_tensor(neural_z, length_neural)
         else:
             raise ValueError("Expecting neural right now")
             neural_pred, neural_z, neural_bz = None, None, 0
 
         if len(audio) > 0:
-            audio = combine_fixed_length(audio, self.seqlen)
+            if fixed_length:
+                audio = combine_fixed_length(audio, self.seqlen)
+            else:
+                audio = nn.utils.rnn.pad_sequence(audio, batch_first=True)
             # logging.debug(f"FORWARD audio shape: {audio.shape}")
             audio_pred, audio_z = self.audio_forward(audio)
             audio_bz = len(audio)
-            audio_pred = decollate_tensor(audio_pred, length_audio)
-            audio_z = decollate_tensor(audio_z, length_audio)
+            if fixed_length:
+                audio_pred = decollate_tensor(audio_pred, length_audio)
+                audio_z = decollate_tensor(audio_z, length_audio)
         else:
             audio_pred, audio_z, audio_bz = None, None, 0
         

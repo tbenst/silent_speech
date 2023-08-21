@@ -116,7 +116,7 @@ else:
     precision = "16-mixed"
 
     if ON_SHERLOCK:
-        NUM_GPUS = 4
+        NUM_GPUS = 2
         grad_accum = 1
         # precision = "32"
     # variable length batches are destroying pytorch lightning
@@ -154,6 +154,7 @@ if ON_SHERLOCK:
     tmp_lengths_pkl = os.path.join("/tmp", "2023-07-25_emg_speech_dset_lengths.pkl")
     if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
         shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
+    t12_npz_path = os.path.join(scratch_directory, "2023-08-21_T12_dataset.npz")
 else:
     # on my local machine
     sessions_dir = '/data/magneto/'
