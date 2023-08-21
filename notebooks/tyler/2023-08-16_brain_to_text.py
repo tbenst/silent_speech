@@ -392,7 +392,7 @@ neural, length_neural
 auto_lr_find = False
 # see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
 # learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
-learning_rate = 3e-4
+learning_rate = 1e-4
 # learning_rate = 1.5e-4
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
