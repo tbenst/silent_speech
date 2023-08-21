@@ -175,7 +175,8 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 if gpu_ram < 24:
     # Titan RTX
     # val_bz = 16 # OOM
-    base_bz = 32
+    # base_bz = 32
+    base_bz = 24
     val_bz = 8
     # max_len = 24000 # OOM
     max_len = 12000 # approx 11000 / 143 = 77 bz. 75 * 2 GPU = 150 bz. still high..?
@@ -183,8 +184,8 @@ if gpu_ram < 24:
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
-    # base_bz = 24
-    base_bz = 32
+    base_bz = 24
+    # base_bz = 32 # OOM epoch ~4
     val_bz = 8
     max_len = 48000
     # assert NUM_GPUS == 4
