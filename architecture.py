@@ -574,7 +574,6 @@ class MONAConfig:
     input_channels:int = 8
     learning_rate:float = 3e-4 # also sets initial s4 lr
     weight_decay:float = 0.01
-    adam_epsilon:float = 1e-8
     warmup_steps:int = None # warmup by backward steps
     batch_size:int = 12 # not necessary depending on batch sampler
     num_workers:int = 0
@@ -1158,3 +1157,9 @@ class MONA(Model):
             pass
         else:
             super().log(*args, **kwargs)
+            
+    def on_before_optimizer_step(self, optimizer):
+        # Compute the 2-norm for each layer
+        # If using mixed precision, the gradients are already unscaled here
+        norms = pl.utilities.grad_norm(self.layer, norm_type=2)
+        self.log_dict(norms)

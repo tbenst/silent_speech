@@ -407,7 +407,8 @@ num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate, audio_lambda=0.,
-    neural_input_features=datamodule.train.n_features)
+    neural_input_features=datamodule.train.n_features,
+    seqlen=300, max_len=max_len)
 
 model = MONA(config, text_transform)
 logging.info('made model')
@@ -490,6 +491,8 @@ trainer = pl.Trainer(
     # also model only ~250MB of params, so fsdp may be overkill
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
     num_sanity_val_steps=0,
+    # https://lightning.ai/docs/pytorch/stable/debug/debugging_intermediate.html#detect-autograd-anomalies
+    detect_anomaly=True 
 )
 
 if auto_lr_find:
