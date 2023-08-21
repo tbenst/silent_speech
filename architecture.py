@@ -606,6 +606,8 @@ class MONAConfig:
     max_len:int = 480000
     num_heads:int = 8
     fixed_length:bool = False # gaddy style fixed length of combining examples
+    constant_offset_sd:float = 1.0
+    white_noise_sd:float = 0.2
     
     def __post_init__(self):
         if self.warmup_steps is None:

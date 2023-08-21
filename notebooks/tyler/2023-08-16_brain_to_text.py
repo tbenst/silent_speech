@@ -76,6 +76,21 @@ DEBUG = False
 RESUME = False
 # RESUME = True
 
+
+# constant_offset_sd = 0.2
+# white_noise_sd = 1
+constant_offset_sd = 0
+white_noise_sd = 0
+auto_lr_find = False
+
+# see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
+# learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
+learning_rate = 3e-4
+# learning_rate = 1.5e-4
+togglePhones = False
+
+
+
 if RESUME:
     # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
     # to think about: can we do this automatically on gaia/sherlock if OOM..? (maybe we don't care / can do manually)
@@ -344,7 +359,8 @@ class T12DataModule(pl.LightningDataModule):
     
 # train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
 datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
-    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz*NUM_GPUS)
+    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz*NUM_GPUS,
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 ##
 for t in tqdm(datamodule.train, desc="checking for NaNs"):
     if torch.any(torch.isnan(t['neural_features'])):
@@ -397,14 +413,7 @@ neural, length_neural
 ##
 # max([x.max() for x in t12_npz["spikePow"]])
 ##
-auto_lr_find = False
-# see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
-# learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
-learning_rate = 3e-4
-# learning_rate = 1.5e-4
-togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
-##
 os.makedirs(output_directory, exist_ok=True)
 
 # steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
@@ -417,7 +426,8 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate, audio_lambda=0.,
     neural_input_features=datamodule.train.n_features,
-    seqlen=300, max_len=max_len)
+    seqlen=300, max_len=max_len,
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
 model = MONA(config, text_transform)
 logging.info('made model')
