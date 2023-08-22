@@ -331,6 +331,8 @@ if log_neptune:
         neptune_logger.experiment["isotime"] = isotime
         neptune_logger.experiment["hostname"] = hostname
         neptune_logger.experiment["output_directory"] = output_directory
+        if "SLURM_JOB_ID" in os.environ:
+            neptune_logger.experiment["SLURM_JOB_ID"] = os.environ["SLURM_JOB_ID"]
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
