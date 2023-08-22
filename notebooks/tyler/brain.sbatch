@@ -5,7 +5,7 @@
 #SBATCH -p deissero
 #SBATCH --nodes=1
 #SBATCH -c 8
-#SBATCH --gres:gpu=2
+#SBATCH --gpus-per-node=2
 #SBATCH --ntasks-per-node=2
 #SBATCH --mem=64GB
 
