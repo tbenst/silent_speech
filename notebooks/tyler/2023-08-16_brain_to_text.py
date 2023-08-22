@@ -127,6 +127,7 @@ def update_configs(
     max_len = max_len_cli
     seqlen = seqlen_cli
     print("Updated configurations using command-line arguments.")
+    print(f"{learning_rate=}")
 
 
 if RESUME:
