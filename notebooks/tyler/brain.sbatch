@@ -7,7 +7,7 @@
 #SBATCH -c 6
 #SBATCH --gpus-per-node=2
 #SBATCH --ntasks-per-node=2
-#SBATCH --mem-per-cpu=7.8GB
+#SBATCH --mem-per-cpu=8000
 
 # --gres:gpu=N, --ntasks-per-node N, and --devices N must all be the same value
 # https://github.com/Lightning-AI/lightning/issues/16828
