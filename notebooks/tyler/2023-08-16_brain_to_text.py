@@ -190,7 +190,7 @@ if gpu_ram < 24:
     # base_bz = 32
     # base_bz = 24
     base_bz = 16
-    val_bz = 8
+    val_bz = 16
     # max_len = 24000 # OOM
     max_len = 12000 # approx 11000 / 143 = 77 bz. 75 * 2 GPU = 150 bz. still high..?
     # max_len = 18000 # no OOM, approx 110 bz (frank used 64)
@@ -199,7 +199,7 @@ elif gpu_ram > 30:
     # V100
     base_bz = 24
     # base_bz = 48
-    val_bz = 8
+    val_bz = 16
     max_len = 48000
     # assert NUM_GPUS == 4
 else:
@@ -435,7 +435,7 @@ class T12DataModule(pl.LightningDataModule):
     
 # train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
 datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
-    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz*NUM_GPUS,
+    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
     no_audio=True)
 ##
@@ -558,7 +558,6 @@ if log_neptune:
 else:
     neptune_logger = None
     
-# TODO: why are there only 16 * 35 = 560 sentences in validation..? shouldn't there be 1000?
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
     devices=devices,
