@@ -197,8 +197,8 @@ if gpu_ram < 24:
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
-    # base_bz = 24
-    base_bz = 48
+    base_bz = 24
+    # base_bz = 48
     val_bz = 8
     max_len = 48000
     # assert NUM_GPUS == 4

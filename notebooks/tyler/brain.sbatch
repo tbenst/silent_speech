@@ -4,10 +4,10 @@
 #SBATCH --time=48:00:00
 #SBATCH -p deissero
 #SBATCH --nodes=1
-#SBATCH -c 8
+#SBATCH -c 6
 #SBATCH --gpus-per-node=2
 #SBATCH --ntasks-per-node=2
-#SBATCH --mem=64GB
+#SBATCH --mem-per-cpu=7.8GB
 
 # --gres:gpu=N, --ntasks-per-node N, and --devices N must all be the same value
 # https://github.com/Lightning-AI/lightning/issues/16828
@@ -17,4 +17,4 @@
 ml nccl/2.17.1
 cd ~/code/silent_speech/notebooks/tyler/
 # srun python 2023-08-16_brain_to_text.py --learning-rate="6e-4" --devices=2
-srun python 2023-08-16_brain_to_text.py --learning-rate="6e-4" --devices=2 --white-noise-sd=0 --constant-offset-sd=0
+srun python 2023-08-16_brain_to_text.py --precision=32 --devices=2 --white-noise-sd=0 --constant-offset-sd=0
