@@ -84,44 +84,6 @@ learning_rate = 3e-4
 # learning_rate = 1.5e-4
 togglePhones = False
 
-
-app = typer.Typer()
-
-@app.command()
-def update_configs(
-    constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
-    white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
-    learning_rate_cli: float = typer.Option(1, "--learning-rate"),
-    debug_cli: bool = typer.Option(DEBUG, "--debug/--no-debug"),
-    resume_cli: bool = typer.Option(False, "--resume"),
-    grad_accum_cli: int = typer.Option(1, "--grad-accum"),
-    precision_cli: str = typer.Option("16-mixed", "--precision"),
-    logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
-    base_bz_cli: int = typer.Option(24, "--base-bz"),
-    val_bz_cli: int = typer.Option(8, "--val-bz"),
-    max_len_cli: int = typer.Option(48000, "--max-len"),
-    seqlen_cli: int = typer.Option(300, "--seqlen")
-):
-    """Update configurations with command-line values. Must pass --cli to use"""
-    global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
-    global precision, logger_level, base_bz, val_bz, max_len, seqlen
-    global learning_rate
-
-    learning_rate = learning_rate_cli
-    constant_offset_sd = constant_offset_sd_cli
-    white_noise_sd = white_noise_sd_cli
-    DEBUG = debug_cli
-    RESUME = resume_cli
-    grad_accum = grad_accum_cli
-    precision = precision_cli
-    logger_level = getattr(logging, logger_level_cli.upper())
-    base_bz = base_bz_cli
-    val_bz = val_bz_cli
-    max_len = max_len_cli
-    seqlen = seqlen_cli
-    print("Updated configurations using command-line arguments.")
-
-
 if RESUME:
     # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
     # to think about: can we do this automatically on gaia/sherlock if OOM..? (maybe we don't care / can do manually)
