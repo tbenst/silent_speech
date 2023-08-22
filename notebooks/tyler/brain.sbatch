@@ -5,11 +5,12 @@
 #SBATCH -p deissero
 #SBATCH --nodes=1
 #SBATCH -c 8
-#SBATCH  --gpus=2
+#SBATCH --gres:gpu=2
 #SBATCH --ntasks-per-node=2
 #SBATCH --mem=64GB
 
-# --gpus N, --ntasks-per-node N, and --devices N must all be the same value
+# --gres:gpu=N, --ntasks-per-node N, and --devices N must all be the same value
+# https://github.com/Lightning-AI/lightning/issues/16828
 # TODO: auto wal/ql-time resubmittion:
 # https://lightning.ai/docs/pytorch/stable/clouds/cluster_advanced.html#enable-auto-wall-time-resubmitions
 . activate magneto
