@@ -617,22 +617,24 @@ class MONA(Model):
     "Multimodal Orofacial Neural Audio"
     
     def __init__(self, cfg:MONAConfig, text_transform:TextTransform,
-                 profiler = None):
+                 profiler = None, no_emg=False, no_audio=False):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
-        self.emg_conv_blocks = nn.Sequential(
-            ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=False,
-                beta=cfg.beta),
-            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
-                beta=cfg.beta**2),
-            ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
-                beta=cfg.beta**3)
-        )
-        self.audio_conv_blocks = nn.Sequential(
-            ResBlock(80, cfg.d_model, beta=cfg.beta), # 80 mel freq cepstrum coefficients
-            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
-            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
-        )
+        if not no_emg:
+            self.emg_conv_blocks = nn.Sequential(
+                ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=False,
+                    beta=cfg.beta),
+                ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
+                    beta=cfg.beta**2),
+                ResBlock(cfg.d_model, cfg.d_model, 2, pre_activation=False,
+                    beta=cfg.beta**3)
+            )
+        if not no_audio:
+            self.audio_conv_blocks = nn.Sequential(
+                ResBlock(80, cfg.d_model, beta=cfg.beta), # 80 mel freq cepstrum coefficients
+                ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
+                ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
+            )
         self.neural_conv_blocks = nn.Sequential(
             # TODO: should we do a 2D conv here..? T x C x F,
             # where C is the number of electrodes (256)
@@ -644,16 +646,16 @@ class MONA(Model):
         )
         self.neural_input_encoder = nn.Linear(cfg.neural_input_features, cfg.neural_reduced_features)
         # equivalent to w_raw_in in Gaddy's model
-        self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
-        # self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model)
-        # self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model)
         # affine=False so emg&audio latent are both unit norm
-        self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+        if not no_emg:
+            self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
+            self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.neural_pre_norm = nn.BatchNorm1d(cfg.neural_input_features)
         self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
-        self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
-        self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
+        if not no_audio:
+            self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+            self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
             relative_positional_distance=100, dim_feedforward=cfg.d_inner,

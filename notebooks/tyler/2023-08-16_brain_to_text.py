@@ -8,14 +8,6 @@ import os, subprocess
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
-if ON_SHERLOCK:
-    os.environ["SLURM_JOB_NAME"] = "interactive" # best practice for pytorch lightning...
-    os.environ["SLURM_NTASKS"] = "1" # best practice for pytorch lightning...
-    # best guesses
-    os.environ["SLURM_LOCALID"] = "0" # Migtht be used by pytorch lightning...
-    os.environ["SLURM_NODEID"] = "0" # Migtht be used by pytorch lightning...
-    os.environ["SLURM_NTASKS_PER_NODE"] = "1" # Migtht be used by pytorch lightning...
-    os.environ["SLURM_PROCID"] = "0" # Migtht be used by pytorch lightning...
 
 # from pl source code
 # "SLURM_NODELIST": "1.1.1.1, 1.1.1.2",
@@ -127,7 +119,6 @@ def update_configs(
     max_len = max_len_cli
     seqlen = seqlen_cli
     print("Updated configurations using command-line arguments.")
-    print(f"{learning_rate=}")
 
 
 if RESUME:
@@ -166,12 +157,12 @@ else:
     NUM_GPUS = 2
     # grad_accum = 3
     # grad_accum = 2 # EMG only, 128000 max_len
-    grad_accum = 1
+    grad_accum = 2
     precision = "16-mixed"
 
     if ON_SHERLOCK:
         NUM_GPUS = 2
-        grad_accum = 1
+        # grad_accum = 1
         # precision = "32"
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
@@ -234,7 +225,8 @@ if gpu_ram < 24:
     # Titan RTX
     # val_bz = 16 # OOM
     # base_bz = 32
-    base_bz = 24
+    # base_bz = 24
+    base_bz = 16
     val_bz = 8
     # max_len = 24000 # OOM
     max_len = 12000 # approx 11000 / 143 = 77 bz. 75 * 2 GPU = 150 bz. still high..?
@@ -242,13 +234,50 @@ if gpu_ram < 24:
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
-    base_bz = 24
-    # base_bz = 32 # OOM epoch ~4
+    # base_bz = 24
+    base_bz = 48
     val_bz = 8
     max_len = 48000
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
+
+
+app = typer.Typer()
+
+@app.command()
+def update_configs(
+    constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
+    white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
+    learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
+    debug_cli: bool = typer.Option(DEBUG, "--debug"),
+    resume_cli: bool = typer.Option(RESUME, "--resume"),
+    grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
+    precision_cli: str = typer.Option("16-mixed", "--precision"),
+    logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
+    base_bz_cli: int = typer.Option(base_bz, "--base-bz"),
+    val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
+    max_len_cli: int = typer.Option(max_len, "--max-len"),
+    seqlen_cli: int = typer.Option(seqlen, "--seqlen")
+):
+    """Update configurations with command-line values. Must pass --cli to use"""
+    global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
+    global precision, logger_level, base_bz, val_bz, max_len, seqlen
+    global learning_rate
+
+    learning_rate = learning_rate_cli
+    constant_offset_sd = constant_offset_sd_cli
+    white_noise_sd = white_noise_sd_cli
+    DEBUG = debug_cli
+    RESUME = resume_cli
+    grad_accum = grad_accum_cli
+    precision = precision_cli
+    logger_level = getattr(logging, logger_level_cli.upper())
+    base_bz = base_bz_cli
+    val_bz = val_bz_cli
+    max_len = max_len_cli
+    seqlen = seqlen_cli
+    print("Updated configurations using command-line arguments.")
 
 if __name__ == "__main__":
     try:
@@ -298,7 +327,7 @@ if not log_neptune:
 ##
 class NeuralDataset(torch.utils.data.Dataset):
     def __init__(self, neural, audio, phonemes, sentences, text_transform,
-                 white_noise_sd=0, constant_offset_sd=0):
+                 white_noise_sd=0, constant_offset_sd=0, no_audio=False):
         self.neural = neural
         self.audio = audio
         self.phonemes = phonemes
@@ -307,12 +336,16 @@ class NeuralDataset(torch.utils.data.Dataset):
         self.n_features = neural[0].shape[1]
         self.white_noise_sd = white_noise_sd
         self.constant_offset_sd = constant_offset_sd
+        self.no_audio = no_audio
         super().__init__()
     
     def __getitem__(self, idx):
         text_int = np.array(self.text_transform.text_to_int(self.sentences[idx]), dtype=np.int64)
-        aud = self.audio[idx]
-        aud = aud if aud is None else torch.from_numpy(aud)
+        if self.no_audio:
+            aud = None
+        else:
+            aud = self.audio[idx]
+            aud = aud if aud is None else torch.from_numpy(aud)
         phon = self.phonemes[idx]
         phon = phon if phon is None else torch.from_numpy(phon)
         nf = torch.from_numpy(self.neural[idx])
@@ -332,7 +365,7 @@ class NeuralDataset(torch.utils.data.Dataset):
         return len(self.neural)
 
 class T12Dataset(NeuralDataset):
-    def __init__(self, t12_npz, partition="train",
+    def __init__(self, t12_npz, partition="train", no_audio=False,
             audio_type="tts_mspecs", white_noise_sd=0, constant_offset_sd=0):
                 #  audio_type="tts_mspecs"):
         """T12 BCI dataset.
@@ -378,16 +411,20 @@ class T12Dataset(NeuralDataset):
         sentences = t12_npz["sentences"][idx]
         text_transform = TextTransform(togglePhones = False)
         super().__init__(neural, audio, phonemes, sentences, text_transform,
-            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
+            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+            no_audio=no_audio)
         
 class T12DataModule(pl.LightningDataModule):
     def __init__(self, t12_npz, audio_type="tts_mspecs", max_len=32000,
                  num_replicas=1, train_bz:int=32, val_bz:int=16, fixed_length=False,
-                 white_noise_sd=1.0, constant_offset_sd=0.2):
+                 white_noise_sd=1.0, constant_offset_sd=0.2,
+                 no_audio=True):
         super().__init__()
         self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs",
-                white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
-        self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs")
+                white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+                no_audio=no_audio)
+        self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs",
+                              no_audio=no_audio)
         self.collate_fn = collate_gaddy_speech_or_neural
 
         self.train_bz = train_bz
@@ -419,7 +456,8 @@ class T12DataModule(pl.LightningDataModule):
 # train_dset = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs")
 datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
     num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz*NUM_GPUS,
-    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+    no_audio=True)
 ##
 # TODO: why is this super slow on sherlock now (5 minutes..?) It was seconds before...
 # we must be hitting filesystem...
@@ -490,7 +528,7 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     seqlen=seqlen, max_len=max_len,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
-model = MONA(config, text_transform)
+model = MONA(config, text_transform, no_emg=True, no_audio=True)
 logging.info('made model')
 
 callbacks = [
