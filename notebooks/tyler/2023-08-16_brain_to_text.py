@@ -542,7 +542,7 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate, audio_lambda=0.,
     neural_input_features=datamodule.train.n_features,
-    seqlen=seqlen, max_len=max_len,
+    seqlen=seqlen, max_len=max_len, batch_size=base_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
 model = MONA(config, text_transform, no_emg=True, no_audio=True)
