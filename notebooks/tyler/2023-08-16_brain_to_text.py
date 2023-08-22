@@ -128,7 +128,7 @@ else:
     NUM_GPUS = 2
     # grad_accum = 3
     # grad_accum = 2 # EMG only, 128000 max_len
-    grad_accum = 1
+    grad_accum = 2
     precision = "16-mixed"
 
     if ON_SHERLOCK:
@@ -220,16 +220,16 @@ app = typer.Typer()
 def update_configs(
     constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
     white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
-    learning_rate_cli: float = typer.Option(1, "--learning-rate"),
-    debug_cli: bool = typer.Option(False, "--debug"),
-    resume_cli: bool = typer.Option(False, "--resume"),
-    grad_accum_cli: int = typer.Option(1, "--grad-accum"),
+    learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
+    debug_cli: bool = typer.Option(DEBUG, "--debug"),
+    resume_cli: bool = typer.Option(RESUME, "--resume"),
+    grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option("16-mixed", "--precision"),
     logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
     base_bz_cli: int = typer.Option(base_bz, "--base-bz"),
-    val_bz_cli: int = typer.Option(8, "--val-bz"),
+    val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
-    seqlen_cli: int = typer.Option(300, "--seqlen")
+    seqlen_cli: int = typer.Option(seqlen, "--seqlen")
 ):
     """Update configurations with command-line values. Must pass --cli to use"""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
