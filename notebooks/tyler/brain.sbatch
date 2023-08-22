@@ -16,4 +16,5 @@
 . activate magneto
 ml nccl/2.17.1
 cd ~/code/silent_speech/notebooks/tyler/
-srun python 2023-08-16_brain_to_text.py --learning-rate="6e-4" --devices=2
+# srun python 2023-08-16_brain_to_text.py --learning-rate="6e-4" --devices=2
+srun python 2023-08-16_brain_to_text.py --learning-rate="6e-4" --devices=2 --white-noise-sd=0 --constant-offset-sd=0
