@@ -5,7 +5,7 @@
 # %autoreload 2
 ##
 import os, subprocess
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
@@ -50,7 +50,7 @@ from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler, PassThroughProfiler
 from pytorch_lightning.strategies import DDPStrategy
-from data_utils import TextTransform
+from data_utils import TextTransform, in_notebook
 from typing import List
 from collections import defaultdict
 from enum import Enum
@@ -63,6 +63,7 @@ from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
+
 
 DEBUG = False
 # DEBUG = True
@@ -91,7 +92,7 @@ def update_configs(
     constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
     white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
     learning_rate_cli: float = typer.Option(1, "--learning-rate"),
-    debug_cli: bool = typer.Option(False, "--debug"),
+    debug_cli: bool = typer.Option(DEBUG, "--debug/--no-debug"),
     resume_cli: bool = typer.Option(False, "--resume"),
     grad_accum_cli: int = typer.Option(1, "--grad-accum"),
     precision_cli: str = typer.Option("16-mixed", "--precision"),
@@ -243,6 +244,17 @@ else:
     raise ValueError("Unknown GPU")
 
 
+
+if NUM_GPUS > 1:
+    devices = 'auto'
+    strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True)
+elif NUM_GPUS == 1:
+    devices = [0]
+    strategy = "auto"
+else:
+    devices = 'auto'
+    strategy = "auto"
+
 app = typer.Typer()
 
 @app.command()
@@ -258,13 +270,19 @@ def update_configs(
     base_bz_cli: int = typer.Option(base_bz, "--base-bz"),
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
-    seqlen_cli: int = typer.Option(seqlen, "--seqlen")
+    seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
+    devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values. Must pass --cli to use"""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
-    global learning_rate
+    global learning_rate, devices
 
+    devices = devices_cli
+    try:
+        devices = int(devices) # eg "2" -> 2
+    except:
+        pass
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
     white_noise_sd = white_noise_sd_cli
@@ -279,7 +297,7 @@ def update_configs(
     seqlen = seqlen_cli
     print("Updated configurations using command-line arguments.")
 
-if __name__ == "__main__":
+if __name__ == "__main__" and not in_notebook():
     try:
         app()
     except SystemExit as e:
@@ -459,8 +477,7 @@ datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
     no_audio=True)
 ##
-# TODO: why is this super slow on sherlock now (5 minutes..?) It was seconds before...
-# we must be hitting filesystem...
+# INFO: on sherlock this is taking 1 minute. On local machine, 2-3 seconds.
 for t in tqdm(datamodule.train, desc="checking for NaNs"):
     if torch.any(torch.isnan(t['neural_features'])):
         print("got NaN for neural_features")
@@ -578,16 +595,6 @@ if log_neptune:
     ])
 else:
     neptune_logger = None
-
-if NUM_GPUS > 1:
-    devices = 'auto'
-    strategy=DDPStrategy(gradient_as_bucket_view=True, find_unused_parameters=True)
-elif NUM_GPUS == 1:
-    devices = [0]
-    strategy = "auto"
-else:
-    devices = 'auto'
-    strategy = "auto"
     
 # TODO: why are there only 16 * 35 = 560 sentences in validation..? shouldn't there be 1000?
 trainer = pl.Trainer(
