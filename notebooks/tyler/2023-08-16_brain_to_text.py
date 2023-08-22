@@ -221,13 +221,13 @@ app = typer.Typer()
 
 @app.command()
 def update_configs(
-    constant_offset_sd_cli: float = typer.Option(0.2, "--constant-offset-sd"),
-    white_noise_sd_cli: float = typer.Option(1, "--white-noise-sd"),
+    constant_offset_sd_cli: float = typer.Option(constant_offset_sd, "--constant-offset-sd"),
+    white_noise_sd_cli: float = typer.Option(white_noise_sd, "--white-noise-sd"),
     learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
     debug_cli: bool = typer.Option(DEBUG, "--debug"),
     resume_cli: bool = typer.Option(RESUME, "--resume"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
-    precision_cli: str = typer.Option("16-mixed", "--precision"),
+    precision_cli: str = typer.Option(precision, "--precision"),
     logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
     base_bz_cli: int = typer.Option(base_bz, "--base-bz"),
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
