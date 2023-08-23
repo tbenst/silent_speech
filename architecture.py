@@ -703,9 +703,11 @@ class MONA(Model):
         self.profiler = profiler or PassThroughProfiler()
         
         if sessions is not None:
+            self.use_session_input_encoder = True
             self.session_input_encoder = LinearDispatch(sessions,
                 cfg.neural_input_features, cfg.neural_reduced_features)
         else:
+            self.use_session_input_encoder = False
             self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
                                                   cfg.neural_reduced_features)
         
@@ -800,7 +802,7 @@ class MONA(Model):
         x = x.transpose(1,2)
         x = self.neural_pre_norm(x)
         x = x.transpose(1,2)
-        if not sessions is None:
+        if self.use_session_input_encoder:
             x = self.session_input_encoder(x, sessions)
         else:
             x = self.neural_input_encoder(x) # reduce number of inputs
