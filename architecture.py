@@ -1149,7 +1149,7 @@ class MONA(Model):
         # TODO: refactor so easy to call on nerual, emg, audio
         X = nn.utils.rnn.pad_sequence(batch['neural_features'], batch_first=True)
         # X = nn.utils.rnn.pad_sequence(batch['raw_emg'], batch_first=True)
-        pred  = self.neural_forward(X)[0].cpu()
+        pred  = self.neural_forward(X, sessions=batch['sessions'])[0].cpu()
         # pred  = self.emg_forward(X)[0].cpu()
 
         beam_results = self.ctc_decoder(pred)
