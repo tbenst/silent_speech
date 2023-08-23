@@ -815,7 +815,7 @@ class MONA(Model):
 
         
     def audio_encoder(self, x):
-        "Encode emg (B x T x C) into a latent space (B x T/8 x D)"
+        "Encode audio (B x T x C) into a latent space (B x T/8 x D)"
         x = x.transpose(1,2) # put channel before time for conv
         x = self.audio_conv_blocks(x)
         x = x.transpose(1,2)
