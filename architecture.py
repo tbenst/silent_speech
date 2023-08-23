@@ -901,9 +901,6 @@ class MONA(Model):
             else:
                 neural = nn.utils.rnn.pad_sequence(neural, batch_first=True)
             # logging.debug(f"FORWARD neural shape: {neural.shape}")
-            
-            if not sessions is None:
-                neural = self.session_input(neural, sessions)
             neural_pred, neural_z = self.neural_forward(neural)
             neural_bz = len(neural)
             if fixed_length:
