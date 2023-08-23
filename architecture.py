@@ -570,6 +570,9 @@ class H3Model(nn.Module):
         else:
             return self.w_out(x)
 
+# TODO: refactor batching dispatch logic in forward, and replace neual/audio/emg
+# encoder with a single Module that dispatches to the appropriate encoder
+# we can rid ourselves of emg_encoder, audio_encoder, neural_encoder, etc.
 class LinearDispatch(nn.Module):
     """Based on a class label, dispatch to a linear layer.
     
