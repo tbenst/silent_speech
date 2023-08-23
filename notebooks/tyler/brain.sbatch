@@ -2,7 +2,7 @@
 #SBATCH --output=z%j.out
 #SBATCH --error=z%j.err
 #SBATCH --time=48:00:00
-#SBATCH -p deissero,owners
+#SBATCH -p deissero,gpu,owners
 #SBATCH --nodes=1
 #SBATCH -c 6
 #SBATCH --gpus-per-node=2

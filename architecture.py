@@ -24,6 +24,8 @@ from typing import Tuple
 from pytorch_lightning.loggers import NeptuneLogger
 from align import align_from_distances
 
+from collections import defaultdict
+
 import gc
 import logging
 
@@ -568,6 +570,78 @@ class H3Model(nn.Module):
         else:
             return self.w_out(x)
 
+class LinearDispatch(nn.Module):
+    """Based on a class label, dispatch to a linear layer.
+    
+    Attributes:
+        classes (List[str]): The list of classes for dispatching.
+        layers (nn.ModuleDict): Dictionary of linear layers for each class.
+    """
+    def __init__(self, classes:List[str], in_features:int, out_features:int):
+        """Initializes the LinearDispatch with given classes, features and output size.
+        
+        Args:
+            classes (List[str]): List of classes.
+            in_features (int): Number of features in the input.
+            out_features (int): Number of outputs from the linear layer.
+        """
+        super().__init__()
+        # module name can't contain "."
+        self.classes = list(map(self.sanitize_name, classes))
+        self.out_features = out_features
+        self.layers = nn.ModuleDict({
+            c: nn.Linear(in_features, out_features) for c in self.classes
+        })
+        
+    def sanitize_name(self, c:str) -> str:
+        """Sanitizes a class string to be a valid module name.
+        
+        Args:
+            c (str): Class string.
+            
+        Returns:
+            str: Sanitized class string.
+        """
+        assert c != "", "Class string cannot be empty"
+        assert type(c) == str, "Class string must be a string"
+        return c.replace(".","_")
+        
+    def forward(self, x: torch.Tensor, classes: List[str]) -> torch.Tensor:
+        """Splits the batch into class_batches, then apply the appropriate linear layer,
+        then concatenate the results back together in the same order.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch x ... x features).
+            classes (List[str]): A batch of class labels.
+            
+        Returns:
+            torch.Tensor: Processed tensor.
+            
+        
+        Usage:
+            x = torch.ones(5, 8)
+            sessions = ['arst', 'ad', 'arst', 'ad', 'wqf']
+            layer = LinearDispatch(sessions, 8, 4)
+            layer(x, sessions)
+        """
+        assert len(x) == len(classes), "Batch size must be the same for x and classes"
+        class_batches = {c: [] for c in self.classes}
+
+        for i, c in enumerate(classes):
+            if c not in self.classes:
+                raise ValueError(f"Unexpected class {c}")
+            class_batches[self.sanitize_name(c)].append(i)
+        
+        # Initialize the return tensor and populate it with the processed class outputs.
+        out = torch.zeros((*x.shape[:-1], self.out_features), dtype=x.dtype, device=x.device)
+
+        for c, indices in class_batches.items():
+            if indices:  # Only process if there are indices for this class
+                batch_for_class = x[indices]  # This gets the corresponding rows for this class
+                out[indices] = self.layers[c](batch_for_class)
+        
+        return out
+
 
 @dataclass
 class MONAConfig:
@@ -617,9 +691,17 @@ class MONA(Model):
     "Multimodal Orofacial Neural Audio"
     
     def __init__(self, cfg:MONAConfig, text_transform:TextTransform,
-                 profiler = None, no_emg=False, no_audio=False):
+                 profiler = None, no_emg=False, no_audio=False, sessions:List[str]=None):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
+        
+        if not sessions is None:
+            self.neural_input_encoder = LinearDispatch(sessions,
+                cfg.neural_input_features, cfg.neural_reduced_features)
+        else:
+            self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
+                                                  cfg.neural_reduced_features)
+        
         if not no_emg:
             self.emg_conv_blocks = nn.Sequential(
                 ResBlock(cfg.input_channels, cfg.d_model, 2, pre_activation=False,
@@ -644,7 +726,7 @@ class MONA(Model):
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
-        self.neural_input_encoder = nn.Linear(cfg.neural_input_features, cfg.neural_reduced_features)
+        
         # equivalent to w_raw_in in Gaddy's model
         # affine=False so emg&audio latent are both unit norm
         if not no_emg:
@@ -776,7 +858,7 @@ class MONA(Model):
         return self.decoder(z), z
     
     def forward(self, emg:List[torch.Tensor], neural:List[torch.Tensor], audio:List[torch.Tensor],
-                length_emg, length_neural, length_audio, fixed_length=None):
+                length_emg, length_neural, length_audio, sessions=None, fixed_length=None):
         """Group x by task and predict characters for the batch.
         
         Note that forward will call combine_fixed_length, re-splitting the batch into
@@ -813,6 +895,9 @@ class MONA(Model):
             else:
                 neural = nn.utils.rnn.pad_sequence(neural, batch_first=True)
             # logging.debug(f"FORWARD neural shape: {neural.shape}")
+            
+            if not sessions is None:
+                neural = self.session_input(neural, sessions)
             neural_pred, neural_z = self.neural_forward(neural)
             neural_bz = len(neural)
             if fixed_length:
@@ -862,6 +947,7 @@ class MONA(Model):
         return loss
 
     def batch_forward(self, batch):
+        sessions = batch['sessions']
         emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
         emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
         neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
@@ -870,7 +956,8 @@ class MONA(Model):
         
         (emg_pred, neural_pred, audio_pred), \
             (emg_z, neural_z, audio_z), \
-            (emg_bz, neural_bz, audio_bz) = self(emg, neural, audio, length_emg, length_neural, length_audio)
+            (emg_bz, neural_bz, audio_bz) = self(emg, neural, audio, length_emg, length_neural, length_audio,
+                                                 sessions=sessions)
         ret = {
             'emg_pred': emg_pred, 'neural_pred': neural_pred, 'audio_pred': audio_pred,
             'emg_z': emg_z, 'neural_z': neural_z, 'audio_z': audio_z,

@@ -203,10 +203,12 @@ def collate_gaddy_speech_or_neural(batch):
     silent = []
     audio_only = []
     has_neural = []
+    sessions = []
     for example in batch:
         text_int.append(example['text_int'])
         text_int_lengths.append(example['text_int'].shape[0])
         phonemes.append(example['phonemes'])
+        sessions.append(example['session'])
         if type(example['text']) == np.ndarray:
             text.append(example['text'][0]) # use a string instead of array([string])
         else:
@@ -282,6 +284,7 @@ def collate_gaddy_speech_or_neural(batch):
         'silent': silent,
         'audio_only': audio_only,
         'has_neural': has_neural,
+        'sessions': sessions,
         'text': text,
         'text_int': text_int,
         'text_int_lengths': text_int_lengths,

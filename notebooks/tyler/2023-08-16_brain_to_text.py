@@ -6,6 +6,7 @@
 ##
 import os, subprocess
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
@@ -71,10 +72,10 @@ RESUME = False
 # RESUME = True
 
 
-constant_offset_sd = 0.2
-white_noise_sd = 1
-# constant_offset_sd = 0
-# white_noise_sd = 0
+# constant_offset_sd = 0.2
+# white_noise_sd = 1
+constant_offset_sd = 0
+white_noise_sd = 0
 seqlen = 600
 auto_lr_find = False
 
@@ -183,7 +184,9 @@ togglePhones = False
 if ON_SHERLOCK:
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
     
-gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+# gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+# print("TODO FIXME: hardcoded gpu_ram")
+# gpu_ram = 31
 
 if gpu_ram < 24:
     # Titan RTX
@@ -308,16 +311,23 @@ if not log_neptune:
 ##
 class NeuralDataset(torch.utils.data.Dataset):
     def __init__(self, neural, audio, phonemes, sentences, text_transform,
+                 sessions=None,
                  white_noise_sd=0, constant_offset_sd=0, no_audio=False):
         self.neural = neural
         self.audio = audio
         self.phonemes = phonemes
         self.sentences = sentences
+        self.sessions = sessions
         self.text_transform = text_transform
         self.n_features = neural[0].shape[1]
         self.white_noise_sd = white_noise_sd
         self.constant_offset_sd = constant_offset_sd
         self.no_audio = no_audio
+        if sessions is not None:
+            self.unique_sessions = np.unique(sessions)
+        else:
+            self.unique_sessions = np.array([])
+        
         super().__init__()
     
     def __getitem__(self, idx):
@@ -334,13 +344,18 @@ class NeuralDataset(torch.utils.data.Dataset):
             nf += torch.randn_like(nf) * self.white_noise_sd
         if self.constant_offset_sd > 0:
             nf += torch.randn(1) * self.constant_offset_sd
-        return {
+        ret = {
             "audio_features": aud,
             "neural_features": nf,
             "text": self.sentences[idx],
             "text_int": torch.from_numpy(text_int),
             "phonemes": phon,
         }
+        if self.sessions is not None:
+            ret["session"] = self.sessions[idx]
+        else:
+            ret["session"] = None
+        return ret
         
     def __len__(self):
         return len(self.neural)
@@ -366,8 +381,8 @@ class T12Dataset(NeuralDataset):
         # mean, variance per block
         aud = t12_npz[audio_type]
         for i in tqdm(idx, desc="concatenating neural data"):
-            block_idx = t12_npz["block"][i][0]
-            session = t12_npz["session"][i]
+            # block_idx = t12_npz["block"][i][0]
+            # session = t12_npz["session"][i]
             # print(session, block_idx)
 
             neural.append(np.concatenate([
@@ -390,8 +405,10 @@ class T12Dataset(NeuralDataset):
                 audio.append((aud[i]+5) / 5) # TODO: match librispeech
         phonemes = t12_npz["aligned_phonemes"][idx]
         sentences = t12_npz["sentences"][idx]
+        sessions = t12_npz["session"][idx]
         text_transform = TextTransform(togglePhones = False)
         super().__init__(neural, audio, phonemes, sentences, text_transform,
+            sessions=sessions,
             white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
             no_audio=no_audio)
         
@@ -440,20 +457,21 @@ datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
     no_audio=True)
 ##
-# INFO: on sherlock this is taking 1 minute. On local machine, 2-3 seconds.
-for t in tqdm(datamodule.train, desc="checking for NaNs"):
-    if torch.any(torch.isnan(t['neural_features'])):
-        print("got NaN for neural_features")
-        break
-    if t['audio_features'] is not None and torch.any(torch.isnan(t['audio_features'])):
-        print("got NaN for audio_features")
-        break
-    if t['phonemes'] is not None and torch.any(torch.isnan(t['phonemes'])):
-        print("got NaN for phones")
-        break
-    if torch.any(torch.isnan(t['text_int'])):
-        print("got NaN for text_int")
-        break
+# INFO: on sherlock this is taking 1 minute. On local machine, 0 seconds.
+# Sometimes on sherlock this takes 3+ minutes. Why?
+# for t in tqdm(datamodule.train, desc="checking for NaNs"):
+#     if torch.any(torch.isnan(t['neural_features'])):
+#         print("got NaN for neural_features")
+#         break
+#     if t['audio_features'] is not None and torch.any(torch.isnan(t['audio_features'])):
+#         print("got NaN for audio_features")
+#         break
+#     if t['phonemes'] is not None and torch.any(torch.isnan(t['phonemes'])):
+#         print("got NaN for phones")
+#         break
+#     if torch.any(torch.isnan(t['text_int'])):
+#         print("got NaN for text_int")
+#         break
 ##
 emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(collate_gaddy_speech_or_neural([datamodule.train[i] for i in range(5)]))
 (neural, length_neural, neural_phonemes, y_length_neural, y_neural) = neural_tup
@@ -508,7 +526,8 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     seqlen=seqlen, max_len=max_len, batch_size=base_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
-model = MONA(config, text_transform, no_emg=True, no_audio=True)
+model = MONA(config, text_transform, no_emg=True, no_audio=True,
+             sessions=datamodule.train.unique_sessions)
 logging.info('made model')
 
 callbacks = [
@@ -603,4 +622,3 @@ if log_neptune:
     ckpt_path = os.path.join(output_directory,f"finished-training_epoch={model.current_epoch}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
-##
