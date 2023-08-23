@@ -701,7 +701,7 @@ class MONA(Model):
         pl.LightningModule.__init__(self)
         self.profiler = profiler or PassThroughProfiler()
         
-        if not sessions is None:
+        if sessions is not None:
             self.session_input_encoder = LinearDispatch(sessions,
                 cfg.neural_input_features, cfg.neural_reduced_features)
         else:
@@ -852,13 +852,13 @@ class MONA(Model):
         z = self.emg_encoder(x) # latent space
         return self.decoder(z), z
     
-    def neural_forward(self, x):
+    def neural_forward(self, x, sessions=None):
         """Predict characters from neural features (B x Tau x 1280)
         
         20ms frames for neural
         
         """
-        z = self.neural_encoder(x) # latent space
+        z = self.neural_encoder(x, sessions=sessions) # latent space
         return self.decoder(z), z
 
     def audio_forward(self, x):
