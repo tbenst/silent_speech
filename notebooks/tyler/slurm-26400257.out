@@ -1,6 +1,0 @@
-
-EnvironmentNameNotFound: Could not find conda environment: mag-3.9
-You can list all discoverable environments with `conda info --envs`.
-
-
-slurmstepd: error: *** JOB 26400257 ON sh03-06n27 CANCELLED AT 2023-08-04T07:22:46 ***
