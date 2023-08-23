@@ -702,7 +702,7 @@ class MONA(Model):
         self.profiler = profiler or PassThroughProfiler()
         
         if not sessions is None:
-            self.neural_input_encoder = LinearDispatch(sessions,
+            self.session_input_encoder = LinearDispatch(sessions,
                 cfg.neural_input_features, cfg.neural_reduced_features)
         else:
             self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
@@ -794,12 +794,15 @@ class MONA(Model):
         x = x.transpose(1,2) # B x T/8 x C
         return x
     
-    def neural_encoder(self, x):
+    def neural_encoder(self, x, sessions=None):
         "Encode neural (B x T x C) into a latent space (B x Tau x D)"
         # x = x.transpose(1,2)
         # x = self.neural_pre_norm(x)
         # x = x.transpose(1,2)
-        x = self.neural_input_encoder(x) # reduce number of inputs
+        if not sessions is None:
+            x = self.session_input_encoder(x, sessions)
+        else:
+            x = self.neural_input_encoder(x) # reduce number of inputs
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
         x = x.transpose(1,2)
@@ -901,7 +904,7 @@ class MONA(Model):
             else:
                 neural = nn.utils.rnn.pad_sequence(neural, batch_first=True)
             # logging.debug(f"FORWARD neural shape: {neural.shape}")
-            neural_pred, neural_z = self.neural_forward(neural)
+            neural_pred, neural_z = self.neural_forward(neural, sessions=sessions)
             neural_bz = len(neural)
             if fixed_length:
                 neural_pred = decollate_tensor(neural_pred, length_neural)
