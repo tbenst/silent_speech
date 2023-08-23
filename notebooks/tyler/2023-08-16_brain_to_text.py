@@ -171,8 +171,7 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    # t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-22_T12_dataset_gaussian-smoothing.npz"
+    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
 
 print(f"CPU affinity: {os.sched_getaffinity(0)}")
 
@@ -184,7 +183,7 @@ togglePhones = False
 if ON_SHERLOCK:
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
     
-# gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 # print("TODO FIXME: hardcoded gpu_ram")
 # gpu_ram = 31
 
