@@ -110,8 +110,8 @@ if DEBUG:
     # limit_val_batches = None
     log_neptune = False
     n_epochs = 2
-    # precision = "32"
-    precision = "16-mixed"
+    precision = 32
+    # precision = "16-mixed"
     num_sanity_val_steps = 2
     grad_accum = 1
     logger_level = logging.DEBUG
@@ -122,7 +122,8 @@ else:
     # grad_accum = 3
     # grad_accum = 2 # EMG only, 128000 max_len
     grad_accum = 2
-    precision = "16-mixed"
+    # precision = "16-mixed"
+    precision = 32
 
     if ON_SHERLOCK:
         NUM_GPUS = 2
