@@ -708,6 +708,9 @@ class MONA(Model):
         else:
             self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
                                                   cfg.neural_reduced_features)
+            
+        self.neural_input_dropout = nn.Dropout(0.4)
+        self.neural_input_act = nn.Softsign()
         
         if not no_emg:
             self.emg_conv_blocks = nn.Sequential(
@@ -804,6 +807,8 @@ class MONA(Model):
             x = self.session_input_encoder(x, sessions)
         else:
             x = self.neural_input_encoder(x) # reduce number of inputs
+        x = self.neural_input_dropout(x)
+        x = self.neural_input_act(x)
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
         x = x.transpose(1,2)

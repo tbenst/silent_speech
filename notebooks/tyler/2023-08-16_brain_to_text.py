@@ -72,10 +72,10 @@ RESUME = False
 # RESUME = True
 
 
-# constant_offset_sd = 0.2
-# white_noise_sd = 1
-constant_offset_sd = 0
-white_noise_sd = 0
+constant_offset_sd = 0.1
+white_noise_sd = 0.2
+# constant_offset_sd = 0
+# white_noise_sd = 0
 seqlen = 600
 auto_lr_find = False
 
@@ -342,7 +342,7 @@ class NeuralDataset(torch.utils.data.Dataset):
         if self.white_noise_sd > 0:
             nf += torch.randn_like(nf) * self.white_noise_sd
         if self.constant_offset_sd > 0:
-            nf += torch.randn(1) * self.constant_offset_sd
+            nf += torch.randn(self.n_features) * self.constant_offset_sd
         ret = {
             "audio_features": aud,
             "neural_features": nf,
@@ -526,8 +526,8 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
 model = MONA(config, text_transform, no_emg=True, no_audio=True,
-)
-            #  sessions=datamodule.train.unique_sessions)
+# )
+             sessions=datamodule.train.unique_sessions)
 logging.info('made model')
 
 callbacks = [
