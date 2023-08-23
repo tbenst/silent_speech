@@ -570,6 +570,9 @@ class H3Model(nn.Module):
         else:
             return self.w_out(x)
 
+def is_str(s):
+    return isinstance(s, str) or isinstance(s, np.str_) or isinstance(s, np.unicode_)
+
 # TODO: refactor batching dispatch logic in forward, and replace neual/audio/emg
 # encoder with a single Module that dispatches to the appropriate encoder
 # we can rid ourselves of emg_encoder, audio_encoder, neural_encoder, etc.
@@ -606,7 +609,7 @@ class LinearDispatch(nn.Module):
             str: Sanitized class string.
         """
         assert c != "", "Class string cannot be empty"
-        assert type(c) == str, "Class string must be a string"
+        assert is_str(c), f"Class string must be a string but got {type(c)}"
         return c.replace(".","_")
         
     def forward(self, x: torch.Tensor, classes: List[str]) -> torch.Tensor:
