@@ -634,9 +634,10 @@ class LinearDispatch(nn.Module):
         class_batches = {c: [] for c in self.classes}
 
         for i, c in enumerate(classes):
-            if c not in self.classes:
+            new_c = self.sanitize_name(c)
+            if new_c not in self.classes:
                 raise ValueError(f"Unexpected class {c}")
-            class_batches[self.sanitize_name(c)].append(i)
+            class_batches[new_c].append(i)
         
         # Initialize the return tensor and populate it with the processed class outputs.
         out = torch.zeros((*x.shape[:-1], self.out_features), dtype=x.dtype, device=x.device)
