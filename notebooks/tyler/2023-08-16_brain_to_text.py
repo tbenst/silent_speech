@@ -170,7 +170,8 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset.npz"
+    # t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
+    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-22_T12_dataset_gaussian-smoothing.npz"
 
 print(f"CPU affinity: {os.sched_getaffinity(0)}")
 

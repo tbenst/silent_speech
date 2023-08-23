@@ -498,9 +498,12 @@ spc = torch.from_numpy(sp).float().cuda()
 # axs[2].plot(spc.unfold(0,500,1)[0,0].cpu().numpy())
 # axs[3].plot(spc[:,0].cpu().numpy())
 
-spz = moving_zscore(spc, window_size,1).cpu().numpy()
 spm = moving_mean(spc, window_size).cpu().numpy()
+spz = moving_zscore(spc, window_size,1).cpu().numpy()
 spm = moving_std(spc, window_size).cpu().numpy()
+spg = moving_zscore(
+    torch.from_numpy(scipy.ndimage.gaussian_filter1d(sp.astype(np.float32),2,axis=0)).cuda(),
+    window_size,1).cpu().numpy()
 fig, axs = plt.subplots(4, 1, figsize=(10, 10))
 axs[0].plot(sp[:,0])
 axs[0].set_title("original")
@@ -508,8 +511,8 @@ axs[1].plot((sp[:,0]-np.mean(sp[:,0]))/sp[:,0].std())
 axs[1].set_title("proper zscore")
 axs[2].plot(spz[:,0])
 axs[2].set_title("moving zscore")
-axs[3].plot(spm[:,0])
-axs[3].set_title("mean")
+axs[3].plot(spg[:,0])
+axs[3].set_title("gaussian smoothing")
 
 ##
 
@@ -595,12 +598,18 @@ for mat_file in sentences_files:
     aligned_phonemes = []
     audioEnvelope = []
 
+    session_spikePow = scipy.ndimage.gaussian_filter1d(sentence_mat['spikePow'],2,axis=0)
+    session_tx1 = scipy.ndimage.gaussian_filter1d(sentence_mat['tx1'],2,axis=0)
+    session_tx2 = scipy.ndimage.gaussian_filter1d(sentence_mat['tx2'],2,axis=0)
+    session_tx3 = scipy.ndimage.gaussian_filter1d(sentence_mat['tx3'],2,axis=0)
+    session_tx4 = scipy.ndimage.gaussian_filter1d(sentence_mat['tx4'],2,axis=0)
 
-    session_spikePow = torch.from_numpy(sentence_mat['spikePow']).float().cuda()
-    session_tx1 = torch.from_numpy(sentence_mat['tx1']).float().cuda()
-    session_tx2 = torch.from_numpy(sentence_mat['tx2']).float().cuda()
-    session_tx3 = torch.from_numpy(sentence_mat['tx3']).float().cuda()
-    session_tx4 = torch.from_numpy(sentence_mat['tx4']).float().cuda()
+
+    session_spikePow = torch.from_numpy(session_spikePow).float().cuda()
+    session_tx1 = torch.from_numpy(session_tx1).float().cuda()
+    session_tx2 = torch.from_numpy(session_tx2).float().cuda()
+    session_tx3 = torch.from_numpy(session_tx3).float().cuda()
+    session_tx4 = torch.from_numpy(session_tx4).float().cuda()
     
     spikePow_mean = moving_mean(session_spikePow, window_size)
     tx1_mean = moving_mean(session_tx1, window_size)
@@ -793,7 +802,8 @@ for mat_file, v in mat_mspecs.items():
 
 ##
 cur_date = datetime.datetime.now().strftime("%Y-%m-%d")
-path = os.path.join(os.path.dirname(datadir), "synthetic_audio", f"{cur_date}_T12_dataset.npz")
+path = os.path.join(os.path.dirname(datadir), "synthetic_audio",
+                    f"{cur_date}_T12_dataset_gaussian-smoothing.npz")
 # mdict = {
 #     "session": session, "sentences": mat_sentences,
 #     "mspecs": flat_mspecs, "aligned_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
@@ -822,6 +832,8 @@ np.savez(path, **mdict_arr)
 # Prob don't need to run script below here unless exploring data
 print(f"Saved T12 dataset to {path}")
 # exit(0)
+##
+exit(0)
 ##
 # spot check 6/28 since missing audio block 5
 # not sure if okay or not
