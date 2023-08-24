@@ -742,7 +742,6 @@ class MONA(Model):
         if not no_emg:
             self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
             self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
-        self.neural_pre_norm = nn.BatchNorm1d(cfg.neural_input_features)
         self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         if not no_audio:
@@ -800,9 +799,6 @@ class MONA(Model):
     
     def neural_encoder(self, x, sessions=None):
         "Encode neural (B x T x C) into a latent space (B x Tau x D)"
-        x = x.transpose(1,2)
-        x = self.neural_pre_norm(x)
-        x = x.transpose(1,2)
         if not sessions is None:
             x = self.session_input_encoder(x, sessions)
         else:
