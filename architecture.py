@@ -671,7 +671,7 @@ class MONAConfig:
     # https://iclr-blog-track.github.io/2022/03/25/unnormalized-resnets/#balduzzi17shattered
     beta:float = 1 / np.sqrt(2) # adjust resnet initialization
     neural_input_features:int = 1280
-    neural_reduced_features:int = 256 # reduce 1280 down to this features
+    neural_reduced_features:int = 768 # reduce 1280 down to this features
     
     cross_nce_lambda:float = 1.0 # how much to weight the latent loss
     audio_lambda:float = 1.0 # how much to weight the audio->text loss
