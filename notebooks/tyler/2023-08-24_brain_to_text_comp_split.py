@@ -286,8 +286,8 @@ class T12CompDataset(NeuralDataset):
             last_20_tx1 = []
             for i in range(len(mat_file["sentenceText"])):
                 sentences.append(mat_file["sentenceText"][i].rstrip())
-                spikePow = mat_file["spikePow"].squeeze()[i]
-                tx1 = mat_file["tx1"].squeeze()[i]
+                spikePow = mat_file["spikePow"].squeeze()[i][:,:128]
+                tx1 = mat_file["tx1"].squeeze()[i][:,:128]
                 last_20_spikePow.append(spikePow)
                 last_20_tx1.append(tx1)
                 if len(last_20_spikePow) > 20:
