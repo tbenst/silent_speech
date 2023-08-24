@@ -335,9 +335,9 @@ class T12CompDataset(NeuralDataset):
                     sentences.append(mat_file["sentenceText"][idx][0])
                     # per block z-score
                     # TODO: try with first 128 channels only
-                    spikePow = (mat_file["spikePow"].squeeze()[idx] - mean) / std
+                    spikePow = (mat_file["spikePow"].squeeze()[idx,:128] - mean) / std
                     spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
-                    tx1 = (mat_file["tx1"].squeeze()[idx].astype(np.float64) - mean) / std
+                    tx1 = (mat_file["tx1"].squeeze()[idx,:128].astype(np.float64) - mean) / std
                     tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
                     neural.append(np.concatenate([
                             spikePow,
