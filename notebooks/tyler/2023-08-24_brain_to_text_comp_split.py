@@ -284,10 +284,10 @@ class T12CompDataset(NeuralDataset):
             blocks = np.unique(mat_file["blockIdx"])
             for b in blocks:
                 block_idxs = np.where(mat_file["blockIdx"] == b)[0]
-                N = 256
+                N = 128
                 mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:N], axis=0)
                 std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:N], axis=0)
-                std += 1
+                # std += 1
                 for idx in block_idxs:
                     sentences.append(mat_file["sentenceText"][idx].rstrip())
                     # per block z-score
@@ -356,19 +356,28 @@ datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
     train_bz=base_bz, val_bz=val_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
 )
+# datamodule_comp = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
+#     train_bz=base_bz, val_bz=val_bz,
+#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
+# )
 
 # datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
 #     num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz,
 #     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
 #     no_audio=True)
-##
-# text1 = datamodule.train[0]['text']
-# text2 = datamodule_comp.train[0]['text']
+# ##
+# # comp_idx = 5000
+# comp_idx = 50
+# text2 = datamodule_comp.train[comp_idx]['text']
+# for idx,ex in enumerate(datamodule.train):
+#     text1 = ex['text']
+#     if text1 == text2:
+#         print(idx)
+#         break
 # text1, text2
-##
 # import matplotlib.pyplot as plt
-# nf1 = datamodule.train[0]['neural_features'][:,128:]
-# nf2 = datamodule_comp.train[0]['neural_features'][:,256:256+128]
+# nf1 = datamodule.train[idx]['neural_features']
+# nf2 = datamodule_comp.train[comp_idx]['neural_features']
 # fig, axs = plt.subplots(2,1, figsize=(10,10))
 # im1 = axs[0].imshow(nf1.T, aspect='auto')
 # axs[0].set_title("sentences")
@@ -376,6 +385,23 @@ datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
 # im2 = axs[1].imshow(nf2.T, aspect='auto')
 # axs[1].set_title("competition")
 # fig.colorbar(im2, ax=axs[1])
+# plt.show()
+
+# ##
+# c = 200
+# a = 128
+# b = 256
+# nf1 = datamodule.train[idx]['neural_features'][:,a:b].mean(axis=1)
+# nf2 = datamodule_comp.train[comp_idx]['neural_features'][:,a:b].mean(axis=1)
+# print(datamodule.train[idx]['text'])
+# print(datamodule_comp.train[comp_idx]['text'])
+# fig, axs = plt.subplots(2,1, figsize=(10,10))
+# im1 = axs[0].plot(nf1)
+# axs[0].set_title("sentences")
+# im2 = axs[1].plot(nf2)
+# axs[1].set_title("competition")
+# axs[1].set_xlabel("time")
+# fig.suptitle("average tx1")
 # plt.show()
 
 ##
