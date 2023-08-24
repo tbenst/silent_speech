@@ -264,7 +264,7 @@ if not log_neptune:
     logging.warning("not logging to neptune")
     
 # TODO: comment out
-t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
+# t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
 ##
 
 class T12CompDataset(NeuralDataset):
@@ -284,20 +284,19 @@ class T12CompDataset(NeuralDataset):
             blocks = np.unique(mat_file["blockIdx"])
             for b in blocks:
                 block_idxs = np.where(mat_file["blockIdx"] == b)[0]
-                mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:128], axis=0)
-                std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:128], axis=0)
-                print(mean.shape, std.shape)
+                mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs]), axis=0)
+                std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs]), axis=0)
                 std += 1
                 for idx in block_idxs:
-                    sentences.append(mat_file["sentenceText"][idx][0])
+                    sentences.append(mat_file["sentenceText"][idx].rstrip())
                     # per block z-score
                     # TODO: try with first 128 channels only
-                    # spikePow = (mat_file["spikePow"].squeeze()[idx][:,:128] - mean) / std
-                    # spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
-                    # tx1 = (mat_file["tx1"].squeeze()[idx][:,:128].astype(np.float64) - mean) / std
-                    # tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
-                    spikePow = mat_file["spikePow"].squeeze()[idx]
-                    tx1 = mat_file["tx1"].squeeze()[idx]
+                    spikePow = (mat_file["spikePow"].squeeze()[idx] - mean) / std
+                    spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
+                    tx1 = (mat_file["tx1"].squeeze()[idx].astype(np.float64) - mean) / std
+                    tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
+                    # spikePow = mat_file["spikePow"].squeeze()[idx]
+                    # tx1 = mat_file["tx1"].squeeze()[idx]
                     neural.append(np.concatenate([
                             spikePow,
                             tx1,
@@ -352,15 +351,19 @@ class T12CompDataModule(pl.LightningDataModule):
         return None
 
     
-# datamodule_comp = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
-#     train_bz=base_bz, val_bz=val_bz,
-#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
-# )
+datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
+    train_bz=base_bz, val_bz=val_bz,
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
+)
 
-datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
-    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz,
-    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-    no_audio=True)
+# datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
+#     num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz,
+#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+#     no_audio=True)
+##
+text1 = datamodule.train[0]['text']
+text2 = datamodule_comp.train[0]['text']
+text1, text2
 ##
 # import matplotlib.pyplot as plt
 # nf1 = datamodule.train[0]['neural_features'][:,128:]
