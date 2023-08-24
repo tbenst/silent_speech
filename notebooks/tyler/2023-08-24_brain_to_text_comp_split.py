@@ -284,7 +284,7 @@ class T12CompDataset(NeuralDataset):
             blocks = np.unique(mat_file["blockIdx"])
             for b in blocks:
                 block_idxs = np.where(mat_file["blockIdx"] == b)[0]
-                N = 128
+                N = 256
                 mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:N], axis=0)
                 std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:N], axis=0)
                 std += 1
