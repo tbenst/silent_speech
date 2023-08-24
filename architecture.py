@@ -710,6 +710,9 @@ class MONA(Model):
             self.use_session_input_encoder = False
             self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
                                                   cfg.neural_reduced_features)
+            
+        self.neural_input_dropout = nn.Dropout(0.4)
+        self.neural_input_act = nn.Softsign()
         
         if not no_emg:
             self.emg_conv_blocks = nn.Sequential(
@@ -741,7 +744,6 @@ class MONA(Model):
         if not no_emg:
             self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
             self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
-        self.neural_pre_norm = nn.BatchNorm1d(cfg.neural_input_features)
         self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
         self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         if not no_audio:
@@ -806,6 +808,8 @@ class MONA(Model):
             x = self.session_input_encoder(x, sessions)
         else:
             x = self.neural_input_encoder(x) # reduce number of inputs
+        x = self.neural_input_dropout(x)
+        x = self.neural_input_act(x)
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
         x = x.transpose(1,2)

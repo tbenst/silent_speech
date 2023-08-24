@@ -72,10 +72,10 @@ RESUME = False
 # RESUME = True
 
 
-# constant_offset_sd = 0.2
-# white_noise_sd = 1
-constant_offset_sd = 0
-white_noise_sd = 0
+constant_offset_sd = 0.1
+white_noise_sd = 0.2
+# constant_offset_sd = 0
+# white_noise_sd = 0
 seqlen = 600
 auto_lr_find = False
 
@@ -110,8 +110,8 @@ if DEBUG:
     # limit_val_batches = None
     log_neptune = False
     n_epochs = 2
-    # precision = "32"
-    precision = "16-mixed"
+    precision = 32
+    # precision = "16-mixed"
     num_sanity_val_steps = 2
     grad_accum = 1
     logger_level = logging.DEBUG
@@ -122,7 +122,8 @@ else:
     # grad_accum = 3
     # grad_accum = 2 # EMG only, 128000 max_len
     grad_accum = 2
-    precision = "16-mixed"
+    # precision = "16-mixed"
+    precision = 32
 
     if ON_SHERLOCK:
         NUM_GPUS = 2
@@ -171,7 +172,8 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
+    # t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
+    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-22_T12_dataset_gaussian-smoothing.npz"
 
 print(f"CPU affinity: {os.sched_getaffinity(0)}")
 
@@ -342,7 +344,7 @@ class NeuralDataset(torch.utils.data.Dataset):
         if self.white_noise_sd > 0:
             nf += torch.randn_like(nf) * self.white_noise_sd
         if self.constant_offset_sd > 0:
-            nf += torch.randn(1) * self.constant_offset_sd
+            nf += torch.randn(self.n_features) * self.constant_offset_sd
         ret = {
             "audio_features": aud,
             "neural_features": nf,
@@ -526,8 +528,8 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
 
 model = MONA(config, text_transform, no_emg=True, no_audio=True,
-)
-            #  sessions=datamodule.train.unique_sessions)
+# )
+             sessions=datamodule.train.unique_sessions)
 logging.info('made model')
 
 callbacks = [

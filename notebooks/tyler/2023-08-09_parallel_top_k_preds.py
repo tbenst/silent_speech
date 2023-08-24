@@ -2,7 +2,9 @@
 Using pretrained model and a torch-compatible language model, generate top k candidates and save data.
 
 Example:
-python 2023-08-09_parallel_top_k_preds.py --checkpoint /scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/SpeechOrEMGToText-epoch=199-val/wer=0.264.ckpt --beam-size 5000 --no-use-lm
+python 2023-08-09_parallel_top_k_preds.py --checkpoint /scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/MONA-epoch=199-val/wer=0.264.ckpt --beam-size 5000 --no-use-lm
+python 2023-08-09_parallel_top_k_preds.py --checkpoint /scratch/users/tbenst/2023-08-01T06:54:28.359594_gaddy/MONA-epoch=199-val/wer=0.264.ckpt --beam-size 5000 --cpus 17 --lm /oak/stanford/projects/babelfish/magneto/GaddyPaper/pretrained_models/deepspeech/deepspeech-lm.binary
+CUDA_VISIBLE_DEVICES=0 python 2023-08-09_parallel_top_k_preds.py --checkpoint /scratch/2023-08-21T22:55:20.663613_gaddy/MONA-epoch=188-val/wer=0.241.ckpt --lm /data/data/lm/deepspeech-lm.binary
 '''
 import os
 import sys
@@ -24,7 +26,7 @@ import torch.nn.functional as F
 from torchaudio.models.decoder import ctc_decoder
 
 from read_emg import EMGDataModule
-from architecture import SpeechOrEMGToText, SpeechOrEMGToTextConfig
+from architecture import MONA, MONAConfig
 from dataloaders import EMGAndSpeechModule, collate_gaddy_or_speech
 from data_utils import combine_fixed_length, decollate_tensor, TextTransform
 from transformer import TransformerEncoderLayer
@@ -192,8 +194,8 @@ def evaluate_saved(
     n_chars = len(text_transform.chars)
     num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
     precision = "16-mixed"
-    config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs, precision=precision)
-    model = SpeechOrEMGToText(config, text_transform)
+    config = MONAConfig(steps_per_epoch, lm_directory, num_outs, precision=precision)
+    model = MONA(config, text_transform)
     model.load_state_dict(checkpoint["state_dict"])
     model.cuda()
     topk_dict  = getTopK(model, testset, text_transform, lm_directory,
@@ -213,12 +215,12 @@ def evaluate_saved(
 @app.command()
 def main(
         k: int = typer.Option(100, help='max beams to return'),
-        beam_size: int = typer.Option(500, help='maximum number of beams to search'),
+        beam_size: int = typer.Option(5000, help='maximum number of beams to search'),
         lm_weight: float = typer.Option(2., help='language model weight'),
         beam_threshold: int = typer.Option(75, help='prune beam search if more than this away from best score'),
         checkpoint: str = typer.Option(..., help='run evaluation on given model file'),
         use_lm: bool = typer.Option(True, help='whether to use a language model'),
-        cpus: int = typer.Option(8, help='Number of CPUs to use for beam search'),
+        cpus: int = typer.Option(32, help='Number of CPUs to use for beam search'),
         lexicon_file: str = typer.Option(default_lexicon_file, help='Path to the lexicon file'),
         lm: str = typer.Option(os.path.join(lm_directory, '4gram_lm.bin'), help='Path to the language model file'),
 ):
