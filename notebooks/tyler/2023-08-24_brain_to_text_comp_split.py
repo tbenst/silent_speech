@@ -558,6 +558,8 @@ if auto_lr_find:
     tuner.lr_find(model, datamodule)
         
 logging.info('about to fit')
+print(f"Sanity check: {len(datamodule.train)} training samples")
+print(f"Sanity check: {len(datamodule.train_dataloader())} training batches")
 # epoch of 242 if only train...
 if RESUME:
     trainer.fit(model, datamodule=datamodule,
