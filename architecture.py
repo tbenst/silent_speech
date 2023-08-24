@@ -953,7 +953,7 @@ class MONA(Model):
         # print(f"\n ==== CTC ====\n{pred.shape=}, {target.shape=}\n{pred=}\n{target=}\n")
         # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
         # print(f"ctc_loss: {[p.shape for p in pred]=}, {[t.shape for t in target]=}")
-        loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars)
+        loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars, zero_infinity=True)
         return loss
 
     def batch_forward(self, batch):

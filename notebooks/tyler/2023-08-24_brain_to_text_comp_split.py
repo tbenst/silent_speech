@@ -50,11 +50,13 @@ from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     DistributedStratifiedBatchSampler, StratifiedBatchSampler, cache_dataset, \
     split_batch_into_emg_neural_audio, DistributedSizeAwareStratifiedBatchSampler, \
     SizeAwareStratifiedBatchSampler, collate_gaddy_or_speech, \
-    collate_gaddy_speech_or_neural, DistributedSizeAwareSampler
+    collate_gaddy_speech_or_neural, DistributedSizeAwareSampler, \
+    T12DataModule, T12Dataset, NeuralDataset
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 import glob, scipy
+from helpers import load_npz_to_memory
 
 DEBUG = False
 # DEBUG = True
@@ -260,57 +262,10 @@ logging.basicConfig(handlers=[
 logging.debug("DEBUG mode")
 if not log_neptune:
     logging.warning("not logging to neptune")
-##
-class NeuralDataset(torch.utils.data.Dataset):
-    def __init__(self, neural, audio, phonemes, sentences, text_transform,
-                 sessions=None,
-                 white_noise_sd=0, constant_offset_sd=0, no_audio=False):
-        self.neural = neural
-        self.audio = audio
-        self.phonemes = phonemes
-        self.sentences = sentences
-        self.sessions = sessions
-        self.text_transform = text_transform
-        self.n_features = neural[0].shape[1]
-        self.white_noise_sd = white_noise_sd
-        self.constant_offset_sd = constant_offset_sd
-        self.no_audio = no_audio
-        if sessions is not None:
-            self.unique_sessions = np.unique(sessions)
-        else:
-            self.unique_sessions = np.array([])
-        
-        super().__init__()
     
-    def __getitem__(self, idx):
-        text_int = np.array(self.text_transform.text_to_int(self.sentences[idx]), dtype=np.int64)
-        if self.no_audio:
-            aud = None
-        else:
-            aud = self.audio[idx]
-            aud = aud if aud is None else torch.from_numpy(aud)
-        phon = self.phonemes[idx]
-        phon = phon if phon is None else torch.from_numpy(phon)
-        nf = torch.from_numpy(self.neural[idx])
-        if self.white_noise_sd > 0:
-            nf += torch.randn_like(nf) * self.white_noise_sd
-        if self.constant_offset_sd > 0:
-            nf += torch.randn(self.n_features) * self.constant_offset_sd
-        ret = {
-            "audio_features": aud,
-            "neural_features": nf,
-            "text": self.sentences[idx],
-            "text_int": torch.from_numpy(text_int),
-            "phonemes": phon,
-        }
-        if self.sessions is not None:
-            ret["session"] = self.sessions[idx]
-        else:
-            ret["session"] = None
-        return ret
-        
-    def __len__(self):
-        return len(self.neural)
+# TODO: comment out
+t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
+##
 
 class T12CompDataset(NeuralDataset):
     def __init__(self, mat_files,white_noise_sd=0, constant_offset_sd=0):
@@ -331,14 +286,18 @@ class T12CompDataset(NeuralDataset):
                 block_idxs = np.where(mat_file["blockIdx"] == b)[0]
                 mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:128], axis=0)
                 std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:128], axis=0)
+                print(mean.shape, std.shape)
+                std += 1
                 for idx in block_idxs:
                     sentences.append(mat_file["sentenceText"][idx][0])
                     # per block z-score
                     # TODO: try with first 128 channels only
-                    spikePow = (mat_file["spikePow"].squeeze()[idx][:,:128] - mean) / std
-                    spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
-                    tx1 = (mat_file["tx1"].squeeze()[idx][:,:128].astype(np.float64) - mean) / std
-                    tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
+                    # spikePow = (mat_file["spikePow"].squeeze()[idx][:,:128] - mean) / std
+                    # spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
+                    # tx1 = (mat_file["tx1"].squeeze()[idx][:,:128].astype(np.float64) - mean) / std
+                    # tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
+                    spikePow = mat_file["spikePow"].squeeze()[idx]
+                    tx1 = mat_file["tx1"].squeeze()[idx]
                     neural.append(np.concatenate([
                             spikePow,
                             tx1,
@@ -393,10 +352,28 @@ class T12CompDataModule(pl.LightningDataModule):
         return None
 
     
-datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
-    train_bz=base_bz, val_bz=val_bz,
-    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
-)
+# datamodule_comp = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
+#     train_bz=base_bz, val_bz=val_bz,
+#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
+# )
+
+datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
+    num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz,
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+    no_audio=True)
+##
+# import matplotlib.pyplot as plt
+# nf1 = datamodule.train[0]['neural_features'][:,128:]
+# nf2 = datamodule_comp.train[0]['neural_features'][:,256:256+128]
+# fig, axs = plt.subplots(2,1, figsize=(10,10))
+# im1 = axs[0].imshow(nf1.T, aspect='auto')
+# axs[0].set_title("sentences")
+# fig.colorbar(im1, ax=axs[0])
+# im2 = axs[1].imshow(nf2.T, aspect='auto')
+# axs[1].set_title("competition")
+# fig.colorbar(im2, ax=axs[1])
+# plt.show()
+
 ##
 # INFO: on sherlock this is taking 1 minute. On local machine, 0 seconds.
 # Sometimes on sherlock this takes 3+ minutes. Why?

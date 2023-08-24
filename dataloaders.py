@@ -1,6 +1,6 @@
 import torch, numpy as np, librosa, torchaudio, os, pytorch_lightning as pl
 import dill as pickle # dill can serialize local classes
-from data_utils import mel_spectrogram, read_phonemes
+from data_utils import mel_spectrogram, read_phonemes, TextTransform
 import torch.distributed as dist, sys, logging
 from tqdm import tqdm
 from functools import partial
@@ -1056,3 +1056,144 @@ class DistributedSizeAwareSampler(torch.utils.data.Sampler):
             return self.hardcode_len
         else:
             return len(iter(self))
+
+class NeuralDataset(torch.utils.data.Dataset):
+    def __init__(self, neural, audio, phonemes, sentences, text_transform,
+                 sessions=None,
+                 white_noise_sd=0, constant_offset_sd=0, no_audio=False):
+        self.neural = neural
+        self.audio = audio
+        self.phonemes = phonemes
+        self.sentences = sentences
+        self.sessions = sessions
+        self.text_transform = text_transform
+        self.n_features = neural[0].shape[1]
+        self.white_noise_sd = white_noise_sd
+        self.constant_offset_sd = constant_offset_sd
+        self.no_audio = no_audio
+        if sessions is not None:
+            self.unique_sessions = np.unique(sessions)
+        else:
+            self.unique_sessions = np.array([])
+        
+        super().__init__()
+    
+    def __getitem__(self, idx):
+        text_int = np.array(self.text_transform.text_to_int(self.sentences[idx]), dtype=np.int64)
+        if self.no_audio:
+            aud = None
+        else:
+            aud = self.audio[idx]
+            aud = aud if aud is None else torch.from_numpy(aud)
+        phon = self.phonemes[idx]
+        phon = phon if phon is None else torch.from_numpy(phon)
+        nf = torch.from_numpy(self.neural[idx])
+        if self.white_noise_sd > 0:
+            nf += torch.randn_like(nf) * self.white_noise_sd
+        if self.constant_offset_sd > 0:
+            nf += torch.randn(self.n_features) * self.constant_offset_sd
+        ret = {
+            "audio_features": aud,
+            "neural_features": nf,
+            "text": self.sentences[idx],
+            "text_int": torch.from_numpy(text_int),
+            "phonemes": phon,
+        }
+        if self.sessions is not None:
+            ret["session"] = self.sessions[idx]
+        else:
+            ret["session"] = None
+        return ret
+        
+    def __len__(self):
+        return len(self.neural)
+
+class T12Dataset(NeuralDataset):
+    def __init__(self, t12_npz, partition="train", no_audio=False,
+            audio_type="tts_mspecs", white_noise_sd=0, constant_offset_sd=0):
+                #  audio_type="tts_mspecs"):
+        """T12 BCI dataset.
+        
+        partition: train or test
+        audio_type: mspecs, tts_mspecs, or aligned_tts_mspecs
+        
+        """
+        idx = np.where(t12_npz["dataset_partition"] == partition)[0]
+        neural = []
+        audio = []
+        spikePow = t12_npz["spikePow"]
+        tx1 = t12_npz["tx1"]
+        tx2 = t12_npz["tx2"]
+        tx3 = t12_npz["tx3"]
+        tx4 = t12_npz["tx4"]
+        # mean, variance per block
+        aud = t12_npz[audio_type]
+        for i in tqdm(idx, desc="concatenating neural data"):
+            # block_idx = t12_npz["block"][i][0]
+            # session = t12_npz["session"][i]
+            # print(session, block_idx)
+
+            neural.append(np.concatenate([
+                    # np.log10(spikePow[i][:,:128]+1) / 4, # map to approx 0-1
+                    spikePow[i][:,:128],
+                    tx1[i][:,:128],
+                    # tx1[i][:,:128] / 25, # max val is 56
+                    # tx2[i] / 25,
+                    # tx3[i] / 25,
+                    # tx4[i] / 25
+                    ] # max val is 52
+                , axis=1).astype(np.float32))
+            if aud[i] is None:
+                # for example, if audio_type is "mspecs" then we have no
+                # audio for the silent trials
+                if audio_type == "tts_mspecs":
+                    print(f"WARNING: no audio for index {i}")
+                audio.append(None)
+            else:
+                audio.append((aud[i]+5) / 5) # TODO: match librispeech
+        phonemes = t12_npz["aligned_phonemes"][idx]
+        sentences = t12_npz["sentences"][idx]
+        sessions = t12_npz["session"][idx]
+        text_transform = TextTransform(togglePhones = False)
+        super().__init__(neural, audio, phonemes, sentences, text_transform,
+            sessions=sessions,
+            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+            no_audio=no_audio)
+        
+class T12DataModule(pl.LightningDataModule):
+    def __init__(self, t12_npz, audio_type="tts_mspecs", max_len=32000,
+                 num_replicas=1, train_bz:int=32, val_bz:int=16, fixed_length=False,
+                 white_noise_sd=1.0, constant_offset_sd=0.2,
+                 no_audio=True):
+        super().__init__()
+        self.train = T12Dataset(t12_npz, partition="train", audio_type="tts_mspecs",
+                white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+                no_audio=no_audio)
+        self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs",
+                              no_audio=no_audio)
+        self.collate_fn = collate_gaddy_speech_or_neural
+
+        self.train_bz = train_bz
+        self.val_bz = val_bz
+        self.fixed_length = fixed_length
+        
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+                self.train,
+                collate_fn=self.collate_fn,
+                pin_memory=True,
+                num_workers=0,
+                batch_size=self.train_bz,
+            )
+        
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.val,
+            collate_fn=self.collate_fn,
+            pin_memory=True,
+            num_workers=0,
+            batch_size=self.val_bz,
+        )
+        
+    def test_dataloader(self):
+        return None
