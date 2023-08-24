@@ -58,3 +58,4 @@ openai
 pqdm
 typer
 tenacity
+bark

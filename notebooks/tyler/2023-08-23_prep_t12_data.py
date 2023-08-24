@@ -34,15 +34,24 @@ from align import align_from_distances
 from helpers import sentence_to_fn
 from data_utils import read_phonemes, mel_spectrogram
 
-import bottleneck 
-
 from bark import SAMPLE_RATE as TTS_SAMPLE_RATE
-SCRIPT_DIR = "/home/tyler/code/silent_speech"
+
+import os, subprocess
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
+hostname = subprocess.run("hostname", capture_output=True)
+ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+
+
+# SCRIPT_DIR = "/home/tyler/code/silent_speech"
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 mfcc_norm, emg_norm = pickle.load(open(normalizers_file,'rb'))
 
 ##
-T12_dir = '/data/data/T12_data'
+if ON_SHERLOCK:
+    T12_dir ='/scratch/users/tbenst/T12_data'
+else:
+    T12_dir = '/data/data/T12_data'
 datadir        = os.path.join(T12_dir, 'competitionData')
 sentences_dir = os.path.join(T12_dir, 'sentences')
 TTS_dir = os.path.join(os.path.dirname(datadir), 'synthetic_audio', 'TTS')
@@ -72,20 +81,25 @@ print('Unique days:', len(session_mapping.keys()))
 # - 2022.09.08
 # - 2022.09.13
 ##
-@persist_to_file(os.path.join(os.path.dirname(datadir), "sentence_mapping_per_file.pkl"))
-def get_competition_to_sentence_mapping_per_file(train_files, test_files, competition_file_mapping):
+# load all mat files into dict of filename: mat
+mat_files = {}
+for f in tqdm(sorted(train_files + test_files + sentences_files)):
+    mat_files[f] = scipy.io.loadmat(f)
+
+##
+def get_competition_to_sentence_mapping_per_file(mat_files, train_files, test_files, competition_file_mapping):
     "Map competitionData files to sentences files."
     sentence_mapping_per_file = {}
     for tf in tqdm((train_files + test_files)):
-        mat = scipy.io.loadmat(tf)
-        mat2 = scipy.io.loadmat(competition_file_mapping[tf])
+        mat = mat_files[tf]
+        mat2 = mat_files[competition_file_mapping[tf]]
         matching_indices = []
         for i, sentence in enumerate(mat['sentenceText']):
             sentence = sentence.rstrip()  # strip whitespace at end
             matching_sentence = None
-            last_match_idx = matching_indices[-1] if len(matching_indices) > 0 else 0
-            # start at last matching index to avoid matching the same sentence twice
-            for j, sentence2 in enumerate(mat2['sentences'][last_match_idx:], start=last_match_idx):
+            prev_match_idx = matching_indices[-1] if len(matching_indices) > 0 else 0
+            # start at previous matching index to avoid matching the same sentence twice
+            for j, sentence2 in enumerate(mat2['sentences'][prev_match_idx:], start=prev_match_idx):
                 sentence2 = str(sentence2[0][0]).rstrip()  # strip whitespace at end
                 if sentence == sentence2:
                     matching_sentence = sentence2
@@ -110,19 +124,19 @@ def get_competition_to_sentence_mapping_per_file(train_files, test_files, compet
 # competition_file_mapping[mat] == '/data/data/T12_data/sentences/t12.2022.07.21_sentences.mat'
 # sentence_mapping_per_file[mat][0] == 400
 # means that the first sentence in the competitionData mat file corresponds to the 400th sentence in the sentences mat file
-competition_to_sentence_mapping_per_file = get_competition_to_sentence_mapping_per_file(train_files, test_files, competition_file_mapping)
+competition_to_sentence_mapping_per_file = get_competition_to_sentence_mapping_per_file(
+    mat_files, train_files, test_files, competition_file_mapping)
 
 ##
 # create dictionary with sentence as key, and list of tuples (file, index) as value
 # only use competitionData mat files
 # e.g.
 # sentence_mapping['hello world'] == [('/data/data/T12_data/competitionData/test/t12.2022.07.21.mat', 400)]
-@persist_to_file(os.path.join(os.path.dirname(datadir), "sentence_mapping.pkl"))
-def create_sentence_mapping(competition_to_sentence_mapping_per_file, competition_file_mapping):
+def create_sentence_mapping(mat_files, competition_to_sentence_mapping_per_file, competition_file_mapping):
     sentence_mapping = {}
     for k, v in tqdm(competition_to_sentence_mapping_per_file.items()):
-        mat = scipy.io.loadmat(k)
-        mat2 = scipy.io.loadmat(competition_file_mapping[k])
+        mat = mat_files[k]
+        mat2 = mat_files[competition_file_mapping[k]]
         for i, idx in enumerate(v):
             sentence = mat['sentenceText'][i]
             sentence = sentence.rstrip()  # strip whitespace at end
@@ -134,15 +148,11 @@ def create_sentence_mapping(competition_to_sentence_mapping_per_file, competitio
             sentence_mapping[sentence].append((k, idx))
     return sentence_mapping
 
-sentence_mapping = create_sentence_mapping(competition_to_sentence_mapping_per_file, competition_file_mapping)
+sentence_mapping = create_sentence_mapping(mat_files, competition_to_sentence_mapping_per_file, competition_file_mapping)
 ##
 repeated_utterances = {k: v for k, v in sentence_mapping.items() if len(v) > 1}
 
-##
-# load all mat files into dict of filename: mat
-mat_files = {}
-for f in tqdm(sorted(train_files + test_files + sentences_files)):
-    mat_files[f] = scipy.io.loadmat(f)
+
 ##
 # speaking mode of each mat file
 speaking_modes = {}
@@ -444,10 +454,13 @@ mat_dataset_partition = {}
 
 total_T = 0
 n_sentences = 0
-for mat_file in sentences_files:
-    sentence_mat = mat_files[mat_file]
-    total_T += sentence_mat['spikePow'].shape[0]
-    n_sentences += len(sentence_mat['sentences'])
+# for mat_file in sentences_files:
+for mat_file in competition_file_mapping.keys():
+    comp_mat = mat_files[mat_file]
+    # total_T += sentence_mat['spikePow'].shape[0]
+    total_T += np.sum(np.array([m.shape[0] for m in comp_mat['spikePow'][0]]))
+    # n_sentences += len(sentence_mat['sentences'])
+    n_sentences += len(comp_mat['sentenceText'])
 # npz = np.load('/data/data/T12_data/synthetic_audio/2023-08-20_T12_dataset.npz',
 #               allow_pickle=True)
 # np.sum([n.shape[0] for n in npz['spikePow']]) / len(npz['spikePow'])
@@ -487,6 +500,8 @@ def moving_zscore(x, window, eps=1e-6):
     zscored = (x - x_mean) / (x_std + eps)
     return zscored
     
+# sentence_mat = mat_files[sentences_files[0]]
+sentence_mat = mat_files[sentences_files[-1]]
 # movet = moving_mean(sentence_mat['spikePow'], window_size)
 s,e = sentence_mat['goTrialEpochs'][0]
 # sp =  sentence_mat['spikePow'][:window_size]
@@ -513,71 +528,86 @@ axs[2].plot(spz[:,0])
 axs[2].set_title("moving zscore")
 axs[3].plot(spg[:,0])
 axs[3].set_title("gaussian smoothing")
-
+    
 ##
-
 # plt.imshow(sp[s:e])
 # plt.imshow((spikePow[s:e]-sp.mean(axis=0)[None])/sp.std(axis=0)[None])
 # plt.colorbar()
 ##
-##
 saw_bad_audio = False
+max_bad_sentence_count = 4 # 4 known bad sentences
+bad_sentence_count = 0
 # for mat_file in tqdm(sentences_files):
-for mat_file in sentences_files:
-    mat_name = os.path.split(mat_file)[-1]
-    if not speaking_modes[mat_file] == "vocalized":
+# for mat_file in sentences_files:
+for comp_file, sentence_file in list(competition_file_mapping.items()):
+    comp_mat = mat_files[comp_file]
+    sentence_mat = mat_files[sentence_file]
+    is_train = '/competitionData/train/' in comp_file
+    is_val = '/competitionData/test/' in comp_file
+    assert is_train or is_val
+    assert not (is_train and is_val)
+    mat_name = os.path.split(comp_file)[-1]
+    
+    block_start_idxs = np.concatenate([
+        [0],
+        1 + np.where(np.diff(sentence_mat['blockNum'].squeeze()))[0]
+    ])
+    block_end_idxs = np.concatenate([
+        block_start_idxs[1:],
+        [len(sentence_mat['blockNum'].squeeze())]
+    ])
+
+    # last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set (doesn't always start at 1 / skips numbers)
+    last_block_idx = len(sentence_mat['blockList']) - 1 # last block is test set
+    
+    
+    audio_block = []
+    for i in range(len(sentence_mat['audio'][0])):
+        aud = sentence_mat['audio'][0,i][0]
+        if aud.shape[0] == 0:
+            bidx = sentence_mat['blockList'].squeeze()[i]
+            print(f"WARNING: got bad audio for block {bidx} (idx {i}) in {sentence_file}")
+            # assert not saw_bad_audio, "there should only be one..."
+            saw_bad_audio = True
+            audio_block.append(None)
+        else:
+            aud = librosa.util.buf_to_float(aud)
+            aud = np.clip(aud, -1, 1)
+            audio_block.append(aud)
+            
+    # audio_block = [librosa.util.buf_to_float(sentence_mat['audio'][0,i][0]) for i in range(len(sentence_mat['audio'][0]))]
+    # volume_block = [compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20) for aud in audio_block]
+    
+    volume_block = []
+    for aud in audio_block:
+        if aud is None:
+            volume_block.append(None)
+        else:
+            volume_block.append(compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20))
+            
+    # for a in audio_block:
+    #     print(f"AB min: {np.min(a)}, max: {np.max(a)}")
+    mspec_block = []
+    for aud in audio_block:
+        if aud is None:
+            mspec_block.append(None)
+        else:
+            au = torch.tensor(aud[None], dtype=torch.float32).cuda().clip(-1,1)
+            mspec_block.append(mel_spectrogram(au,
+                # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
+                2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze().T)
+
+    # mspec_block = [mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
+    #     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
+    #     2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
+    #                for aud in audio_block]
+    
+    if speaking_modes[comp_file] == "silent":
         mat_speakingMode[mat_name] = "silent"
-    else:
+    elif speaking_modes[comp_file] == "vocalized":
         mat_speakingMode[mat_name] = "vocalized"
-        sentence_mat = mat_files[mat_file]
-        block_start_idxs = np.concatenate([
-            [0],
-            1 + np.where(np.diff(sentence_mat['blockNum'].squeeze()))[0]
-        ])
-        block_end_idxs = np.concatenate([
-            block_start_idxs[1:],
-            [len(sentence_mat['blockNum'].squeeze())]
-        ])
-
-        # last_block_idx = sentence_mat['blockNum'][:,0][-1] # test set (doesn't always start at 1 / skips numbers)
-        last_block_idx = len(sentence_mat['blockList']) - 1 # last block is test set
-        audio_block = []
-        for i in range(len(sentence_mat['audio'][0])):
-            aud = sentence_mat['audio'][0,i][0]
-            if aud.shape[0] == 0:
-                assert not saw_bad_audio, "there should only be one..."
-                saw_bad_audio = True
-                audio_block.append(None)
-            else:
-                aud = librosa.util.buf_to_float(aud)
-                aud = np.clip(aud, -1, 1)
-                audio_block.append(aud)
-        # audio_block = [librosa.util.buf_to_float(sentence_mat['audio'][0,i][0]) for i in range(len(sentence_mat['audio'][0]))]
-        # volume_block = [compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20) for aud in audio_block]
-        
-        volume_block = []
-        for aud in audio_block:
-            if aud is None:
-                volume_block.append(None)
-            else:
-                volume_block.append(compute_audio_envelope(aud, sample_rate=30000, frame_size_ms=20))
-                
-        # for a in audio_block:
-        #     print(f"AB min: {np.min(a)}, max: {np.max(a)}")
-        mspec_block = []
-        for aud in audio_block:
-            if aud is None:
-                mspec_block.append(None)
-            else:
-                au = torch.tensor(aud[None], dtype=torch.float32).cuda().clip(-1,1)
-                mspec_block.append(mel_spectrogram(au,
-                    # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
-                    2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze().T)
-
-        # mspec_block = [mel_spectrogram(torch.tensor(aud[None], dtype=torch.float32).cuda(),
-        #     # n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax
-        #     2048, 80, 30000, 30000//nframes_per_sec, 30000//(nframes_per_sec//2), 0, 8000, center=False).squeeze()
-        #                for aud in audio_block]
+    else:
+        raise Exception(f"Unknown speakingMode: {speaking_modes[comp_file]} from file {comp_file}")
     
     assert len(audio_block) < 100
     # always append
@@ -630,12 +660,23 @@ for mat_file in sentences_files:
 
     # TODO: try taking sqrt before zscore
     
-    for sentenceIdx in tqdm(range(len(sentence_mat['sentences']))):
+    for compIdx, sentenceIdx in enumerate(tqdm(competition_to_sentence_mapping_per_file[comp_file])):
         sentence = sentence_mat['sentences'][sentenceIdx][0][0]
         sentence = sentence.rstrip()
         go_cue_idx = sentence_mat['goTrialEpochs'][sentenceIdx]
         
         sentence_spikePow = session_spikePow[go_cue_idx[0]:go_cue_idx[1]]
+        
+        # sanity check alignment
+        sentence_dat = sentence_mat['spikePow'][go_cue_idx[0]:go_cue_idx[1]]
+        comp_dat = comp_mat['spikePow'][0,compIdx]
+        try:
+            assert np.all(np.isclose(sentence_dat, comp_dat)) # also errors if not same dim, hence try block
+        except Exception:
+            bad_sentence_count += 1
+            if bad_sentence_count > max_bad_sentence_count:
+                raise Exception(f"Too many bad un-aligned sentences between {comp_file} and {sentence_file}")
+        
         sentence_tx1 = session_tx1[go_cue_idx[0]:go_cue_idx[1]]
         sentence_tx2 = session_tx2[go_cue_idx[0]:go_cue_idx[1]]
         sentence_tx3 = session_tx3[go_cue_idx[0]:go_cue_idx[1]]
@@ -673,9 +714,15 @@ for mat_file in sentences_files:
         assert block_idx == block_idx2
         
         if block_idx == last_block_idx:
-            dataset_partition.append("test")
+            assert is_val
+            dataset_partition.append("val")
         else:
-            dataset_partition.append("train")
+            try:
+                assert is_train
+                dataset_partition.append("train")
+            except AssertionError:
+                print(f"{comp_file} should be train data, but we will use it as val data to match")
+                dataset_partition.append("val")
         
         try:
             tts_audio, tts_phones, sample_rate = load_TTS_data(sentence, ms_per_frame=ms_per_frame)
@@ -709,7 +756,7 @@ for mat_file in sentences_files:
         t12_mspec = mspec_block[block_idx][startIdx:stopIdx]
         t12_volume = volume_block[block_idx][startIdx:stopIdx]
         
-        if speaking_modes[mat_file] == "vocalized":
+        if speaking_modes[comp_file] == "vocalized":
             # finally, run dynamic time warping between t12_mspec and tts_mspec
             
             # good!
@@ -748,6 +795,29 @@ for mat_file in sentences_files:
     mat_tx4[mat_name] = tx4
     mat_audioEnvelope[mat_name] = audioEnvelope
     mat_dataset_partition[mat_name] = dataset_partition
+##
+for mtest in sorted(list(filter(lambda x: "test" in x, competition_to_sentence_mapping_per_file.keys()))):
+    stest = competition_file_mapping[mtest]
+    mat_test = mat_files[mtest]
+    sen_test = mat_files[stest]
+    fn = os.path.join(*mtest.split('/')[-2:])
+    print(f"===== {fn} =====")
+    print("Second to last block: ", sen_test['blockTypes'][-2].squeeze())
+    print("Last block: ", sen_test['blockTypes'][-1].squeeze())
+
+##
+sentence_file_mapping = defaultdict(list)
+for k,v in competition_file_mapping.items():
+    sentence_file_mapping[v].append(k)
+
+for sentence_file, comp_files in sorted(list(sentence_file_mapping.items())):
+    comp_mat0 = mat_files[comp_files[0]]
+    comp_mat1 = mat_files[comp_files[1]]
+    sentence_mat = mat_files[sentence_file]
+    print(f"===== {comp_files[0].split('/')[-1]} =====")
+    print(f"{''.join(comp_files[0].split('/')[-2])} length: {len(comp_mat0['sentenceText'])}")
+    print(f"{''.join(comp_files[1].split('/')[-2])} length: {len(comp_mat1['sentenceText'])}")
+    print(f"{''.join(sentence_file.split('/')[-2])} length: {len(sentence_mat['sentences'])}")
 
 ##
 # save to Zarr
@@ -803,7 +873,7 @@ for mat_file, v in mat_mspecs.items():
 ##
 cur_date = datetime.datetime.now().strftime("%Y-%m-%d")
 path = os.path.join(os.path.dirname(datadir), "synthetic_audio",
-                    f"{cur_date}_T12_dataset_gaussian-smoothing.npz")
+                    f"{cur_date}_T12_dataset_comp_split.npz")
 # mdict = {
 #     "session": session, "sentences": mat_sentences,
 #     "mspecs": flat_mspecs, "aligned_mspecs": flat_aligned_mspecs, "aligned_phonemes": flat_aligned_phonemes,
