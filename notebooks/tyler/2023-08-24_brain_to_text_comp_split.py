@@ -457,7 +457,7 @@ os.makedirs(output_directory, exist_ok=True)
 # steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
-
+##
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
@@ -537,6 +537,7 @@ trainer = pl.Trainer(
     limit_train_batches=limit_train_batches,
     limit_val_batches=limit_val_batches,
     # strategy=strategy,
+    # use_distributed_sampler=True,
     # use_distributed_sampler=False, # we need to make a custom distributed sampler
     # num_sanity_val_steps=num_sanity_val_steps,
     sync_batchnorm=True,
