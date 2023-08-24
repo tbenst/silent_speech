@@ -284,16 +284,17 @@ class T12CompDataset(NeuralDataset):
             blocks = np.unique(mat_file["blockIdx"])
             for b in blocks:
                 block_idxs = np.where(mat_file["blockIdx"] == b)[0]
-                mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs]), axis=0)
-                std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs]), axis=0)
+                N = 128
+                mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs][:,:N]), axis=0)
+                std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs][:,:N]), axis=0)
                 std += 1
                 for idx in block_idxs:
                     sentences.append(mat_file["sentenceText"][idx].rstrip())
                     # per block z-score
                     # TODO: try with first 128 channels only
-                    spikePow = (mat_file["spikePow"].squeeze()[idx] - mean) / std
+                    spikePow = (mat_file["spikePow"].squeeze()[idx][:,:N] - mean) / std
                     spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
-                    tx1 = (mat_file["tx1"].squeeze()[idx].astype(np.float64) - mean) / std
+                    tx1 = (mat_file["tx1"].squeeze()[idx][:,:N].astype(np.float64) - mean) / std
                     tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
                     # spikePow = mat_file["spikePow"].squeeze()[idx]
                     # tx1 = mat_file["tx1"].squeeze()[idx]
@@ -361,9 +362,9 @@ datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
 #     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
 #     no_audio=True)
 ##
-text1 = datamodule.train[0]['text']
-text2 = datamodule_comp.train[0]['text']
-text1, text2
+# text1 = datamodule.train[0]['text']
+# text2 = datamodule_comp.train[0]['text']
+# text1, text2
 ##
 # import matplotlib.pyplot as plt
 # nf1 = datamodule.train[0]['neural_features'][:,128:]
