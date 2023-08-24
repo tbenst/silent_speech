@@ -385,7 +385,7 @@ class T12CompDataModule(pl.LightningDataModule):
 datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
     train_bz=base_bz, val_bz=val_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
-# )
+)
 # datamodule_comp = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
 #     train_bz=base_bz, val_bz=val_bz,
 #     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
