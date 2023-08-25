@@ -59,7 +59,7 @@ import glob, scipy
 from helpers import load_npz_to_memory
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 RESUME = False
 # RESUME = True
 
@@ -183,7 +183,7 @@ def update_configs(
     white_noise_sd_cli: float = typer.Option(white_noise_sd, "--white-noise-sd"),
     learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
     debug_cli: bool = typer.Option(False, "--debug"),
-    phonemes_cli: bool = typer.Option(False, "--phonemes"),
+    phonemes_cli: bool = typer.Option(togglePhones, "--phonemes"),
     resume_cli: bool = typer.Option(RESUME, "--resume"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option(precision, "--precision"),
@@ -269,7 +269,8 @@ t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
 ##
 
 class T12CompDataset(NeuralDataset):
-    def __init__(self, mat_files,white_noise_sd=0, constant_offset_sd=0):
+    def __init__(self, mat_files,white_noise_sd=0, constant_offset_sd=0,
+                 togglePhones=False):
                 #  audio_type="tts_mspecs"):
         """T12 BCI dataset.
         
@@ -337,7 +338,7 @@ class T12CompDataset(NeuralDataset):
 
         audio = [None] * len(neural)
         phonemes = [None] * len(neural)
-        text_transform = TextTransform(togglePhones = False)
+        text_transform = TextTransform(togglePhones = togglePhones)
         super().__init__(neural, audio, phonemes, sentences, text_transform,
             sessions=sessions,
             white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
@@ -346,15 +347,16 @@ class T12CompDataset(NeuralDataset):
 class T12CompDataModule(pl.LightningDataModule):
     def __init__(self, datadir, train_bz:int=32, val_bz:int=16, fixed_length=False,
                  white_noise_sd=1.0, constant_offset_sd=0.2,
-                 no_audio=True):
+                 no_audio=True, togglePhones=False):
         super().__init__()
         
         train_files = glob.glob(datadir + '*/train/*')
         test_files  = glob.glob(datadir + '*/test/*')
 
         self.train = T12CompDataset(train_files,
-                white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
-        self.val = T12CompDataset(test_files)
+            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+            togglePhones=togglePhones)
+        self.val = T12CompDataset(test_files, togglePhones=togglePhones)
         self.collate_fn = collate_gaddy_speech_or_neural
 
         self.train_bz = train_bz
@@ -385,8 +387,8 @@ class T12CompDataModule(pl.LightningDataModule):
     
 datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
     train_bz=base_bz, val_bz=val_bz,
-    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
-)
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+    togglePhones=togglePhones)
 # datamodule_comp = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
 #     train_bz=base_bz, val_bz=val_bz,
 #     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
@@ -435,10 +437,27 @@ datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
 # fig.suptitle("average tx1")
 # plt.show()
 ##
-tx = datamodule.train[0]['text']
-print(tx)
-tt = TextTransform(togglePhones = True)
-tt.clean_text(tx)
+# tx = datamodule.train[0]['text']
+# print(tx)
+# tt = TextTransform(togglePhones = True)
+# tt.clean_text(tx)
+# ##
+# x = "the tooth fairy forgot to come when rogers tooth fell out"
+# y = "the booth babe fairy forgot to come when rogers tooth fell out"
+# xp = tt.clean_text(x)
+# yp = tt.clean_text(y)
+# edit_distance(xp,yp) / len(xp)
+# ##
+# xi = tt.text_to_int(x)
+# yi = tt.text_to_int(y)
+# edit_distance(xi,yi)/len(xi)
+
+# ##
+# # tt.int_to_text(xi)
+# # jiwer.wer([tt.int_to_phone_str(xi)], [tt.int_to_phone_str(yi)])
+# token_error_rate(xi,yi, tt)
+# ##
+# jiwer.wer([" ".join([x.replace(' ', '|') for x in xp])], [" ".join([x.replace(' ', '|') for x in yp])])
 
 ##
 # INFO: on sherlock this is taking 1 minute. On local machine, 0 seconds.

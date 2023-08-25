@@ -10,7 +10,7 @@ import pytorch_lightning as pl, torchmetrics
 from torchaudio.models.decoder import ctc_decoder
 from torchaudio.functional import edit_distance
 from s4 import S4
-from data_utils import TextTransform
+from data_utils import TextTransform, token_error_rate
 from magneto.models.hyena import HyenaOperator
 from flash_attn.modules.block import Block
 from magneto.models.s4d import S4D
@@ -789,6 +789,8 @@ class MONA(Model):
         
         self.step_text_target = []
         self.step_text_pred = []
+        self.step_int_target = []
+        self.step_int_pred = []
         self.sup_nce_lambda = cfg.sup_nce_lambda
         
         self.fixed_length = cfg.fixed_length
@@ -1181,9 +1183,9 @@ class MONA(Model):
                 pred_int.append([])
         target_text  = [self.text_transform.clean_text(b) for b in batch['text']]
         
+        target_int = batch['text_int']
         
-        
-        return target_text, pred_text, pred_int
+        return target_text, pred_text, target_int, pred_int
     
     def training_step(self, batch, batch_idx):
         c = self.calc_loss(**self.batch_forward(batch))
@@ -1244,9 +1246,9 @@ class MONA(Model):
 
         # TODO: split text by emg, audio, neural
         target_text = batch['text']
-        target_texts, pred_texts, pred_ints = self._beam_search_batch(batch)
+        target_texts, pred_texts, target_ints, pred_ints = self._beam_search_batch(batch)
         # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
-        for i, (target_text, pred_text, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints)):
+        for i, (target_text, pred_text, target_int, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints, target_ints)):
             if len(target_text) > 0:
                 self.step_text_target.append(target_text)
                 self.step_text_pred.append(pred_text)
@@ -1255,8 +1257,8 @@ class MONA(Model):
                     self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
                     self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
                     
-                self.step_int_target.append(batch['text_int'][i])
-                self.step_int_pred.append(pred_int)
+                self.step_int_target.append(target_int.numpy())
+                self.step_int_pred.append(pred_int.cpu().numpy())
             
         self.log(f"{task}/loss", loss, prog_bar=True, batch_size=summed_bz, sync_dist=True)
         self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=emg_bz, sync_dist=True)
@@ -1285,10 +1287,8 @@ class MONA(Model):
                 print("WARN: got prediction length of zero during validation.")
         # logging.warning(f"on_validation_epoch_end: calc wer")
         wer = jiwer.wer(step_text_target, step_text_pred)
-        cer = jiwer.wer(step_int_target, step_int_pred)
-        wer2 = edit_distance(step_text_target, step_text_pred)
-        cer2 = edit_distance(step_int_target, step_int_pred)
-        print(f"WER/CER/WER2/CER2: {wer=}, {cer=}, {wer2=}, {cer2=}")
+        # print(f"{step_int_target=}, {step_int_pred=}")
+        cer = token_error_rate(step_int_target, step_int_pred, self.text_transform)
         self.step_text_target.clear()
         self.step_text_pred.clear()
         self.step_int_target.clear()
