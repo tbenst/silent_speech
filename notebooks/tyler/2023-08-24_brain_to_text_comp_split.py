@@ -297,12 +297,12 @@ class T12CompDataset(NeuralDataset):
                 mean = np.mean(np.concatenate(last_20_spikePow), axis=0)
                 std = np.std(np.concatenate(last_20_spikePow), axis=0) + 1
                 spikePow = (spikePow - mean) / std
-                spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
+                # spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
                 
                 mean = np.mean(np.concatenate(last_20_tx1), axis=0)
                 std = np.std(np.concatenate(last_20_tx1), axis=0) + 1
                 tx1 = (tx1 - mean) / std
-                tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
+                # tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
                 
                 neural.append(np.concatenate([
                         spikePow,
