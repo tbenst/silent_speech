@@ -156,7 +156,7 @@ class Model(pl.LightningModule):
     def _init_ctc_decoder(self):
         self.ctc_decoder = ctc_decoder(
             lexicon = self.lexicon_file,
-            tokens  = self.text_transform.chars + ['_'],
+            tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
             lm      = os.path.join(self.lm_directory, '4gram_lm.bin'),
             blank_token = '_',
             sil_token   = '|',
@@ -250,10 +250,10 @@ class Model(pl.LightningModule):
         b0 = batch['text'][0]
         if len(batch['text'][0]) == 1:
             # index twice for gaddy's collate function
-            target_text  = self.text_transform.clean_2(b0[0])
+            target_text  = self.text_transform.clean_text(b0[0])
         else:
             # Only index once for new collate function
-            target_text  = self.text_transform.clean_2(b0)
+            target_text  = self.text_transform.clean_text(b0)
 
         return target_text, pred_text
     
@@ -690,6 +690,8 @@ class MONAConfig:
     constant_offset_sd:float = 1.0
     white_noise_sd:float = 0.2
     
+    togglePhones:bool = False
+    
     def __post_init__(self):
         if self.warmup_steps is None:
             self.warmup_steps = 500 // self.gradient_accumulation_steps
@@ -769,7 +771,11 @@ class MONA(Model):
         self.text_transform = text_transform
         self.n_chars = len(text_transform.chars)
         self.lm_directory = cfg.lm_directory
-        self.lexicon_file = os.path.join(cfg.lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+        if cfg.togglePhones:
+            self.lexicon_file = os.path.join(cfg.lm_directory, 'cmudict.txt')
+        else:
+            self.lexicon_file = os.path.join(cfg.lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+        
         self._init_ctc_decoder()
         self.cross_nce_lambda = cfg.cross_nce_lambda
         self.audio_lambda = cfg.audio_lambda
@@ -1164,7 +1170,7 @@ class MONA(Model):
                 pred_text.append(' '.join(b[0].words).strip().lower())
             else:
                 pred_text.append('')
-        target_text  = [self.text_transform.clean_2(b) for b in batch['text']]
+        target_text  = [self.text_transform.clean_text(b) for b in batch['text']]
         return target_text, pred_text
     
     def training_step(self, batch, batch_idx):

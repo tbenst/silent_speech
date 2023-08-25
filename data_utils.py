@@ -396,19 +396,12 @@ class TextTransform(object):
             self.g2p   = None
             self.chars = [x for x in string.ascii_lowercase+string.digits+ '|']
 
-    def clean_2(self, text):
-        text = applyCustomCorrections(text, self.replacement_dict)
-        text = unidecode(text)
-        text = text.replace('-', ' ')
-        text = text.replace(':', ' ')
-        text = self.transformation(text)
-        text = convertNumbersToStrings(text)
-        return text             
-
     def clean_text(self, text):
         if self.togglePhones:
+            # also see https://github.com/fwillett/speechBCI/blob/b409b61ec6d928efc58ef8ff882894a1fbc9626e/AnalysisExamples/makeTFRecordsFromSession.py#L109
+            # do we need to append a space to the end of the text..?
             text = self.g2p(text)
-            text = [re.sub("\d+", "", x) for x in text]
+            text = [re.sub("\d+", "", x) for x in text] # remove stress
             text = [x.replace('-', ' ') for x in text]
             text = [x.replace(':', ' ') for x in text]
             text = [jiwer.RemovePunctuation()(x) for x in text]

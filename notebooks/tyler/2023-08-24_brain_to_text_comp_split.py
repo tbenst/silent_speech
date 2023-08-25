@@ -59,7 +59,7 @@ import glob, scipy
 from helpers import load_npz_to_memory
 
 DEBUG = False
-# DEBUG = True
+DEBUG = True
 RESUME = False
 # RESUME = True
 
@@ -75,7 +75,7 @@ auto_lr_find = False
 # learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
 learning_rate = 3e-4
 # learning_rate = 1.5e-4
-togglePhones = False
+togglePhones = True
 
 if RESUME:
     # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
@@ -146,7 +146,6 @@ print(f"CPU affinity: {os.sched_getaffinity(0)}")
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
-togglePhones = False
 
 if ON_SHERLOCK:
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
@@ -183,7 +182,8 @@ def update_configs(
     constant_offset_sd_cli: float = typer.Option(constant_offset_sd, "--constant-offset-sd"),
     white_noise_sd_cli: float = typer.Option(white_noise_sd, "--white-noise-sd"),
     learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
-    debug_cli: bool = typer.Option(DEBUG, "--debug"),
+    debug_cli: bool = typer.Option(False, "--debug"),
+    phonemes_cli: bool = typer.Option(False, "--phonemes"),
     resume_cli: bool = typer.Option(RESUME, "--resume"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option(precision, "--precision"),
@@ -197,13 +197,14 @@ def update_configs(
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
-    global learning_rate, devices
+    global learning_rate, devices, togglePhones
 
     devices = devices_cli
     try:
         devices = int(devices) # eg "2" -> 2
     except:
         pass
+    togglePhones = phonemes_cli
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
     white_noise_sd = white_noise_sd_cli
@@ -433,6 +434,11 @@ datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
 # axs[1].set_xlabel("time")
 # fig.suptitle("average tx1")
 # plt.show()
+##
+tx = datamodule.train[0]['text']
+print(tx)
+tt = TextTransform(togglePhones = True)
+tt.clean_text(tx)
 
 ##
 # INFO: on sherlock this is taking 1 minute. On local machine, 0 seconds.
@@ -503,7 +509,7 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     neural_input_features=datamodule.train.n_features,
     seqlen=seqlen, max_len=max_len, batch_size=base_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-    num_train_epochs=n_epochs)
+    num_train_epochs=n_epochs, togglePhones=togglePhones,)
 
 model = MONA(config, text_transform, no_emg=True, no_audio=True,
 )
