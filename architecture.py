@@ -805,8 +805,8 @@ class MONA(Model):
             x = self.session_input_encoder(x, sessions)
         else:
             x = self.neural_input_encoder(x) # reduce number of inputs
-        x = self.neural_input_dropout(x)
-        x = self.neural_input_act(x)
+        # x = self.neural_input_dropout(x)
+        # x = self.neural_input_act(x)
         x = x.transpose(1,2)
         x = self.neural_conv_blocks(x)
         x = x.transpose(1,2)

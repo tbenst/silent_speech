@@ -506,8 +506,8 @@ config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
     num_train_epochs=n_epochs)
 
 model = MONA(config, text_transform, no_emg=True, no_audio=True,
-# )
-             sessions=datamodule.train.unique_sessions)
+)
+            #  sessions=datamodule.train.unique_sessions)
 logging.info('made model')
 
 callbacks = [
