@@ -64,8 +64,8 @@ RESUME = False
 # RESUME = True
 
 
-constant_offset_sd = 0.1
-white_noise_sd = 0.2
+constant_offset_sd = 0
+white_noise_sd = 0
 # constant_offset_sd = 0
 # white_noise_sd = 0
 seqlen = 600
