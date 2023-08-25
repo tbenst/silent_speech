@@ -8,6 +8,7 @@ from data_utils import combine_fixed_length, decollate_tensor
 import sys, os, jiwer
 import pytorch_lightning as pl, torchmetrics
 from torchaudio.models.decoder import ctc_decoder
+from torchaudio.functional import edit_distance
 from s4 import S4
 from data_utils import TextTransform
 from magneto.models.hyena import HyenaOperator
@@ -149,14 +150,17 @@ class Model(pl.LightningModule):
         self.lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
         self._init_ctc_decoder()
         
-        self.step_target = []
-        self.step_pred = []
+        self.step_text_target = []
+        self.step_text_pred = []
+        self.step_int_target = []
+        self.step_int_pred = []
         self.weight_decay = weight_decay
 
     def _init_ctc_decoder(self):
         self.ctc_decoder = ctc_decoder(
             lexicon = self.lexicon_file,
-            tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
+            # tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
+            tokens      = self.text_transform.chars + ['_'],
             lm      = os.path.join(self.lm_directory, '4gram_lm.bin'),
             blank_token = '_',
             sil_token   = '|',
@@ -283,8 +287,8 @@ class Model(pl.LightningModule):
         target_text, pred_text = self._beam_search_step(batch)
         assert len(batch['emg']) == 1, "Currently only support batch size of 1 for validation"
         if len(target_text) > 0:
-            self.step_target.append(target_text)
-            self.step_pred.append(pred_text)
+            self.step_text_target.append(target_text)
+            self.step_text_pred.append(pred_text)
             
         self.log("val/loss", loss, prog_bar=True, batch_size=bz)
         return loss
@@ -292,20 +296,20 @@ class Model(pl.LightningModule):
     def on_validation_epoch_end(self) -> None:
         # TODO: this may not be implemented correctly for DDP
         logging.warning(f"start on_validation_epoch_end")
-        step_target = []
-        step_pred = []
-        for t,p in zip(self.step_target, self.step_pred):
+        step_text_target = []
+        step_text_pred = []
+        for t,p in zip(self.step_text_target, self.step_text_pred):
             if len(t) > 0:
-                step_target.append(t)
-                step_pred.append(p)
+                step_text_target.append(t)
+                step_text_pred.append(p)
             else:
                 print("WARN: got target length of zero during validation.")
             if len(p) == 0:
                 print("WARN: got prediction length of zero during validation.")
         logging.warning(f"on_validation_epoch_end: calc wer")
-        wer = jiwer.wer(step_target, step_pred)
-        self.step_target.clear()
-        self.step_pred.clear()
+        wer = jiwer.wer(step_text_target, step_text_pred)
+        self.step_text_target.clear()
+        self.step_text_pred.clear()
         self.log("val/wer", wer, prog_bar=True, sync_dist=True)
         # self.profiler.stop(f"validation loop")
         # self.profiler.describe()
@@ -317,15 +321,15 @@ class Model(pl.LightningModule):
         loss, bz = self.calc_loss(batch)
         target_text, pred_text = self._beam_search_step(batch)
         if len(target_text) > 0:
-            self.step_target.append(target_text)
-            self.step_pred.append(pred_text)
+            self.step_text_target.append(target_text)
+            self.step_text_pred.append(pred_text)
         self.log("test/loss", loss, prog_bar=True, batch_size=bz)
         return loss
     
     def on_test_epoch_end(self) -> None:
-        wer = jiwer.wer(self.step_target, self.step_pred)
-        self.step_target.clear()
-        self.step_pred.clear()
+        wer = jiwer.wer(self.step_text_target, self.step_text_pred)
+        self.step_text_target.clear()
+        self.step_text_pred.clear()
         self.log("test/wer", wer, prog_bar=True)
 
     def configure_optimizers(self):
@@ -710,11 +714,11 @@ class MONA(Model):
                 cfg.neural_input_features, cfg.neural_reduced_features)
         else:
             self.use_session_input_encoder = False
-            self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
-                                                  cfg.neural_reduced_features)
+            # self.neural_input_encoder = nn.Linear(cfg.neural_input_features,
+            #                                       cfg.neural_reduced_features)
             
-        self.neural_input_dropout = nn.Dropout(0.4)
-        self.neural_input_act = nn.Softsign()
+        # self.neural_input_dropout = nn.Dropout(0.4)
+        # self.neural_input_act = nn.Softsign()
         
         if not no_emg:
             self.emg_conv_blocks = nn.Sequential(
@@ -736,7 +740,8 @@ class MONA(Model):
             # where C is the number of electrodes (256)
             # and F is the number of features (5)
             # could even do a 3D conv with spatial info, T x H x W x C x F
-            ResBlock(cfg.neural_reduced_features, cfg.d_model, beta=cfg.beta), # 1280 neural features (5 * 256 channels)
+            # ResBlock(cfg.neural_reduced_features, cfg.d_model, beta=cfg.beta),
+            ResBlock(cfg.neural_input_features, cfg.d_model, beta=cfg.beta),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
             ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
         )
@@ -782,8 +787,8 @@ class MONA(Model):
         self.neural_lambda = cfg.neural_lambda
         self.steps_per_epoch = cfg.steps_per_epoch
         
-        self.step_target = []
-        self.step_pred = []
+        self.step_text_target = []
+        self.step_text_pred = []
         self.sup_nce_lambda = cfg.sup_nce_lambda
         
         self.fixed_length = cfg.fixed_length
@@ -810,7 +815,8 @@ class MONA(Model):
         if self.use_session_input_encoder:
             x = self.session_input_encoder(x, sessions)
         else:
-            x = self.neural_input_encoder(x) # reduce number of inputs
+            # x = self.neural_input_encoder(x) # reduce number of inputs
+            pass
         # x = self.neural_input_dropout(x)
         # x = self.neural_input_act(x)
         x = x.transpose(1,2)
@@ -1163,15 +1169,21 @@ class MONA(Model):
 
         beam_results = self.ctc_decoder(pred)
         pred_text = []
+        pred_int = []
         for b in beam_results:
             if len(b) > 0:
                 # I think length is zero only when there's NaNs in the output
                 # we could just allow the crash here
                 pred_text.append(' '.join(b[0].words).strip().lower())
+                pred_int.append(b[0].tokens)
             else:
                 pred_text.append('')
+                pred_int.append([])
         target_text  = [self.text_transform.clean_text(b) for b in batch['text']]
-        return target_text, pred_text
+        
+        
+        
+        return target_text, pred_text, pred_int
     
     def training_step(self, batch, batch_idx):
         c = self.calc_loss(**self.batch_forward(batch))
@@ -1232,16 +1244,19 @@ class MONA(Model):
 
         # TODO: split text by emg, audio, neural
         target_text = batch['text']
-        target_texts, pred_texts = self._beam_search_batch(batch)
+        target_texts, pred_texts, pred_ints = self._beam_search_batch(batch)
         # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
-        for i, (target_text, pred_text) in enumerate(zip(target_texts, pred_texts)):
+        for i, (target_text, pred_text, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints)):
             if len(target_text) > 0:
-                self.step_target.append(target_text)
-                self.step_pred.append(pred_text)
+                self.step_text_target.append(target_text)
+                self.step_text_pred.append(pred_text)
                 if i % 16 == 0 and type(self.logger) == NeptuneLogger:
                     # log approx 10 examples
                     self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
                     self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
+                    
+                self.step_int_target.append(batch['text_int'][i])
+                self.step_int_pred.append(pred_int)
             
         self.log(f"{task}/loss", loss, prog_bar=True, batch_size=summed_bz, sync_dist=True)
         self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=emg_bz, sync_dist=True)
@@ -1253,25 +1268,36 @@ class MONA(Model):
     def on_validation_epoch_end(self) -> None:
         # TODO: this may not be implemented correctly for DDP
         # raise NotImplementedError("on_validation_epoch_end not implemented neural, librispeech")
-        logging.warning(f"start on_validation_epoch_end")
-        step_target = []
-        step_pred = []
-        for t,p in zip(self.step_target, self.step_pred):
+        # logging.warning(f"start on_validation_epoch_end")
+        step_text_target = []
+        step_text_pred = []
+        step_int_target = []
+        step_int_pred = []
+        for t,p,i,j in zip(self.step_text_target, self.step_text_pred, self.step_int_target, self.step_int_pred):
             if len(t) > 0:
-                step_target.append(t)
-                step_pred.append(p)
+                step_text_target.append(t)
+                step_text_pred.append(p)
+                step_int_target.append(i)
+                step_int_pred.append(j)
             else:
                 print("WARN: got target length of zero during validation.")
             if len(p) == 0:
                 print("WARN: got prediction length of zero during validation.")
-        logging.warning(f"on_validation_epoch_end: calc wer")
-        wer = jiwer.wer(step_target, step_pred)
-        self.step_target.clear()
-        self.step_pred.clear()
+        # logging.warning(f"on_validation_epoch_end: calc wer")
+        wer = jiwer.wer(step_text_target, step_text_pred)
+        cer = jiwer.wer(step_int_target, step_int_pred)
+        wer2 = edit_distance(step_text_target, step_text_pred)
+        cer2 = edit_distance(step_int_target, step_int_pred)
+        print(f"WER/CER/WER2/CER2: {wer=}, {cer=}, {wer2=}, {cer2=}")
+        self.step_text_target.clear()
+        self.step_text_pred.clear()
+        self.step_int_target.clear()
+        self.step_int_pred.clear()
         self.log("val/wer", wer, prog_bar=True, sync_dist=True)
+        self.log("val/cer", cer, prog_bar=True, sync_dist=True)
         # self.profiler.stop(f"validation loop")
         # self.profiler.describe()
-        logging.warning(f"on_validation_epoch_end: gc.collect()")
+        # logging.warning(f"on_validation_epoch_end: gc.collect()")
         gc.collect()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 

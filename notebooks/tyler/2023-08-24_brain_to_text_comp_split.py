@@ -501,6 +501,24 @@ os.makedirs(output_directory, exist_ok=True)
 steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 ##
+# from torchaudio.models.decoder import ctc_decoder
+# ctcd = ctc_decoder(
+#             lexicon = os.path.join(lm_directory, 'cmudict.txt'),
+#             # lexicon = os.path.join(lm_directory, 'cmudict.0.7a_SPHINX_40'),
+#             tokens      = text_transform.chars + ['_'],
+#             lm      = os.path.join(lm_directory, '4gram_lm.bin'),
+#             blank_token = '_',
+#             sil_token   = '|',
+#             nbest       = 1,
+#             lm_weight   = 2, # default is 2; Gaddy sets to 1.85
+#             #word_score  = -3,
+#             #sil_score   = -2,
+#             beam_size   = 150,  # SET TO 150 during inference
+#             log_add = True
+#         )
+
+
+##
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
