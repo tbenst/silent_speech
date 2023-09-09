@@ -397,6 +397,17 @@ class TextTransform(object):
             self.chars = [x for x in string.ascii_lowercase+string.digits+ '|']
 
     def clean_text(self, text):
+        #     # also see https://github.com/fwillett/speechBCI/blob/b409b61ec6d928efc58ef8ff882894a1fbc9626e/AnalysisExamples/makeTFRecordsFromSession.py#L109
+        text = applyCustomCorrections(text, self.replacement_dict)
+        text = unidecode(text)
+        text = text.replace('-', ' ')
+        text = text.replace(':', ' ')
+        text = self.transformation(text)
+        text = convertNumbersToStrings(text)
+        
+        return text
+
+    def text_to_int(self, text):
         if self.togglePhones:
             # also see https://github.com/fwillett/speechBCI/blob/b409b61ec6d928efc58ef8ff882894a1fbc9626e/AnalysisExamples/makeTFRecordsFromSession.py#L109
             # do we need to append a space to the end of the text..?
@@ -405,28 +416,23 @@ class TextTransform(object):
             text = [x.replace('-', ' ') for x in text]
             text = [x.replace(':', ' ') for x in text]
             text = [jiwer.RemovePunctuation()(x) for x in text]
+            # text = [x.replace(' ', '|') for x in text] # added by tyler, check with Guy if this is correct
             text = [x for x in text if len(x) > 0]
-        else:
-            text = applyCustomCorrections(text, self.replacement_dict)
-            text = unidecode(text)
-            text = text.replace('-', ' ')
-            text = text.replace(':', ' ')
-            text = self.transformation(text)
-            text = convertNumbersToStrings(text)
-        
-        return text
-
-    def text_to_int(self, text):
-        text = self.clean_text(text)
-        if self.togglePhones:
             text = [x.replace(' ', '|') for x in text]
         else:
+            text = self.clean_text(text)
             text = text.replace(' ', '|')
-        return [self.chars.index(c) for c in text]
+        return [self.chars.index(c.upper()) for c in text]
 
     def int_to_text(self, ints):
+        if self.togglePhones:
+            raise NotImplementedError
         text = ''.join(self.chars[i] for i in ints)
         text = text.replace('|', ' ').lower()
+        return text
+    
+    def int_to_phone_str(self, ints):
+        text = ' '.join(self.chars[i] for i in ints)
         return text
 
 def in_notebook():
@@ -439,3 +445,13 @@ def in_notebook():
     except AttributeError:
         return False
     return True
+
+def token_error_rate(ref, hyp, text_transform):
+    "CER or PER."
+    if type(ref[0]) is not int:
+        ref = [text_transform.int_to_phone_str(yi) for yi in ref]
+        hyp = [text_transform.int_to_phone_str(yi) for yi in hyp]
+    else:
+        ref = [text_transform.int_to_phone_str(ref)]
+        hyp = [text_transform.int_to_phone_str(hyp)]
+    return jiwer.wer(ref, hyp)

@@ -2,6 +2,7 @@ import torch, numpy as np, librosa, torchaudio, os, pytorch_lightning as pl
 import dill as pickle # dill can serialize local classes
 from data_utils import mel_spectrogram, read_phonemes, TextTransform
 import torch.distributed as dist, sys, logging
+import scipy, glob
 from tqdm import tqdm
 from functools import partial
 from joblib import Memory
@@ -1171,6 +1172,103 @@ class T12DataModule(pl.LightningDataModule):
                 no_audio=no_audio)
         self.val = T12Dataset(t12_npz, partition="test", audio_type="tts_mspecs",
                               no_audio=no_audio)
+        self.collate_fn = collate_gaddy_speech_or_neural
+
+        self.train_bz = train_bz
+        self.val_bz = val_bz
+        self.fixed_length = fixed_length
+        
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+                self.train,
+                collate_fn=self.collate_fn,
+                pin_memory=True,
+                num_workers=0,
+                batch_size=self.train_bz,
+            )
+        
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.val,
+            collate_fn=self.collate_fn,
+            pin_memory=True,
+            num_workers=0,
+            batch_size=self.val_bz,
+        )
+        
+    def test_dataloader(self):
+        return None
+    
+class T12CompDataset(NeuralDataset):
+    def __init__(self, mat_files,white_noise_sd=0, constant_offset_sd=0,
+                 togglePhones=False, smoothing_sigma=0):
+                #  audio_type="tts_mspecs"):
+        """T12 BCI dataset.
+        
+        partition: train or test
+        audio_type: mspecs, tts_mspecs, or aligned_tts_mspecs
+        
+        """
+        sentences = []
+        neural = []
+        sessions = []
+        for f in tqdm(mat_files):
+            mat_file = scipy.io.loadmat(f)
+            blocks = np.unique(mat_file["blockIdx"])
+            last_20_spikePow = []
+            last_20_tx1 = []
+            for i in range(len(mat_file["sentenceText"])):
+                sentences.append(mat_file["sentenceText"][i].rstrip())
+                spikePow = mat_file["spikePow"].squeeze()[i][:,:128]
+                tx1 = mat_file["tx1"].squeeze()[i][:,:128]
+                last_20_spikePow.append(spikePow)
+                last_20_tx1.append(tx1)
+                if len(last_20_spikePow) > 20:
+                    last_20_spikePow.pop(0)
+                    last_20_tx1.pop(0)
+                    
+                mean = np.mean(np.concatenate(last_20_spikePow), axis=0)
+                std = np.std(np.concatenate(last_20_spikePow), axis=0) + 1
+                spikePow = (spikePow - mean) / std
+                if smoothing_sigma > 0:
+                    spikePow = scipy.ndimage.gaussian_filter1d(spikePow,
+                        sigma=smoothing_sigma, axis=0)
+                
+                mean = np.mean(np.concatenate(last_20_tx1), axis=0)
+                std = np.std(np.concatenate(last_20_tx1), axis=0) + 1
+                tx1 = (tx1 - mean) / std
+                if smoothing_sigma > 0:
+                    tx1 = scipy.ndimage.gaussian_filter1d(tx1,
+                        sigma=smoothing_sigma, axis=0)
+                
+                neural.append(np.concatenate([
+                        spikePow,
+                        tx1,
+                    ], axis=1).astype(np.float32))
+                
+                sessions.append(os.path.split(f)[-1])
+
+        audio = [None] * len(neural)
+        phonemes = [None] * len(neural)
+        text_transform = TextTransform(togglePhones = togglePhones)
+        super().__init__(neural, audio, phonemes, sentences, text_transform,
+            sessions=sessions,
+            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+            no_audio=True)
+        
+class T12CompDataModule(pl.LightningDataModule):
+    def __init__(self, datadir, train_bz:int=32, val_bz:int=16, fixed_length=False,
+                 white_noise_sd=1.0, constant_offset_sd=0.2, smoothing_sigma=0,
+                 no_audio=True, togglePhones=False):
+        super().__init__()
+        
+        train_files = glob.glob(datadir + '*/train/*')
+        test_files  = glob.glob(datadir + '*/test/*')
+
+        self.train = T12CompDataset(train_files,
+            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+            togglePhones=togglePhones, smoothing_sigma=smoothing_sigma)
+        self.val = T12CompDataset(test_files, togglePhones=togglePhones, smoothing_sigma=smoothing_sigma)
         self.collate_fn = collate_gaddy_speech_or_neural
 
         self.train_bz = train_bz
