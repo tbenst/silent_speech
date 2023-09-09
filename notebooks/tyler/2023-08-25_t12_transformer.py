@@ -57,6 +57,7 @@ from contrastive import cross_contrastive_loss, var_length_cross_contrastive_los
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
 import glob, scipy
 from helpers import load_npz_to_memory
+from typing_extensions import Annotated
 
 DEBUG = False
 DEBUG = True
@@ -180,7 +181,12 @@ def update_configs(
     white_noise_sd_cli: float = typer.Option(white_noise_sd, "--white-noise-sd"),
     learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
     debug_cli: bool = typer.Option(False, "--debug"),
-    phonemes_cli: bool = typer.Option(togglePhones, "--phonemes"),
+    phonemes:Annotated[
+        bool,
+        typer.Option(
+            help="Use Phonemes.", rich_help_panel="Train CTC on phoneme labels."
+        ),
+    ] = True,
     resume_cli: bool = typer.Option(RESUME, "--resume"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option(precision, "--precision"),
@@ -201,7 +207,7 @@ def update_configs(
         devices = int(devices) # eg "2" -> 2
     except:
         pass
-    togglePhones = phonemes_cli
+    togglePhones = phonemes
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
     white_noise_sd = white_noise_sd_cli
