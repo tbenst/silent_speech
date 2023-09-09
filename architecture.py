@@ -159,12 +159,8 @@ class Model(pl.LightningModule):
     def _init_ctc_decoder(self):
         self.ctc_decoder = ctc_decoder(
             lexicon = self.lexicon_file,
-<<<<<<< Updated upstream
             # tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
             tokens      = self.text_transform.chars + ['_'],
-=======
-            tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
->>>>>>> Stashed changes
             lm      = os.path.join(self.lm_directory, '4gram_lm.bin'),
             blank_token = '_',
             sil_token   = '|',
