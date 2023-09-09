@@ -419,10 +419,11 @@ class TextTransform(object):
             # text = [x.replace(' ', '|') for x in text] # added by tyler, check with Guy if this is correct
             text = [x for x in text if len(x) > 0]
             text = [x.replace(' ', '|') for x in text]
+            return [self.chars.index(c.upper()) for c in text]
         else:
             text = self.clean_text(text)
             text = text.replace(' ', '|')
-        return [self.chars.index(c.upper()) for c in text]
+            return [self.chars.index(c.lower()) for c in text]
 
     def int_to_text(self, ints):
         if self.togglePhones:
