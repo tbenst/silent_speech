@@ -51,7 +51,7 @@ from dataloaders import LibrispeechDataset, EMGAndSpeechModule, \
     split_batch_into_emg_neural_audio, DistributedSizeAwareStratifiedBatchSampler, \
     SizeAwareStratifiedBatchSampler, collate_gaddy_or_speech, \
     collate_gaddy_speech_or_neural, DistributedSizeAwareSampler, \
-    T12DataModule, T12Dataset, NeuralDataset
+    T12DataModule, T12Dataset, NeuralDataset, T12CompDataModule
 from functools import partial
 from contrastive import cross_contrastive_loss, var_length_cross_contrastive_loss, \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss
@@ -64,8 +64,8 @@ RESUME = False
 # RESUME = True
 
 
-constant_offset_sd = 0.1
-white_noise_sd = 0.2
+constant_offset_sd = 0.2
+white_noise_sd = 0.8
 # constant_offset_sd = 0
 # white_noise_sd = 0
 seqlen = 600
@@ -73,7 +73,7 @@ auto_lr_find = False
 
 # see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
 # learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
-learning_rate = 3e-4
+learning_rate = 2e-4
 # learning_rate = 1.5e-4
 togglePhones = True
 
@@ -128,7 +128,6 @@ if ON_SHERLOCK:
     tmp_lengths_pkl = os.path.join("/tmp", "2023-07-25_emg_speech_dset_lengths.pkl")
     if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
         shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
-    t12_npz_path = os.path.join(scratch_directory, "2023-08-21_T12_dataset.npz")
     T12_dir = os.path.join(scratch_directory, "T12_data")
     if len(os.sched_getaffinity(0)) > 16:
         print("WARNING: if you are running more than one script, you may want to use `taskset -c 0-16` or similar")
@@ -137,9 +136,7 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    # t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-22_T12_dataset_gaussian-smoothing.npz"
-    T12_dir = "/data/data/T12_data/"
+    T12_dir = "/data/data/T12_data_v4/"
 
 print(f"CPU affinity: {os.sched_getaffinity(0)}")
 
@@ -183,7 +180,7 @@ def update_configs(
     white_noise_sd_cli: float = typer.Option(white_noise_sd, "--white-noise-sd"),
     learning_rate_cli: float = typer.Option(learning_rate, "--learning-rate"),
     debug_cli: bool = typer.Option(False, "--debug"),
-    phonemes_cli: bool = typer.Option(False, "--phonemes"),
+    phonemes_cli: bool = typer.Option(togglePhones, "--phonemes"),
     resume_cli: bool = typer.Option(RESUME, "--resume"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option(precision, "--precision"),
@@ -265,242 +262,20 @@ if not log_neptune:
     logging.warning("not logging to neptune")
     
 # TODO: comment out
-t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
 ##
-
-class T12CompDataset(NeuralDataset):
-    def __init__(self, mat_files,white_noise_sd=0, constant_offset_sd=0):
-                #  audio_type="tts_mspecs"):
-        """T12 BCI dataset.
-        
-        partition: train or test
-        audio_type: mspecs, tts_mspecs, or aligned_tts_mspecs
-        
-        """
-        sentences = []
-        neural = []
-        sessions = []
-        for f in tqdm(mat_files):
-            mat_file = scipy.io.loadmat(f)
-            blocks = np.unique(mat_file["blockIdx"])
-            last_20_spikePow = []
-            last_20_tx1 = []
-            for i in range(len(mat_file["sentenceText"])):
-                sentences.append(mat_file["sentenceText"][i].rstrip())
-                spikePow = mat_file["spikePow"].squeeze()[i][:,:128]
-                tx1 = mat_file["tx1"].squeeze()[i][:,:128]
-                last_20_spikePow.append(spikePow)
-                last_20_tx1.append(tx1)
-                if len(last_20_spikePow) > 20:
-                    last_20_spikePow.pop(0)
-                    last_20_tx1.pop(0)
-                    
-                mean = np.mean(np.concatenate(last_20_spikePow), axis=0)
-                std = np.std(np.concatenate(last_20_spikePow), axis=0) + 1
-                spikePow = (spikePow - mean) / std
-                spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
-                
-                mean = np.mean(np.concatenate(last_20_tx1), axis=0)
-                std = np.std(np.concatenate(last_20_tx1), axis=0) + 1
-                tx1 = (tx1 - mean) / std
-                tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
-                
-                neural.append(np.concatenate([
-                        spikePow,
-                        tx1,
-                    ], axis=1).astype(np.float32))
-                
-                sessions.append(os.path.split(f)[-1])
-            
-            # per block z-score
-            # for b in blocks:
-            #     block_idxs = np.where(mat_file["blockIdx"] == b)[0]
-            #     N = 128
-            #     mean = np.mean(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:N], axis=0)
-            #     std = np.std(np.concatenate(mat_file["spikePow"].squeeze()[block_idxs])[:,:N], axis=0)
-            #     # std += 1
-            #     for idx in block_idxs:
-            #         sentences.append(mat_file["sentenceText"][idx].rstrip())
-            #         # per block z-score
-            #         # TODO: try with first 128 channels only
-            #         spikePow = (mat_file["spikePow"].squeeze()[idx][:,:N] - mean) / std
-            #         spikePow = scipy.ndimage.gaussian_filter1d(spikePow, sigma=2, axis=0)
-            #         tx1 = (mat_file["tx1"].squeeze()[idx][:,:N].astype(np.float64) - mean) / std
-            #         tx1 = scipy.ndimage.gaussian_filter1d(tx1, sigma=2, axis=0)
-            #         # spikePow = mat_file["spikePow"].squeeze()[idx]
-            #         # tx1 = mat_file["tx1"].squeeze()[idx]
-            #         neural.append(np.concatenate([
-            #                 spikePow,
-            #                 tx1,
-            #             ], axis=1).astype(np.float32))
-            #         sessions.append(os.path.split(f)[-1])
-
-        audio = [None] * len(neural)
-        phonemes = [None] * len(neural)
-        text_transform = TextTransform(togglePhones = False)
-        super().__init__(neural, audio, phonemes, sentences, text_transform,
-            sessions=sessions,
-            white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-            no_audio=True)
-        
-class T12CompDataModule(pl.LightningDataModule):
-    def __init__(self, datadir, train_bz:int=32, val_bz:int=16, fixed_length=False,
-                 white_noise_sd=1.0, constant_offset_sd=0.2,
-                 no_audio=True):
-        super().__init__()
-        
-        train_files = glob.glob(datadir + '*/train/*')
-        test_files  = glob.glob(datadir + '*/test/*')
-
-        self.train = T12CompDataset(train_files,
-                white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd)
-        self.val = T12CompDataset(test_files)
-        self.collate_fn = collate_gaddy_speech_or_neural
-
-        self.train_bz = train_bz
-        self.val_bz = val_bz
-        self.fixed_length = fixed_length
-        
-    def train_dataloader(self):
-        return torch.utils.data.DataLoader(
-                self.train,
-                collate_fn=self.collate_fn,
-                pin_memory=True,
-                num_workers=0,
-                batch_size=self.train_bz,
-            )
-        
-    def val_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.val,
-            collate_fn=self.collate_fn,
-            pin_memory=True,
-            num_workers=0,
-            batch_size=self.val_bz,
-        )
-        
-    def test_dataloader(self):
-        return None
-
     
 datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
     train_bz=base_bz, val_bz=val_bz,
-    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
-)
-# datamodule_comp = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
-#     train_bz=base_bz, val_bz=val_bz,
-#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd
-# )
+    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+    togglePhones=togglePhones, smoothing_sigma=2)
 
-# datamodule = T12DataModule(t12_npz, audio_type="tts_mspecs",
-#     num_replicas=NUM_GPUS, max_len=max_len, train_bz=base_bz, val_bz=val_bz,
-#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-#     no_audio=True)
-# ##
-# # comp_idx = 5000
-# comp_idx = 50
-# text2 = datamodule_comp.train[comp_idx]['text']
-# for idx,ex in enumerate(datamodule.train):
-#     text1 = ex['text']
-#     if text1 == text2:
-#         print(idx)
-#         break
-# text1, text2
-# import matplotlib.pyplot as plt
-# nf1 = datamodule.train[idx]['neural_features']
-# nf2 = datamodule_comp.train[comp_idx]['neural_features']
-# fig, axs = plt.subplots(2,1, figsize=(10,10))
-# im1 = axs[0].imshow(nf1.T, aspect='auto')
-# axs[0].set_title("sentences")
-# fig.colorbar(im1, ax=axs[0])
-# im2 = axs[1].imshow(nf2.T, aspect='auto')
-# axs[1].set_title("competition")
-# fig.colorbar(im2, ax=axs[1])
-# plt.show()
-
-# ##
-# c = 200
-# a = 128
-# b = 256
-# nf1 = datamodule.train[idx]['neural_features'][:,a:b].mean(axis=1)
-# nf2 = datamodule_comp.train[comp_idx]['neural_features'][:,a:b].mean(axis=1)
-# print(datamodule.train[idx]['text'])
-# print(datamodule_comp.train[comp_idx]['text'])
-# fig, axs = plt.subplots(2,1, figsize=(10,10))
-# im1 = axs[0].plot(nf1)
-# axs[0].set_title("sentences")
-# im2 = axs[1].plot(nf2)
-# axs[1].set_title("competition")
-# axs[1].set_xlabel("time")
-# fig.suptitle("average tx1")
-# plt.show()
-##
-tx = datamodule.train[0]['text']
-print(tx)
-tt = TextTransform(togglePhones = True)
-tt.clean_text(tx)
-
-##
-# INFO: on sherlock this is taking 1 minute. On local machine, 0 seconds.
-# Sometimes on sherlock this takes 3+ minutes. Why?
-# for t in tqdm(datamodule.train, desc="checking for NaNs"):
-#     if torch.any(torch.isnan(t['neural_features'])):
-#         print("got NaN for neural_features")
-#         break
-#     if t['audio_features'] is not None and torch.any(torch.isnan(t['audio_features'])):
-#         print("got NaN for audio_features")
-#         break
-#     if t['phonemes'] is not None and torch.any(torch.isnan(t['phonemes'])):
-#         print("got NaN for phones")
-#         break
-#     if torch.any(torch.isnan(t['text_int'])):
-#         print("got NaN for text_int")
-#         break
-##
-emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(collate_gaddy_speech_or_neural([datamodule.train[i] for i in range(5)]))
-(neural, length_neural, neural_phonemes, y_length_neural, y_neural) = neural_tup
-neural, length_neural
-##
-# import matplotlib.pyplot as plt
-
-# neural_features = train_dset[10]['neural_features'].reshape(-1)
-# plt.hist(np.sqrt(neural_features), bins=50)
-# plt.title("Histogram of sqrt(Neural Features)")
-# plt.xlabel("Value")
-# plt.ylabel("Frequency")
-# plt.show()
-
-# neural_features = train_dset[10]['neural_features'].reshape(-1)
-# plt.hist(np.log2(neural_features+1), bins=50)
-# plt.title("Histogram of log2(Neural Features + 1)")
-# plt.xlabel("Value")
-# plt.ylabel("Frequency")
-# plt.show()
-
-# neural_features = train_dset[10]['neural_features'].reshape(-1)
-# plt.hist(np.log10(neural_features+1)/4, bins=50)
-# plt.title("Histogram of log10(Neural Features + 1)/4")
-# plt.xlabel("Value")
-# plt.ylabel("Frequency")
-# plt.show()
-
-# mspec = train_dset[10]['audio_features'].reshape(-1)
-# plt.hist((mspec+5)/5, bins=50)
-# plt.title("Histogram of (mspec+5)/5")
-# plt.xlabel("Value")
-# plt.ylabel("Frequency")
-# plt.show()
-
-##
-# max([x.max() for x in t12_npz["spikePow"]])
-##
 text_transform = TextTransform(togglePhones = togglePhones)
 os.makedirs(output_directory, exist_ok=True)
 
-# steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
-# steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
+
 ##
+
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
