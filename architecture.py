@@ -17,7 +17,7 @@ from magneto.models.s4d import S4D
 
 from pytorch_lightning.profilers import PassThroughProfiler
 from dataclasses import dataclass
-from typing import Tuple, List
+from typing import Tuple, List, Union
 from dataloaders import split_batch_into_emg_neural_audio
 from contrastive import \
     nobatch_cross_contrastive_loss, supervised_contrastive_loss, SupConLoss
@@ -113,13 +113,289 @@ class ResBlock(nn.Module):
             return x + res
         else:
             return self.act(x + res)
+
+@dataclass
+class XtoTextConfig:
+    steps_per_epoch: int
+    lm_directory: str
+    togglePhones:bool = True
+    learning_rate_warmup:int = 500 # not used, todo refactor to MONA/Gaddy only
+    weight_decay:float = 1e-5
+    learning_rate: float = 0.01
+    gradient_accumulation_steps:int = 1
+    num_train_epochs:int = 200
+    precision:Union[int,str] = 32
+
+    
+class XtoText(pl.LightningModule):
+    "Base model for all (neural, audio, emg, X) to text models."
+    
+    def __init__(self, cfg, text_transform: TextTransform):
+        super().__init__()
+        self.text_transform = text_transform
+        self.n_chars = len(text_transform.chars)
+        self.lm_directory = cfg.lm_directory
+        self.weight_decay = cfg.weight_decay
+        self.lr = cfg.learning_rate
+        self.target_lr = cfg.learning_rate # will not mutate
+        self.learning_rate_warmup = cfg.learning_rate_warmup
+        self.steps_per_epoch = cfg.steps_per_epoch
+        
+        if cfg.togglePhones:
+            self.lexicon_file = os.path.join(cfg.lm_directory, 'cmudict.txt')
+        else:
+            self.lexicon_file = os.path.join(cfg.lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+            
+        self.step_text_target = []
+        self.step_text_pred = []
+        self.step_int_target = []
+        self.step_int_pred = []
+
+
+    def _init_ctc_decoder(self):
+        self.ctc_decoder = ctc_decoder(
+            lexicon = self.lexicon_file,
+            # tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
+            tokens      = self.text_transform.chars + ['_'],
+            lm      = os.path.join(self.lm_directory, '4gram_lm.bin'),
+            blank_token = '_',
+            sil_token   = '|',
+            nbest       = 1,
+            lm_weight   = 2, # default is 2; Gaddy sets to 1.85
+            #word_score  = -3,
+            #sil_score   = -2,
+            beam_size   = 150  # SET TO 150 during inference
+        )
+        
+    def ctc_loss(self, pred, target, pred_len, target_len):     
+        # this pads with 0, which corresponds to 'a', but by passing target_len 
+        # to CTC loss we can ignore these padded values
+        pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
+        # pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, pred_len), batch_first=False) 
+        target    = nn.utils.rnn.pad_sequence(target, batch_first=True)
+        # print(f"\n ==== CTC ====\n{pred.shape=}, {target.shape=}\n{pred=}\n{target=}\n")
+        # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
+        # print(f"ctc_loss: {[p.shape for p in pred]=}, {[t.shape for t in target]=}")
+        loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars, zero_infinity=True)
+        return loss
+    
+    def on_train_epoch_start(self):
+        # bad separation of concerns / composability,
+        # but this seems forced by pytorch lightning
+        # maybe should use Fabric in the future..
+        if self.trainer.datamodule is not None:
+            try:
+                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
+                logging.debug(f"set epoch to {self.current_epoch=}")
+            except:
+                # not all datamodules have a TrainBatchSampler, or a set_epoch method
+                pass
     
     
-class Model(pl.LightningModule):
+    def training_step(self, batch, batch_idx):
+        c = self.calc_loss(**self.forward(batch))
+        loss = c['loss']
+        emg_bz = c['emg_bz'] if 'emg_bz' in c else 0
+        neural_bz = c['neural_bz'] if 'neural_bz' in c else 0
+        audio_bz = c['audio_bz'] if 'audio_bz' in c else 0
+        paired_bz = c['paired_bz'] if 'paired_bz' in c else 0
+        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
+        
+        
+        self.maybe_log("train/loss", c, "loss",
+                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=summed_bz, sync_dist=True)
+        self.maybe_log("train/emg_ctc_loss", c, "emg_ctc_loss",
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
+        self.maybe_log("train/neural_ctc_loss", c, "neural_ctc_loss",
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
+        self.maybe_log("train/audio_ctc_loss", c, "audio_ctc_loss",
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=audio_bz, sync_dist=True)
+        self.maybe_log("train/cross_contrastive_loss", c, "cross_contrastive_loss",
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
+        self.maybe_log("train/supervised_contrastive_loss", c, "supervised_contrastive_loss",
+                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
+        self.maybe_log("train/avg_emg_latent", c, "emg_z_mean",
+                on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
+        self.maybe_log("train/avg_audio_latent", c, "audio_z_mean",
+                on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=audio_bz, sync_dist=True)
+        self.maybe_log("train/avg_neural_latent", c, "neural_z_mean",
+                on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
+        torch.cuda.empty_cache()
+        return loss
+
+    def on_validation_epoch_start(self):
+        # self.profiler.start(f"validation loop")
+        self._init_ctc_decoder()
+
+    def validation_step(self, batch, batch_idx, task="val"):
+        ret = self.forward(batch)
+        c = self.calc_loss(**ret)
+        pred = ret['pred']
+        loss = c['loss']
+        emg_bz = c['emg_bz'] if 'emg_bz' in c else 0
+        neural_bz = c['neural_bz'] if 'neural_bz' in c else 0
+        audio_bz = c['audio_bz'] if 'audio_bz' in c else 0
+        paired_bz = c['paired_bz'] if 'paired_bz' in c else 0
+        target_ints = batch['text_int']
+        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
+
+
+        # TODO: split text by emg, audio, neural
+        pred_texts, pred_ints = self._beam_search_pred(pred.cpu())
+        target_texts  = [self.text_transform.clean_text(b) for b in batch['text']]
+        # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
+        for i, (target_text, pred_text, target_int, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints, target_ints)):
+            if len(target_text) > 0:
+                self.step_text_target.append(target_text)
+                self.step_text_pred.append(pred_text)
+                if i % 16 == 0 and type(self.logger) == NeptuneLogger:
+                    # log approx 10 examples
+                    self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
+                    self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
+                    
+                self.step_int_target.append(target_int.numpy())
+                self.step_int_pred.append(pred_int.cpu().numpy())
+            
+        self.maybe_log(f"{task}/loss", c, "loss",
+            prog_bar=True, batch_size=summed_bz, sync_dist=True)
+        self.maybe_log(f"{task}/emg_ctc_loss", c, "emg_ctc_loss",
+            prog_bar=False, batch_size=emg_bz, sync_dist=True)
+        self.maybe_log(f"{task}/neural_ctc_loss", c, "neural_ctc_loss",
+            prog_bar=False, batch_size=neural_bz, sync_dist=True)
+        self.maybe_log(f"{task}/audio_ctc_loss", c, "audio_ctc_loss",
+            prog_bar=False, batch_size=audio_bz, sync_dist=True)
+        
+        return loss
+    
+    def on_validation_epoch_end(self) -> None:
+        # TODO: this may not be implemented correctly for DDP
+        # raise NotImplementedError("on_validation_epoch_end not implemented neural, librispeech")
+        # logging.warning(f"start on_validation_epoch_end")
+        step_text_target = []
+        step_text_pred = []
+        step_int_target = []
+        step_int_pred = []
+        for t,p,i,j in zip(self.step_text_target, self.step_text_pred, self.step_int_target, self.step_int_pred):
+            if len(t) > 0:
+                step_text_target.append(t)
+                step_text_pred.append(p)
+                step_int_target.append(i)
+                step_int_pred.append(j)
+            else:
+                print("WARN: got target length of zero during validation.")
+            if len(p) == 0:
+                print("WARN: got prediction length of zero during validation.")
+        # logging.warning(f"on_validation_epoch_end: calc wer")
+        wer = jiwer.wer(step_text_target, step_text_pred)
+        # print(f"{step_int_target=}, {step_int_pred=}")
+        cer = token_error_rate(step_int_target, step_int_pred, self.text_transform)
+        self.step_text_target.clear()
+        self.step_text_pred.clear()
+        self.step_int_target.clear()
+        self.step_int_pred.clear()
+        self.log("val/wer", wer, prog_bar=True, sync_dist=True)
+        self.log("val/cer", cer, prog_bar=True, sync_dist=True)
+        # self.profiler.stop(f"validation loop")
+        # self.profiler.describe()
+        # logging.warning(f"on_validation_epoch_end: gc.collect()")
+        gc.collect()
+        torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
+
+    def _beam_search_pred(self, pred):
+        "Repeatedly called by validation_step & test_step."
+        beam_results = self.ctc_decoder(pred)
+        pred_text = []
+        pred_int = []
+        for b in beam_results:
+            if len(b) > 0:
+                # I think length is zero only when there's NaNs in the output
+                # we could just allow the crash here
+                pred_text.append(' '.join(b[0].words).strip().lower())
+                pred_int.append(b[0].tokens)
+            else:
+                pred_text.append('')
+                pred_int.append([])
+        
+        return pred_text, pred_int
+    
+    def test_step(self, batch, batch_idx):
+        return self.validation_step(batch, batch_idx, task="test")
+
+    def on_test_epoch_end(self) -> None:
+        wer = jiwer.wer(self.step_text_target, self.step_text_pred)
+        self.step_text_target.clear()
+        self.step_text_pred.clear()
+        self.log("test/wer", wer, prog_bar=True)
+        
+    def maybe_log(self, name, my_dict, key, **kwargs):
+        if key in my_dict and not my_dict[key] is None:
+            self.log(name, my_dict[key], **kwargs)
+
+    def log(self, *args, **kwargs):
+        try:
+            isnan = np.isnan(args[0])
+        except:
+            isnan = False
+        
+        if 'batch_size' in kwargs and kwargs['batch_size'] == 0:
+            pass
+        elif args[0] is None:
+            pass
+        elif isnan:
+            logging.warning(f"got nan in log: {args=}, {kwargs=}")
+            pass
+        else:
+            super().log(*args, **kwargs)
+            
+    def configure_optimizers(self):
+        initial_lr = self.target_lr/self.learning_rate_warmup
+        
+        # for FSDP
+        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr,
+                                      weight_decay=self.weight_decay)
+
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+            milestones=[
+                125 * self.steps_per_epoch,
+                150  * self.steps_per_epoch,
+                175 * self.steps_per_epoch],
+            gamma=.5)
+        lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
+
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
+    
+    
+    def set_lr(self, new_lr):
+        optimizer = self.optimizers().optimizer
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = new_lr
+            
+    def lr_scheduler_step(self, scheduler, metric):
+        # warmup per Gaddy
+
+        # print(f"lr_scheduler_step: {self.global_step=}")
+        # optimizer = self.optimizers().optimizer
+        # for param_group in optimizer.param_groups:
+        #     print(f"lr: {param_group['lr']}")
+        if metric is None:
+            scheduler.step()
+        else:
+            scheduler.step(metric)
+
+        # TODO:  switch to a new (proper) scheduler that supports
+        # linear warmup and gamma decay
+
+        # linear warmup
+        if self.global_step <= self.learning_rate_warmup:
+            new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
+            self.set_lr(new_lr)
+            
+
+class Model(XtoText):
     def __init__(self, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
                  steps_per_epoch, epochs, lm_directory, num_aux_outs=None, lr=3e-4,
                  learning_rate_warmup = 1000, profiler = None, weight_decay=0.0):
-        super().__init__()
+        super().__init__(text_transform, lm_directory)
         self.profiler = profiler or PassThroughProfiler()
         self.conv_blocks = nn.Sequential(
             ResBlock(8, model_size, 2),
@@ -144,10 +420,7 @@ class Model(pl.LightningModule):
         self.steps_per_epoch = steps_per_epoch
         
         # val/test procedure...
-        self.text_transform = text_transform
-        self.n_chars = len(text_transform.chars)
-        self.lm_directory = lm_directory
-        self.lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
+
         self._init_ctc_decoder()
         
         self.step_text_target = []
@@ -155,21 +428,6 @@ class Model(pl.LightningModule):
         self.step_int_target = []
         self.step_int_pred = []
         self.weight_decay = weight_decay
-
-    def _init_ctc_decoder(self):
-        self.ctc_decoder = ctc_decoder(
-            lexicon = self.lexicon_file,
-            # tokens      = [x.lower() for x in self.text_transform.chars] + ['_'],
-            tokens      = self.text_transform.chars + ['_'],
-            lm      = os.path.join(self.lm_directory, '4gram_lm.bin'),
-            blank_token = '_',
-            sil_token   = '|',
-            nbest       = 1,
-            lm_weight   = 2, # default is 2; Gaddy sets to 1.85
-            #word_score  = -3,
-            #sil_score   = -2,
-            beam_size   = 150  # SET TO 150 during inference
-        )
 
 
     def forward(self, x_raw):
@@ -261,26 +519,10 @@ class Model(pl.LightningModule):
 
         return target_text, pred_text
     
-    def on_train_epoch_start(self):
-        # bad separation of concerns / composability,
-        # but this seems forced by pytorch lightning
-        # maybe should use Fabric in the future..
-        if self.trainer.datamodule is not None:
-            try:
-                self.trainer.datamodule.TrainBatchSampler.set_epoch(self.current_epoch)
-                logging.debug(f"set epoch to {self.current_epoch=}")
-            except:
-                # not all datamodules have a TrainBatchSampler, or a set_epoch method
-                pass
-    
     def training_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
         self.log("train/loss", loss, on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=bz)
         return loss
-    
-    def on_validation_epoch_start(self):
-        # self.profiler.start(f"validation loop")
-        self._init_ctc_decoder()
     
     def validation_step(self, batch, batch_idx):
         loss, bz = self.calc_loss(batch)
@@ -325,55 +567,7 @@ class Model(pl.LightningModule):
             self.step_text_pred.append(pred_text)
         self.log("test/loss", loss, prog_bar=True, batch_size=bz)
         return loss
-    
-    def on_test_epoch_end(self) -> None:
-        wer = jiwer.wer(self.step_text_target, self.step_text_pred)
-        self.step_text_target.clear()
-        self.step_text_pred.clear()
-        self.log("test/wer", wer, prog_bar=True)
 
-    def configure_optimizers(self):
-        initial_lr = self.target_lr/self.learning_rate_warmup
-        
-        # for FSDP
-        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr,
-                                      weight_decay=self.weight_decay)
-
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-            milestones=[
-                125 * self.steps_per_epoch,
-                150  * self.steps_per_epoch,
-                175 * self.steps_per_epoch],
-            gamma=.5)
-        lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
-
-        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
-    
-    
-    def set_lr(self, new_lr):
-        optimizer = self.optimizers().optimizer
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = new_lr
-            
-    def lr_scheduler_step(self, scheduler, metric):
-        # warmup per Gaddy
-
-        # print(f"lr_scheduler_step: {self.global_step=}")
-        # optimizer = self.optimizers().optimizer
-        # for param_group in optimizer.param_groups:
-        #     print(f"lr: {param_group['lr']}")
-        if metric is None:
-            scheduler.step()
-        else:
-            scheduler.step(metric)
-
-        # TODO:  switch to a new (proper) scheduler that supports
-        # linear warmup and gamma decay
-
-        # linear warmup
-        if self.global_step <= self.learning_rate_warmup:
-            new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
-            self.set_lr(new_lr)
 
 
 class S4Layer(nn.Module):
@@ -653,7 +847,6 @@ class LinearDispatch(nn.Module):
         
         return out
 
-
 @dataclass
 class MONAConfig:
     steps_per_epoch:int
@@ -700,12 +893,12 @@ class MONAConfig:
         if self.warmup_steps is None:
             self.warmup_steps = 500 // self.gradient_accumulation_steps
 
-class MONA(Model):
+class MONA(XtoText):
     "Multimodal Orofacial Neural Audio"
     
     def __init__(self, cfg:MONAConfig, text_transform:TextTransform,
                  profiler = None, no_emg=False, no_audio=False, sessions:List[str]=None):
-        pl.LightningModule.__init__(self)
+        super().__init__(cfg, text_transform)
         self.profiler = profiler or PassThroughProfiler()
         
         if sessions is not None:
@@ -766,11 +959,7 @@ class MONA(Model):
         self.w_out       = nn.Linear(cfg.d_model, cfg.num_outs)
             
         self.seqlen = cfg.seqlen
-        self.lr = cfg.learning_rate
-        self.target_lr = cfg.learning_rate # will not mutate
-        self.learning_rate_warmup = cfg.warmup_steps
         self.epochs = cfg.num_train_epochs
-        self.weight_decay = cfg.weight_decay
         
         # val/test procedure...
         self.text_transform = text_transform
@@ -787,10 +976,6 @@ class MONA(Model):
         self.neural_lambda = cfg.neural_lambda
         self.steps_per_epoch = cfg.steps_per_epoch
         
-        self.step_text_target = []
-        self.step_text_pred = []
-        self.step_int_target = []
-        self.step_int_pred = []
         self.sup_nce_lambda = cfg.sup_nce_lambda
         
         self.fixed_length = cfg.fixed_length
@@ -884,7 +1069,33 @@ class MONA(Model):
         z = self.audio_encoder(x) # latent space
         return self.decoder(z), z
     
-    def forward(self, emg:List[torch.Tensor], neural:List[torch.Tensor], audio:List[torch.Tensor],
+    def forward(self, batch):
+        sessions = batch['sessions']
+        emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
+        emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
+        neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
+        audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
+        paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx = idxs
+        
+        (emg_pred, neural_pred, audio_pred), \
+            (emg_z, neural_z, audio_z), \
+            (emg_bz, neural_bz, audio_bz) = self.multi_forward(emg, neural, audio, length_emg, length_neural, length_audio,
+                                                 sessions=sessions)
+        ret = {
+            'emg_pred': emg_pred, 'neural_pred': neural_pred, 'audio_pred': audio_pred,
+            'emg_z': emg_z, 'neural_z': neural_z, 'audio_z': audio_z,
+            'y_emg': y_emg, 'y_neural': y_neural, 'y_audio': y_audio,
+            'y_length_emg': y_length_emg, 'y_length_neural': y_length_neural, 'y_length_audio': y_length_audio,
+            'length_emg': length_emg, 'length_neural': length_neural, 'length_audio': length_audio,
+            'emg_phonemes': emg_phonemes, 'neural_phonemes': neural_phonemes, 'audio_phonemes': audio_phonemes,
+            'paired_emg_idx': paired_emg_idx, 'paired_audio_idx': paired_audio_idx,
+            'silent_emg_idx': silent_emg_idx,
+            'parallel_emg_idx': parallel_emg_idx, 'parallel_audio_idx': parallel_audio_idx,
+            'emg_bz': emg_bz, 'neural_bz': neural_bz, 'audio_bz': audio_bz
+        }
+        return ret
+    
+    def multi_forward(self, emg:List[torch.Tensor], neural:List[torch.Tensor], audio:List[torch.Tensor],
                 length_emg, length_neural, length_audio, sessions=None, fixed_length=None):
         """Group x by task and predict characters for the batch.
         
@@ -948,53 +1159,6 @@ class MONA(Model):
         # logging.debug("finished FORWARD")
         return (emg_pred, neural_pred, audio_pred), (emg_z, neural_z, audio_z), \
                (emg_bz, neural_bz, audio_bz)
-        
-    def ctc_loss(self, pred, target, pred_len, target_len):
-        # INFO: Gaddy passes emg length, but shouldn't this actually be divided by 8?
-        # TODO: try padding length / 8. must be integers though...
-        # print(f"ctc_loss: {pred_len=}, {target_len=}")
-        
-        # TODO FIXME
-        # ctc_loss: [p.shape for p in pred]=[torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38]), torch.Size([600, 38])], [t.shape for t in target]=[torch.Size([306])]
-        # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
-        
-        # this pads with 0, which corresponds to 'a', but by passing target_len 
-        # to CTC loss we can ignore these padded values
-        pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
-        # pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, pred_len), batch_first=False) 
-        # pred = nn.utils.rnn.pad_sequence(pred, batch_first=False)
-        target    = nn.utils.rnn.pad_sequence(target, batch_first=True)
-        # print(f"\n ==== CTC ====\n{pred.shape=}, {target.shape=}\n{pred=}\n{target=}\n")
-        # print(f"{pred.shape=}, {target[0].shape=}, {pred_len=}, {target_len=}")
-        # print(f"ctc_loss: {[p.shape for p in pred]=}, {[t.shape for t in target]=}")
-        loss = F.ctc_loss(pred, target, pred_len, target_len, blank=self.n_chars, zero_infinity=True)
-        return loss
-
-    def batch_forward(self, batch):
-        sessions = batch['sessions']
-        emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
-        emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
-        neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
-        audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
-        paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx = idxs
-        
-        (emg_pred, neural_pred, audio_pred), \
-            (emg_z, neural_z, audio_z), \
-            (emg_bz, neural_bz, audio_bz) = self(emg, neural, audio, length_emg, length_neural, length_audio,
-                                                 sessions=sessions)
-        ret = {
-            'emg_pred': emg_pred, 'neural_pred': neural_pred, 'audio_pred': audio_pred,
-            'emg_z': emg_z, 'neural_z': neural_z, 'audio_z': audio_z,
-            'y_emg': y_emg, 'y_neural': y_neural, 'y_audio': y_audio,
-            'y_length_emg': y_length_emg, 'y_length_neural': y_length_neural, 'y_length_audio': y_length_audio,
-            'length_emg': length_emg, 'length_neural': length_neural, 'length_audio': length_audio,
-            'emg_phonemes': emg_phonemes, 'neural_phonemes': neural_phonemes, 'audio_phonemes': audio_phonemes,
-            'paired_emg_idx': paired_emg_idx, 'paired_audio_idx': paired_audio_idx,
-            'silent_emg_idx': silent_emg_idx,
-            'parallel_emg_idx': parallel_emg_idx, 'parallel_audio_idx': parallel_audio_idx,
-            'emg_bz': emg_bz, 'neural_bz': neural_bz, 'audio_bz': audio_bz
-        }
-        return ret
 
     # TODO: can we simplify this somehow..? 23 required args is a lot
     def calc_loss(self, emg_pred, neural_pred, audio_pred,
@@ -1186,133 +1350,53 @@ class MONA(Model):
         target_int = batch['text_int']
         
         return target_text, pred_text, target_int, pred_int
-    
-    def training_step(self, batch, batch_idx):
-        c = self.calc_loss(**self.batch_forward(batch))
-        loss = c['loss']
-        emg_ctc_loss = c['emg_ctc_loss']
-        neural_ctc_loss = c['neural_ctc_loss']
-        audio_ctc_loss = c['audio_ctc_loss']
-        cross_contrastive_loss = c['cross_contrastive_loss']
-        sup_contrastive_loss = c['supervised_contrastive_loss']
-        emg_bz = c['emg_bz']
-        neural_bz = c['neural_bz']
-        audio_bz = c['audio_bz']
-        paired_bz = c['paired_bz']
-        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
-        avg_emg_latent = c['emg_z_mean']
-        avg_neural_latent = c['neural_z_mean']
-        avg_audio_latent = c['audio_z_mean']
-        
-        
-        self.log("train/loss", loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=summed_bz, sync_dist=True)
-        self.log("train/emg_ctc_loss", emg_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
-        self.log("train/neural_ctc_loss", neural_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
-        self.log("train/audio_ctc_loss", audio_ctc_loss,
-            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=audio_bz, sync_dist=True)
-        self.log("train/cross_contrastive_loss", cross_contrastive_loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
-        self.log("train/supervised_contrastive_loss", sup_contrastive_loss,
-                 on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=paired_bz, sync_dist=True)
-        if not avg_emg_latent is None:
-            self.log("train/avg_emg_latent", avg_emg_latent,
-                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=emg_bz, sync_dist=True)
-        if not avg_audio_latent is None:
-            self.log("train/avg_audio_latent", avg_audio_latent,
-                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=audio_bz, sync_dist=True)
-        if not avg_neural_latent is None:
-            self.log("train/avg_neural_latent", avg_neural_latent,
-                    on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
-        torch.cuda.empty_cache()
-        return loss
 
-    def validation_step(self, batch, batch_idx, task="val"):
-        ret = self.batch_forward(batch)
-        c = self.calc_loss(**ret)
-        loss = c['loss']
-        emg_ctc_loss = c['emg_ctc_loss']
-        neural_ctc_loss = c['neural_ctc_loss']
-        audio_ctc_loss = c['audio_ctc_loss']
-        emg_bz = c['emg_bz']
-        neural_bz = c['neural_bz']
-        audio_bz = c['audio_bz']
-        paired_bz = c['paired_bz']
-        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
-
-        logging.debug(f"validation_step: {batch_idx=}, {loss=}, {emg_ctc_loss=}, {audio_ctc_loss=}, {summed_bz=}")
-
-        # TODO: split text by emg, audio, neural
-        target_text = batch['text']
-        target_texts, pred_texts, target_ints, pred_ints = self._beam_search_batch(batch)
-        # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
-        for i, (target_text, pred_text, target_int, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints, target_ints)):
-            if len(target_text) > 0:
-                self.step_text_target.append(target_text)
-                self.step_text_pred.append(pred_text)
-                if i % 16 == 0 and type(self.logger) == NeptuneLogger:
-                    # log approx 10 examples
-                    self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
-                    self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
-                    
-                self.step_int_target.append(target_int.numpy())
-                self.step_int_pred.append(pred_int.cpu().numpy())
-            
-        self.log(f"{task}/loss", loss, prog_bar=True, batch_size=summed_bz, sync_dist=True)
-        self.log(f"{task}/emg_ctc_loss", emg_ctc_loss, prog_bar=False, batch_size=emg_bz, sync_dist=True)
-        self.log(f"{task}/neural_ctc_loss", neural_ctc_loss, prog_bar=False, batch_size=neural_bz, sync_dist=True)
-        self.log(f"{task}/audio_ctc_loss", audio_ctc_loss, prog_bar=False, batch_size=audio_bz, sync_dist=True)
-        
-        return loss
-    
-    def on_validation_epoch_end(self) -> None:
-        # TODO: this may not be implemented correctly for DDP
-        # raise NotImplementedError("on_validation_epoch_end not implemented neural, librispeech")
-        # logging.warning(f"start on_validation_epoch_end")
-        step_text_target = []
-        step_text_pred = []
-        step_int_target = []
-        step_int_pred = []
-        for t,p,i,j in zip(self.step_text_target, self.step_text_pred, self.step_int_target, self.step_int_pred):
-            if len(t) > 0:
-                step_text_target.append(t)
-                step_text_pred.append(p)
-                step_int_target.append(i)
-                step_int_pred.append(j)
-            else:
-                print("WARN: got target length of zero during validation.")
-            if len(p) == 0:
-                print("WARN: got prediction length of zero during validation.")
-        # logging.warning(f"on_validation_epoch_end: calc wer")
-        wer = jiwer.wer(step_text_target, step_text_pred)
-        # print(f"{step_int_target=}, {step_int_pred=}")
-        cer = token_error_rate(step_int_target, step_int_pred, self.text_transform)
-        self.step_text_target.clear()
-        self.step_text_pred.clear()
-        self.step_int_target.clear()
-        self.step_int_pred.clear()
-        self.log("val/wer", wer, prog_bar=True, sync_dist=True)
-        self.log("val/cer", cer, prog_bar=True, sync_dist=True)
-        # self.profiler.stop(f"validation loop")
-        # self.profiler.describe()
-        # logging.warning(f"on_validation_epoch_end: gc.collect()")
-        gc.collect()
-        torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
-
-    
-    def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx, task="test")
-
-    def log(self, *args, **kwargs):
-        if 'batch_size' in kwargs and kwargs['batch_size'] == 0:
-            pass
-        else:
-            super().log(*args, **kwargs)
             
     # def on_before_optimizer_step(self, optimizer):
     #     # Compute the 2-norm for each layer
     #     # If using mixed precision, the gradients are already unscaled here
     #     norms = pl.utilities.grad_norm(self.layer, norm_type=2)
     #     self.log_dict(norms)
+    
+    def configure_optimizers(self):
+        initial_lr = self.target_lr/self.learning_rate_warmup
+        
+        # for FSDP
+        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=initial_lr,
+                                      weight_decay=self.weight_decay)
+
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+            milestones=[
+                125 * self.steps_per_epoch,
+                150  * self.steps_per_epoch,
+                175 * self.steps_per_epoch],
+            gamma=.5)
+        lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
+
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
+    
+    
+    def set_lr(self, new_lr):
+        optimizer = self.optimizers().optimizer
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = new_lr
+            
+    def lr_scheduler_step(self, scheduler, metric):
+        # warmup per Gaddy
+
+        # print(f"lr_scheduler_step: {self.global_step=}")
+        # optimizer = self.optimizers().optimizer
+        # for param_group in optimizer.param_groups:
+        #     print(f"lr: {param_group['lr']}")
+        if metric is None:
+            scheduler.step()
+        else:
+            scheduler.step(metric)
+
+        # TODO:  switch to a new (proper) scheduler that supports
+        # linear warmup and gamma decay
+
+        # linear warmup
+        if self.global_step <= self.learning_rate_warmup:
+            new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
+            self.set_lr(new_lr)

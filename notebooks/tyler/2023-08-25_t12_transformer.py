@@ -30,7 +30,7 @@ sys.path.append(SCRIPT_DIR)
 
 from read_emg import EMGDataset, PreprocessedEMGDataset, \
     PreprocessedSizeAwareSampler, EMGDataModule, ensure_folder_on_scratch
-from architecture import Model, S4Model, H3Model, ResBlock, MONAConfig, MONA
+from architecture import Model, S4Model, H3Model, ResBlock, MONAConfig, MONA, LinearDispatch, XtoTextConfig, XtoText
 from data_utils import combine_fixed_length, decollate_tensor
 from transformer import TransformerEncoderLayer
 from pytorch_lightning.loggers import NeptuneLogger
@@ -109,8 +109,6 @@ num_sanity_val_steps = 0 # may prevent crashing of distributed training
 logger_level = logging.WARNING
 devices = 'auto'
 
-
-
 assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this in shell: export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'"
 
 # load our data file paths and metadata:
@@ -157,7 +155,8 @@ if gpu_ram < 24:
     # val_bz = 16 # OOM
     # base_bz = 32
     # base_bz = 24
-    base_bz = 16
+    # base_bz = 16
+    base_bz = 32 # for WilletModel (bz=64)
     val_bz = 16
     # max_len = 24000 # OOM
     max_len = 12000 # approx 11000 / 143 = 77 bz. 75 * 2 GPU = 150 bz. still high..?
@@ -165,7 +164,8 @@ if gpu_ram < 24:
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
-    base_bz = 16
+    # base_bz = 16
+    base_bz = 32 # for WilletModel (bz=64)
     # base_bz = 48
     val_bz = 16
     max_len = 48000
@@ -195,18 +195,17 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
-    devices_cli: str = typer.Option(devices, "--devices"),
+    # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
     global learning_rate, devices, togglePhones
-
-    devices = devices_cli
-    try:
-        devices = int(devices) # eg "2" -> 2
-    except:
-        pass
+    # devices = int(NUM_GPUS) # TODO maybe need "auto" ..? idk
+    # try:
+    #     devices = int(devices_cli) # eg "2" -> 2
+    # except:
+    #     pass
     togglePhones = phonemes
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
@@ -250,6 +249,9 @@ elif NUM_GPUS == 1:
     strategy = "auto"
 else:
     strategy = "auto"
+    
+devices = NUM_GPUS # TODO maybe need "auto" ..? idk
+
 ##
 
 if ON_SHERLOCK:
@@ -284,17 +286,107 @@ steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
 
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
-    precision=precision, gradient_accumulation_steps=grad_accum,
-    learning_rate=learning_rate, audio_lambda=0.,
-    neural_input_features=datamodule.train.n_features,
-    seqlen=seqlen, max_len=max_len, batch_size=base_bz,
-    white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-    num_train_epochs=n_epochs, togglePhones=togglePhones,)
 
-model = MONA(config, text_transform, no_emg=True, no_audio=True,
-)
+@dataclass
+class WillettConfig(XtoTextConfig):
+    num_outs: int = 41
+    rnn_stride:int = 4
+    rnn_kernel_size:int = 14
+    d_model: int = 512
+    neural_reduced_features: int = 256
+    num_layers: int = 5
+    neural_input_features:int = datamodule.train.n_features
+    
+# config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
+#     precision=precision, gradient_accumulation_steps=grad_accum,
+#     weight_decay=1e-5,
+#     learning_rate=1e-2, audio_lambda=0.,
+#     neural_input_features=datamodule.train.n_features,
+#     seqlen=seqlen, max_len=max_len, batch_size=base_bz,
+#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
+#     num_train_epochs=n_epochs, togglePhones=togglePhones,)
+
+# model = MONA(config, text_transform, no_emg=True, no_audio=True,
+# )
             #  sessions=datamodule.train.unique_sessions)
+            
+class WillettModel(XtoText):
+    def __init__(self, cfg:WillettConfig, text_transform:TextTransform, sessions:List[str]):
+        super().__init__(cfg, text_transform)
+        self.session_input_encoder = LinearDispatch(sessions,
+            cfg.neural_input_features, cfg.neural_reduced_features)
+        # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/configs/model/gru_stack_inputNet.yaml#L4
+        # self.input_dropout = nn.Dropout(0.4)
+        
+        self.neural_input_dropout = nn.Dropout(0.2)
+        self.neural_input_act = nn.Softsign()
+        # input, hidden, num_layers
+        self.rnn = nn.GRU(cfg.neural_reduced_features * cfg.rnn_kernel_size, cfg.d_model, cfg.num_layers)
+        
+        self.char_out = nn.Linear(cfg.d_model, cfg.num_outs)
+        
+        self.learning_rate = cfg.learning_rate
+        self.weight_decay = cfg.weight_decay
+        self.rnn_stride = cfg.rnn_stride
+        self.rnn_kernel_size = cfg.rnn_kernel_size
+        
+    def forward(self, batch):
+        sessions = batch['sessions']
+        emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
+        neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
+        x = nn.utils.rnn.pad_sequence(neural, batch_first=True) # B x T x C
+        x = self.session_input_encoder(x, sessions)
+        x = self.neural_input_dropout(x)
+        x = self.neural_input_act(x)
+        # print(f"neural_forward: {x.shape}") # 32 859 256
+        #   kernel_size: 14
+        #  strides: 4
+        x = x.unfold(1, self.rnn_kernel_size, self.rnn_stride) # 32 212 256 14
+        x = x.flatten(2) # 32, 212, 2968
+        # print(f"flatten: {x.shape}")
+        x, _ = self.rnn(x)
+        # print(f"rnn: {x.shape}")
+        pred = F.log_softmax(self.char_out(x),2)
+        # print(f"char_out: {pred.shape}")
+        return {"pred": pred, "y_neural": y_neural,
+                "length_neural": length_neural, "y_length_neural": y_length_neural}
+    
+    def calc_loss(self, pred, y_neural, length_neural, y_length_neural):
+        # logic may be wrong for rnn_stride != 4
+        ln = [ int(np.floor((l - self.rnn_kernel_size) / self.rnn_stride)) for l in length_neural]
+        ctc_loss = self.ctc_loss(pred, y_neural, ln, y_length_neural)
+        return {
+            'loss': ctc_loss,
+            'neural_ctc_loss': ctc_loss,
+            'neural_bz': len(y_neural)
+        }
+    
+    def training_step(self, batch, batch_idx):
+        c = self.calc_loss(**self(batch))
+        loss = c['loss']
+        neural_ctc_loss = c['neural_ctc_loss']
+        neural_bz = c['neural_bz']
+        
+        
+        self.log("train/loss", loss,
+                 on_step=False, on_epoch=True, logger=True, prog_bar=True, batch_size=neural_bz, sync_dist=True)
+        self.log("train/neural_ctc_loss", neural_ctc_loss,
+            on_step=False, on_epoch=True, logger=True, prog_bar=False, batch_size=neural_bz, sync_dist=True)
+        torch.cuda.empty_cache()
+        return loss
+        
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.trainer.model.parameters(), lr=self.learning_rate,
+                                      weight_decay=self.weight_decay)
+        scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.0,
+                                                      total_iters=100000)
+        lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
+        
+config = WillettConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_directory, num_outs=num_outs)    
+model = WillettModel(config, text_transform, datamodule.train.unique_sessions)
+
 logging.info('made model')
 
 callbacks = [
@@ -347,13 +439,13 @@ if log_neptune:
     ])
 else:
     neptune_logger = None
-    
+
 trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
     devices=devices,
     accelerator="gpu",
     # accelerator="cpu",
-    gradient_clip_val=1, # was 0.5 for best 26.x% run, gaddy used 10, llama 2 uses 1.0
+    gradient_clip_val=10, # was 0.5 for best 26.x% run, gaddy used 10, llama 2 uses 1.0, frank used 10
     logger=neptune_logger,
     default_root_dir=output_directory,
     callbacks=callbacks,
