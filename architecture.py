@@ -849,9 +849,7 @@ class LinearDispatch(nn.Module):
 
 @dataclass
 class MONAConfig(XtoTextConfig):
-    steps_per_epoch:int
-    lm_directory:str
-    num_outs:int
+    num_outs:int=-1
     input_channels:int = 8
     learning_rate:float = 3e-4 # also sets initial s4 lr
     weight_decay:float = 0.01
