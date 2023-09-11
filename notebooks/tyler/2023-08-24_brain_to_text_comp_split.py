@@ -189,18 +189,18 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
-    devices_cli: str = typer.Option(devices, "--devices"),
+    # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
     global learning_rate, devices, togglePhones
 
-    devices = devices_cli
-    try:
-        devices = int(devices) # eg "2" -> 2
-    except:
-        pass
+    # devices = devices_cli
+    # try:
+    #     devices = int(devices) # eg "2" -> 2
+    # except:
+    #     pass
     togglePhones = phonemes_cli
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
