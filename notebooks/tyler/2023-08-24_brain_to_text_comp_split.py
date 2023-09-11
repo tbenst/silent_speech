@@ -265,7 +265,7 @@ if not log_neptune:
     logging.warning("not logging to neptune")
     
 # TODO: comment out
-t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
+# t12_npz = load_npz_to_memory(t12_npz_path, allow_pickle=True)
 ##
 
 class T12CompDataset(NeuralDataset):
