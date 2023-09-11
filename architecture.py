@@ -848,7 +848,7 @@ class LinearDispatch(nn.Module):
         return out
 
 @dataclass
-class MONAConfig:
+class MONAConfig(XtoTextConfig):
     steps_per_epoch:int
     lm_directory:str
     num_outs:int
