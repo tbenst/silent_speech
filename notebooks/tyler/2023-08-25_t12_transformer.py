@@ -1,5 +1,9 @@
 ##
 2
+# TODO:
+# run Frank's tensorflow code
+# - per-block z-score normalization
+# - check if my phonemes are correct (compare to frank's)
 ##
 # %load_ext autoreload
 # %autoreload 2
@@ -65,10 +69,10 @@ RESUME = False
 # RESUME = True
 
 
-constant_offset_sd = 0.2
-white_noise_sd = 0.8
-# constant_offset_sd = 0
-# white_noise_sd = 0
+# constant_offset_sd = 0.2
+# white_noise_sd = 0.8
+constant_offset_sd = 0
+white_noise_sd = 0
 seqlen = 600
 auto_lr_find = False
 
@@ -275,7 +279,8 @@ if not log_neptune:
 datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
     train_bz=base_bz, val_bz=val_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-    togglePhones=togglePhones, smoothing_sigma=2)
+    # togglePhones=togglePhones, smoothing_sigma=2)
+    togglePhones=togglePhones, smoothing_sigma=0)
 
 text_transform = TextTransform(togglePhones = togglePhones)
 os.makedirs(output_directory, exist_ok=True)
@@ -291,8 +296,8 @@ num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 class WillettConfig(XtoTextConfig):
     num_outs: int = 41
     rnn_stride:int = 4
-    rnn_kernel_size:int = 14
-    d_model: int = 512
+    rnn_kernel_size:int = 32 # 32 in competition # from paper: 14
+    d_model: int = 1024 # 512 in paper
     neural_reduced_features: int = 256
     num_layers: int = 5
     neural_input_features:int = datamodule.train.n_features
@@ -388,7 +393,103 @@ config = WillettConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_director
 model = WillettModel(config, text_transform, datamodule.train.unique_sessions)
 
 logging.info('made model')
+##
+import tensorflow as tf
+tf_filenames = ["/data/data/T12_data_v4/derived/tfRecords/t12.2022.04.28/train/chunk_0.tfrecord"]
+tfrecord = tf.data.TFRecordDataset(tf_filenames)
+for exampleProto in tfrecord.take(1):
+    pass
+nInputFeatures = 128 * 2
+maxSeqElements = 500
+datasetFeatures = {
+    "inputFeatures": tf.io.FixedLenSequenceFeature([nInputFeatures], tf.float32, allow_missing=True),
+    #"classLabelsOneHot": tf.io.FixedLenSequenceFeature([self.nClasses+1], tf.float32, allow_missing=True),
+    "newClassSignal": tf.io.FixedLenSequenceFeature([], tf.float32, allow_missing=True),
+    "ceMask": tf.io.FixedLenSequenceFeature([], tf.float32, allow_missing=True),
+    "seqClassIDs": tf.io.FixedLenFeature((maxSeqElements), tf.int64),
+    "nTimeSteps": tf.io.FixedLenFeature((), tf.int64),
+    "nSeqElements": tf.io.FixedLenFeature((), tf.int64),
+    "transcription": tf.io.FixedLenFeature((maxSeqElements), tf.int64)
+}
 
+frank_dat = tf.io.parse_single_example(exampleProto, datasetFeatures)
+frank_dat['transcription'], frank_dat['seqClassIDs'], frank_dat['inputFeatures']
+##
+plt.figure(figsize=(20,10))
+plt.plot(frank_dat['inputFeatures'].numpy().sum(0))
+plt.show()
+datt = frank_dat['inputFeatures'].numpy()
+np.min(datt), np.mean(datt), np.max(datt)
+##
+import matplotlib.pyplot as plt
+def padded_ascrii_array_to_str(arr):
+    last_idx = np.where(arr == 0)[0][0]
+    assert arr[last_idx+1] == 0
+    assert arr[last_idx+2] == 0
+    return "".join([chr(item) for item in arr[:last_idx]])
+
+# def padded_phones_array_to_str(arr):
+#     chars = text_transform.chars + ['_']
+#     last_idx = -1
+#     for i in range(len(arr)-1, 0, -1):
+#         if arr[i] == 0:
+#             last_idx = i
+#         else:
+#             break
+#     text = ' '.join(chars[i] for i in arr[:last_idx])
+#     return text
+frank_transcription = padded_ascrii_array_to_str(frank_dat['transcription'])
+# frank_phonemes = padded_phones_array_to_str(frank_dat['seqClassIDs'])
+print(frank_transcription)
+# print(frank_phonemes) # this is wrong. pretty sure our phones match frank's from looking at his notebook
+# https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/AnalysisExamples/rnn_step1_makeTFRecords.ipynb
+print('N UW K L IY ER SIL R AA K AH T S SIL K AE N SIL D IH S T R OY SIL EH R F IY L D Z SIL W IH DH SIL IY Z SIL')
+plt.figure(figsize=(20,10))
+plt.imshow(frank_dat['inputFeatures'].numpy().T)
+plt.gca().invert_yaxis()
+plt.colorbar()
+plt.title("Frank input features")
+##
+tf_filenames = ["/data/data/T12_data_v4/derived-repro/tfRecords/t12.2022.04.28/train/chunk_0.tfrecord"]
+tfrecord = tf.data.TFRecordDataset(tf_filenames)
+for exampleProto in tfrecord.take(1):
+    pass
+repro_dat = tf.io.parse_single_example(exampleProto, datasetFeatures)
+
+repro_transcription = padded_ascrii_array_to_str(repro_dat['transcription'])
+print(repro_transcription)
+plt.figure(figsize=(20,10))
+plt.imshow(repro_dat['inputFeatures'].numpy().T, aspect='auto', origin='lower')
+plt.gca().invert_yaxis()
+plt.colorbar()
+plt.title("repro input features")
+##
+for tyler_ex in datamodule.train:
+    if tyler_ex['text'] == 'Nuclear rockets can destroy airfields with ease.':
+        break
+    pass
+neural = np.concatenate([tyler_ex['neural_features'].numpy()[:,128:], tyler_ex['neural_features'].numpy()[:,:128]], 1)
+print("should equal...", np.min(datt), np.mean(datt), np.max(datt), np.min(neural), np.mean(neural), np.max(neural))
+print(tyler_ex['text'])
+print(" ".join([text_transform.chars[p] for p in tyler_ex['text_int']]))
+plt.figure(figsize=(20,10))
+plt.imshow(tyler_ex['neural_features'].numpy().T, aspect='auto', origin='lower')
+plt.colorbar()
+# plt.gca().invert_yaxis()
+plt.title("Tyler input features")
+##
+plt.figure(figsize=(20,10))
+plt.plot(frank_dat['inputFeatures'].numpy().sum(1) - neural.sum(1))
+plt.show()
+plt.figure(figsize=(20,10))
+plt.imshow(frank_dat['inputFeatures'].numpy().T - neural.T, aspect='auto', origin='lower')
+plt.colorbar()
+##
+plt.figure(figsize=(20,10))
+plt.imshow(neural.T, aspect='auto', origin='lower')
+plt.colorbar()
+##
+##
 callbacks = [
     # starting at epoch 0, accumulate this many batches of gradients
     GradientAccumulationScheduler(scheduling={0: config.gradient_accumulation_steps})

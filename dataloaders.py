@@ -1214,39 +1214,44 @@ class T12CompDataset(NeuralDataset):
         sessions = []
         for f in tqdm(mat_files):
             mat_file = scipy.io.loadmat(f)
-            blocks = np.unique(mat_file["blockIdx"])
-            last_20_spikePow = []
-            last_20_tx1 = []
-            for i in range(len(mat_file["sentenceText"])):
-                sentences.append(mat_file["sentenceText"][i].rstrip())
+            blocks = mat_file["blockIdx"].squeeze()
+            # INFO: in commit 4e30582db8abdb71bceb92b56879d972a637d4af,
+            # we used the last 20 sentences for z-scoring.
+            # TODO: z-score on each block
+            # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/AnalysisExamples/makeTFRecordsFromSession.py#L51https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/AnalysisExamples/makeTFRecordsFromSession.py#L51
+            n_trials = len(mat_file["sentenceText"])
+            
+            spikePows = []
+            tx1s = []
+            for i in range(n_trials):
                 spikePow = mat_file["spikePow"].squeeze()[i][:,:128]
                 tx1 = mat_file["tx1"].squeeze()[i][:,:128]
-                last_20_spikePow.append(spikePow)
-                last_20_tx1.append(tx1)
-                if len(last_20_spikePow) > 20:
-                    last_20_spikePow.pop(0)
-                    last_20_tx1.pop(0)
-                    
-                mean = np.mean(np.concatenate(last_20_spikePow), axis=0)
-                std = np.std(np.concatenate(last_20_spikePow), axis=0) + 1
-                spikePow = (spikePow - mean) / std
-                if smoothing_sigma > 0:
-                    spikePow = scipy.ndimage.gaussian_filter1d(spikePow,
-                        sigma=smoothing_sigma, axis=0)
-                
-                mean = np.mean(np.concatenate(last_20_tx1), axis=0)
-                std = np.std(np.concatenate(last_20_tx1), axis=0) + 1
-                tx1 = (tx1 - mean) / std
-                if smoothing_sigma > 0:
-                    tx1 = scipy.ndimage.gaussian_filter1d(tx1,
-                        sigma=smoothing_sigma, axis=0)
-                
-                neural.append(np.concatenate([
-                        spikePow,
-                        tx1,
-                    ], axis=1).astype(np.float32))
-                
-                sessions.append(os.path.split(f)[-1])
+                spikePows.append(spikePow)
+                tx1s.append(tx1)
+            
+            for block in np.unique(blocks):
+                idxs = np.where(blocks == block)[0]
+                spikepow_mean = np.mean(np.concatenate([spikePows[i] for i in idxs], axis=0), keepdims=True, axis=0)
+                spikepow_std = np.std(np.concatenate([spikePows[i] for i in idxs], axis=0), keepdims=True, axis=0) + 1e-8
+                tx1_mean = np.mean(np.concatenate([tx1s[i] for i in idxs], axis=0), keepdims=True, axis=0)
+                tx1_std = np.std(np.concatenate([tx1s[i] for i in idxs], axis=0), keepdims=True, axis=0) + 1e-8
+                for i in idxs:
+                    spikePow = spikePows[i]
+                    tx1 = tx1s[i]
+                    spikePow = (spikePow - spikepow_mean) / spikepow_std
+                    if smoothing_sigma > 0:
+                        spikePow = scipy.ndimage.gaussian_filter1d(spikePow,
+                            sigma=smoothing_sigma, axis=0)
+                    tx1 = (tx1 - tx1_mean) / tx1_std
+                    if smoothing_sigma > 0:
+                        tx1 = scipy.ndimage.gaussian_filter1d(tx1,
+                            sigma=smoothing_sigma, axis=0)
+                    neural.append(np.concatenate([
+                            spikePow,
+                            tx1,
+                        ], axis=1).astype(np.float32))
+                    sentences.append(mat_file["sentenceText"][i].rstrip())
+                    sessions.append(os.path.split(f)[-1])
 
         audio = [None] * len(neural)
         phonemes = [None] * len(neural)

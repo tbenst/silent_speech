@@ -51,6 +51,7 @@ def fn_to_prompt(fn):
     return prompt, save_dir, seed
 ##
 save_dir = "/data/Dropbox/Photos/stable_diffusion/2023-09-05_green-light"
+# prompt = "Picture of a book morphing into an audio waveform"
 prompt = "Painting of a book morphing into an audio waveform"
 seed = random.randint(0, sys.maxsize)
 
