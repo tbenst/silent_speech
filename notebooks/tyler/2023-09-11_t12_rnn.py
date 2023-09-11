@@ -326,7 +326,8 @@ class WillettModel(XtoText):
         self.neural_input_dropout = nn.Dropout(0.2)
         self.neural_input_act = nn.Softsign()
         # input, hidden, num_layers
-        self.rnn = nn.GRU(cfg.neural_reduced_features * cfg.rnn_kernel_size, cfg.d_model, cfg.num_layers)
+        self.rnn = nn.GRU(cfg.neural_reduced_features * cfg.rnn_kernel_size, cfg.d_model, cfg.num_layers,
+                          batch_first=True)
         # Willett only had learnable initial state for first layer, but that's hard to do in pytorch
         # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/models.py#L80
         self.rnn_initial_state = nn.Parameter(torch.randn(cfg.num_layers, 1, cfg.d_model))
@@ -351,7 +352,7 @@ class WillettModel(XtoText):
         #  strides: 4
         x = x.unfold(1, self.rnn_kernel_size, self.rnn_stride) # 32 212 256 14
         x = x.flatten(2) # 32, 212, 2968
-        # print(f"flatten: {x.shape}")
+        print(f"flatten: {x.shape}")
         x, _ = self.rnn(x, self.rnn_initial_state.repeat(1, x.shape[0], 1))
         # print(f"rnn: {x.shape}")
         pred = F.log_softmax(self.char_out(x),2)
