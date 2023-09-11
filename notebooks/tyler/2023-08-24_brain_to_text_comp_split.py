@@ -106,9 +106,6 @@ num_sanity_val_steps = 0 # may prevent crashing of distributed training
 # if BatchNorm still causes issues can try RunningBatchNorm (need to implement for distributed)
 # https://youtu.be/HR0lt1hlR6U?t=7543
 logger_level = logging.WARNING
-devices = 'auto'
-
-
 
 assert os.environ["NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE"] == 'TRUE', "run this in shell: export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE='TRUE'"
 
@@ -247,6 +244,8 @@ elif NUM_GPUS == 1:
     strategy = "auto"
 else:
     strategy = "auto"
+    
+devices = NUM_GPUS # TODO maybe need "auto" ..? idk
 ##
 
 if ON_SHERLOCK:

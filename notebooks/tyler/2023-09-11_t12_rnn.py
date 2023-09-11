@@ -295,26 +295,13 @@ num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 class WillettConfig(XtoTextConfig):
     num_outs: int = 41
     rnn_stride:int = 4
-    rnn_kernel_size:int = 14 # 32 in competition # from paper: 14
+    rnn_kernel_size:int = 14
     rnn_dropout:float = 0.4
-    d_model: int = 512 # 512 in paper
+    d_model: int = 512
     neural_reduced_features: int = 256
     num_layers: int = 5
     input_dropout: float = 0.2
     neural_input_features:int = datamodule.train.n_features
-    
-# config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
-#     precision=precision, gradient_accumulation_steps=grad_accum,
-#     weight_decay=1e-5,
-#     learning_rate=1e-2, audio_lambda=0.,
-#     neural_input_features=datamodule.train.n_features,
-#     seqlen=seqlen, max_len=max_len, batch_size=base_bz,
-#     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
-#     num_train_epochs=n_epochs, togglePhones=togglePhones,)
-
-# model = MONA(config, text_transform, no_emg=True, no_audio=True,
-# )
-            #  sessions=datamodule.train.unique_sessions)
             
 class WillettModel(XtoText):
     def __init__(self, cfg:WillettConfig, text_transform:TextTransform, sessions:List[str]):

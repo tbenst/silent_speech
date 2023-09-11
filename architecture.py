@@ -1080,6 +1080,7 @@ class MONA(GaddyBase):
             (emg_bz, neural_bz, audio_bz) = self.multi_forward(emg, neural, audio, length_emg, length_neural, length_audio,
                                                  sessions=sessions)
         ret = {
+            'pred': neural_pred, # temp hack for T12 data, manually choose neural 
             'emg_pred': emg_pred, 'neural_pred': neural_pred, 'audio_pred': audio_pred,
             'emg_z': emg_z, 'neural_z': neural_z, 'audio_z': audio_z,
             'y_emg': y_emg, 'y_neural': y_neural, 'y_audio': y_audio,
@@ -1166,7 +1167,7 @@ class MONA(GaddyBase):
                   length_emg, length_neural, length_audio,
                   emg_phonemes, neural_phonemes, audio_phonemes,
                   paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx,
-                  emg_bz, neural_bz, audio_bz):
+                  emg_bz, neural_bz, audio_bz, **kwargs):
         # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
         
         if emg_pred is not None:
