@@ -69,10 +69,10 @@ RESUME = False
 # RESUME = True
 
 
-# constant_offset_sd = 0.2
-# white_noise_sd = 0.8
-constant_offset_sd = 0
-white_noise_sd = 0
+constant_offset_sd = 0.2
+white_noise_sd = 0.8
+# constant_offset_sd = 0
+# white_noise_sd = 0
 seqlen = 600
 auto_lr_find = False
 
