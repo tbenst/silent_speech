@@ -129,7 +129,7 @@ if ON_SHERLOCK:
     if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
         shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
     t12_npz_path = os.path.join(scratch_directory, "2023-08-21_T12_dataset.npz")
-    T12_dir = os.path.join(scratch_directory, "T12_data")
+    T12_dir = os.path.join(scratch_directory, "T12_data_v4")
     if len(os.sched_getaffinity(0)) > 16:
         print("WARNING: if you are running more than one script, you may want to use `taskset -c 0-16` or similar")
 else:
@@ -137,9 +137,9 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    # t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
-    t12_npz_path = "/data/data/T12_data/synthetic_audio/2023-08-22_T12_dataset_gaussian-smoothing.npz"
-    T12_dir = "/data/data/T12_data/"
+    # t12_npz_path = "/data/data/T12_data_v4/synthetic_audio/2023-08-21_T12_dataset_per_sentence_z-score.npz"
+    t12_npz_path = "/data/data/T12_data_v4/synthetic_audio/2023-08-22_T12_dataset_gaussian-smoothing.npz"
+    T12_dir = "/data/data/T12_data_v4/"
 
 print(f"CPU affinity: {os.sched_getaffinity(0)}")
 
