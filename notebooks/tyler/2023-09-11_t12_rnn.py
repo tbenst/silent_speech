@@ -296,10 +296,12 @@ num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
 class WillettConfig(XtoTextConfig):
     num_outs: int = 41
     rnn_stride:int = 4
-    rnn_kernel_size:int = 32 # 32 in competition # from paper: 14
-    d_model: int = 1024 # 512 in paper
+    rnn_kernel_size:int = 14 # 32 in competition # from paper: 14
+    rnn_dropout:float = 0.4
+    d_model: int = 512 # 512 in paper
     neural_reduced_features: int = 256
     num_layers: int = 5
+    input_dropout: float = 0.2
     neural_input_features:int = datamodule.train.n_features
     
 # config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
@@ -321,13 +323,11 @@ class WillettModel(XtoText):
         self.session_input_encoder = LinearDispatch(sessions,
             cfg.neural_input_features, cfg.neural_reduced_features)
         # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/configs/model/gru_stack_inputNet.yaml#L4
-        # self.input_dropout = nn.Dropout(0.4)
-        
-        self.neural_input_dropout = nn.Dropout(0.2)
+        self.neural_input_dropout = nn.Dropout(cfg.input_dropout)
         self.neural_input_act = nn.Softsign()
         # input, hidden, num_layers
         self.rnn = nn.GRU(cfg.neural_reduced_features * cfg.rnn_kernel_size, cfg.d_model, cfg.num_layers,
-                          batch_first=True)
+                          batch_first=True, dropout=cfg.rnn_dropout)
         # Willett only had learnable initial state for first layer, but that's hard to do in pytorch
         # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/models.py#L80
         self.rnn_initial_state = nn.Parameter(torch.randn(cfg.num_layers, 1, cfg.d_model))
@@ -352,7 +352,7 @@ class WillettModel(XtoText):
         #  strides: 4
         x = x.unfold(1, self.rnn_kernel_size, self.rnn_stride) # 32 212 256 14
         x = x.flatten(2) # 32, 212, 2968
-        print(f"flatten: {x.shape}")
+        # print(f"flatten: {x.shape}")
         x, _ = self.rnn(x, self.rnn_initial_state.repeat(1, x.shape[0], 1))
         # print(f"rnn: {x.shape}")
         pred = F.log_softmax(self.char_out(x),2)
@@ -394,7 +394,7 @@ class WillettModel(XtoText):
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
         
 config = WillettConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_directory, num_outs=num_outs,
-                       learning_rate=1e-2)    
+                       learning_rate=1e-2, weight_decay=1e-5)
 model = WillettModel(config, text_transform, datamodule.train.unique_sessions)
 
 logging.info('made model')
