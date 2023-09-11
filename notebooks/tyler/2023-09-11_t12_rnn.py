@@ -70,7 +70,7 @@ RESUME = False
 
 
 constant_offset_sd = 0.2
-white_noise_sd = 0.8
+white_noise_sd = 0.8 # might be 1.0 in frank's code (see speech_release_baseline.yaml)
 # constant_offset_sd = 0
 # white_noise_sd = 0
 seqlen = 600
@@ -280,7 +280,6 @@ datamodule = T12CompDataModule(os.path.join(T12_dir, 'competitionData'),
     train_bz=base_bz, val_bz=val_bz,
     white_noise_sd=white_noise_sd, constant_offset_sd=constant_offset_sd,
     togglePhones=togglePhones, smoothing_sigma=2)
-    # togglePhones=togglePhones, smoothing_sigma=0)
 
 text_transform = TextTransform(togglePhones = togglePhones)
 os.makedirs(output_directory, exist_ok=True)

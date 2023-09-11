@@ -346,7 +346,8 @@ class XtoText(pl.LightningModule):
             pass
         else:
             super().log(*args, **kwargs)
-            
+
+class GaddyBase(XtoText):
     def configure_optimizers(self):
         initial_lr = self.target_lr/self.learning_rate_warmup
         
@@ -389,9 +390,8 @@ class XtoText(pl.LightningModule):
         if self.global_step <= self.learning_rate_warmup:
             new_lr = self.global_step*self.target_lr/self.learning_rate_warmup
             self.set_lr(new_lr)
-            
 
-class Model(XtoText):
+class Model(GaddyBase):
     def __init__(self, model_size, dropout, num_layers, num_outs, text_transform: TextTransform,
                  steps_per_epoch, epochs, lm_directory, num_aux_outs=None, lr=3e-4,
                  learning_rate_warmup = 1000, profiler = None, weight_decay=0.0):
@@ -893,7 +893,7 @@ class MONAConfig:
         if self.warmup_steps is None:
             self.warmup_steps = 500 // self.gradient_accumulation_steps
 
-class MONA(XtoText):
+class MONA(GaddyBase):
     "Multimodal Orofacial Neural Audio"
     
     def __init__(self, cfg:MONAConfig, text_transform:TextTransform,
