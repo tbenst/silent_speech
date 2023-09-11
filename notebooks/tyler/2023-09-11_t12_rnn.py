@@ -389,7 +389,8 @@ class WillettModel(XtoText):
         lr_scheduler = {'scheduler': scheduler, 'interval': 'step'}
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
         
-config = WillettConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_directory, num_outs=num_outs)    
+config = WillettConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_directory, num_outs=num_outs
+                       learning_rate=1e-2)    
 model = WillettModel(config, text_transform, datamodule.train.unique_sessions)
 
 logging.info('made model')
