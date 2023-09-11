@@ -503,7 +503,7 @@ steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
 ##
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = MONAConfig(steps_per_epoch, lm_directory, num_outs,
+config = MONAConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_directory, num_outs=num_outs,
     precision=precision, gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate, audio_lambda=0.,
     neural_input_features=datamodule.train.n_features,
