@@ -849,7 +849,7 @@ class LinearDispatch(nn.Module):
 
 @dataclass
 class MONAConfig(XtoTextConfig):
-    num_outs:int=-1
+    num_outs:int=-1 # TODO: how to make required..? how do dataclass compose?
     input_channels:int = 8
     learning_rate:float = 3e-4 # also sets initial s4 lr
     weight_decay:float = 0.01
