@@ -1080,6 +1080,9 @@ class NeuralDataset(torch.utils.data.Dataset):
         super().__init__()
     
     def __getitem__(self, idx):
+        return self.getitem(idx)
+    
+    def getitem(self, idx, white_noise_sd=None, constant_offset_sd=None):
         text_int = np.array(self.text_transform.text_to_int(self.sentences[idx]), dtype=np.int64)
         if self.no_audio:
             aud = None
@@ -1088,11 +1091,14 @@ class NeuralDataset(torch.utils.data.Dataset):
             aud = aud if aud is None else torch.from_numpy(aud)
         phon = self.phonemes[idx]
         phon = phon if phon is None else torch.from_numpy(phon)
-        nf = torch.from_numpy(self.neural[idx])
-        if self.white_noise_sd > 0:
-            nf += torch.randn_like(nf) * self.white_noise_sd
-        if self.constant_offset_sd > 0:
-            nf += torch.randn(self.n_features) * self.constant_offset_sd
+        nf = torch.from_numpy(self.neural[idx].copy())
+        # TODO: check if this is correct. broadcasting error on constant..?
+        white_noise_sd = self.white_noise_sd if white_noise_sd is None else white_noise_sd
+        constant_offset_sd = self.constant_offset_sd if constant_offset_sd is None else constant_offset_sd
+        if white_noise_sd > 0:
+            nf += torch.randn_like(nf) * white_noise_sd
+        if constant_offset_sd > 0:
+            nf += torch.randn(self.n_features) * constant_offset_sd
         ret = {
             "audio_features": aud,
             "neural_features": nf,

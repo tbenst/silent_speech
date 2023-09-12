@@ -170,7 +170,7 @@ class XtoText(pl.LightningModule):
     def ctc_loss(self, pred, target, pred_len, target_len):     
         # this pads with 0, which corresponds to 'a', but by passing target_len 
         # to CTC loss we can ignore these padded values
-        pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) 
+        pred = nn.utils.rnn.pad_sequence(pred, batch_first=False) # B x T x C -> T x B x C, as required by ctc
         # pred = nn.utils.rnn.pad_sequence(decollate_tensor(pred, pred_len), batch_first=False) 
         target    = nn.utils.rnn.pad_sequence(target, batch_first=True)
         # print(f"\n ==== CTC ====\n{pred.shape=}, {target.shape=}\n{pred=}\n{target=}\n")
