@@ -304,6 +304,8 @@ class WillettConfig(XtoTextConfig):
     num_layers: int = 5
     input_dropout: float = 0.2
     neural_input_features:int = datamodule.train.n_features
+    adam_eps:float = 1e-1
+    # adam_eps:float = 1e-8
             
 class WillettModel(XtoText):
     def __init__(self, cfg:WillettConfig, text_transform:TextTransform, sessions:List[str]):
@@ -326,6 +328,7 @@ class WillettModel(XtoText):
         self.weight_decay = cfg.weight_decay
         self.rnn_stride = cfg.rnn_stride
         self.rnn_kernel_size = cfg.rnn_kernel_size
+        self.adam_eps = cfg.adam_eps
         
     def forward(self, batch):
         sessions = batch['sessions']
