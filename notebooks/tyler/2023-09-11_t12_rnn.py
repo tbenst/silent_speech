@@ -80,7 +80,7 @@ auto_lr_find = False
 
 # see https://github.com/fwillett/speechBCI/blob/main/NeuralDecoder/neuralDecoder/configs/config.yaml
 # learning_rate = 1e-3 # frank used 1e-2. but we saw lar spike from 3 to 8 in validation...
-learning_rate = 2e-4
+learning_rate = 1e-2
 # learning_rate = 1.5e-4
 togglePhones = True
 
@@ -312,13 +312,18 @@ class WillettModel(XtoText):
         super().__init__(cfg, text_transform)
         self.session_input_encoder = LinearDispatch(sessions,
             cfg.neural_input_features, cfg.neural_reduced_features)
+        for l in self.session_input_encoder.layers.values():
+            nn.init.eye_(l.weight) # identity initialization
+        
         # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/configs/model/gru_stack_inputNet.yaml#L4
         self.neural_input_dropout = nn.Dropout(cfg.input_dropout)
         self.neural_input_act = nn.Softsign()
         # input, hidden, num_layers
         self.rnn = nn.GRU(cfg.neural_reduced_features * cfg.rnn_kernel_size, cfg.d_model, cfg.num_layers,
                           batch_first=True, dropout=cfg.rnn_dropout)
-        nn.init.xavier_uniform_(self.rnn, gain=nn.init.calculate_gain('sigmoid'))
+        for attr in filter(lambda x: "weight_hh" in x, dir(self.rnn)):
+            nn.init.orthogonal_(getattr(self.rnn,attr))
+
         # Willett only had learnable initial state for first layer, but that's hard to do in pytorch
         # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/models.py#L80
         self.rnn_initial_state = nn.Parameter(torch.randn(cfg.num_layers, 1, cfg.d_model))
