@@ -71,7 +71,8 @@ RESUME = False
 
 constant_offset_sd = 0.2
 # white_noise_sd = 0.8 # might be 1.0 in frank's code (see speech_release_baseline.yaml)
-white_noise_sd = 1.0 # might be 1.0 in frank's code (see speech_release_baseline.yaml)
+# white_noise_sd = 1.0
+white_noise_sd = 0.2
 # constant_offset_sd = 0
 # white_noise_sd = 0
 seqlen = 600
@@ -381,17 +382,17 @@ class WillettModel(XtoText):
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
         
 config = WillettConfig(steps_per_epoch=steps_per_epoch, lm_directory=lm_directory, num_outs=num_outs,
-                    #    learning_rate=3e-4, weight_decay=1e-5)
-                       learning_rate=1e-2, weight_decay=1e-5)
+                       learning_rate=3e-4, weight_decay=1e-5)
+                    #    learning_rate=1e-2, weight_decay=1e-5)
 model = WillettModel(config, text_transform, datamodule.train.unique_sessions)
 
 logging.info('made model')
 # ##
-# import matplotlib.pyplot as plt
-# noisy = datamodule.train[10]['neural_features'].T
-# clean = datamodule.train.getitem(10,0,0)['neural_features'].T
-# plt.imshow(noisy - clean, aspect='auto', origin='lower')
-# plt.colorbar()
+import matplotlib.pyplot as plt
+noisy = datamodule.train.getitem(10,0.2,0)['neural_features'].T
+clean = datamodule.train.getitem(10,0,0)['neural_features'].T
+plt.imshow(noisy - clean, aspect='auto', origin='lower')
+plt.colorbar()
 ##
 ##
 callbacks = [
