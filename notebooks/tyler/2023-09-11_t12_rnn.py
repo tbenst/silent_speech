@@ -304,10 +304,10 @@ class WillettConfig(XtoTextConfig):
     num_layers: int = 5
     input_dropout: float = 0.2
     neural_input_features:int = datamodule.train.n_features
-    adam_eps:float = 1e-1
+    adam_eps:float = 1e-8
+    # adam_eps:float = 1e-1
     white_noise_sd:float = white_noise_sd
     constant_offset_sd:float = constant_offset_sd
-    # adam_eps:float = 1e-8
             
 class WillettModel(XtoText):
     def __init__(self, cfg:WillettConfig, text_transform:TextTransform, sessions:List[str]):
