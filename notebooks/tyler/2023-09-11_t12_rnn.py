@@ -71,8 +71,8 @@ RESUME = False
 
 constant_offset_sd = 0.2
 # white_noise_sd = 0.8 # might be 1.0 in frank's code (see speech_release_baseline.yaml)
-# white_noise_sd = 1.0
-white_noise_sd = 0.2
+white_noise_sd = 1.0
+# white_noise_sd = 0.2
 # constant_offset_sd = 0
 # white_noise_sd = 0
 seqlen = 600
@@ -318,6 +318,7 @@ class WillettModel(XtoText):
         # input, hidden, num_layers
         self.rnn = nn.GRU(cfg.neural_reduced_features * cfg.rnn_kernel_size, cfg.d_model, cfg.num_layers,
                           batch_first=True, dropout=cfg.rnn_dropout)
+        nn.init.xavier_uniform_(self.rnn, gain=nn.init.calculate_gain('sigmoid'))
         # Willett only had learnable initial state for first layer, but that's hard to do in pytorch
         # https://github.com/fwillett/speechBCI/blob/ba3440432893e75d9413e55ed15e8a6d31034f9b/NeuralDecoder/neuralDecoder/models.py#L80
         self.rnn_initial_state = nn.Parameter(torch.randn(cfg.num_layers, 1, cfg.d_model))
