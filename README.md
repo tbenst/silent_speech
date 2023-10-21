@@ -1,4 +1,10 @@
-# Voicing Silent Speech
+## branches
+t12: most modern work on MONA LISA, but for T12 data. Breaks a lot of EMG-only code.
+
+best speech + emg model: d05a11edf92c3b407d1d82a301c05354077e7521 (GAD-473)
+
+
+## Voicing Silent Speech
 
 This repository contains code for synthesizing speech audio from silently mouthed words captured with electromyography (EMG).
 It is the official repository for the papers [Digital Voicing of Silent Speech](https://aclanthology.org/2020.emnlp-main.445.pdf) at EMNLP 2020, [An Improved Model for Voicing Silent Speech](https://aclanthology.org/2021.acl-short.23.pdf) at ACL 2021, and the dissertation [Voicing Silent Speech](https://www2.eecs.berkeley.edu/Pubs/TechRpts/2022/EECS-2022-68.pdf).
