@@ -51,6 +51,7 @@ e = wer.compute(predictions=[text], references=[outputs['text']])
 print("WER:", e)
 
 ##
+# hard to get multiple beams from whisper that are different and don't suck
 from datasets import load_dataset
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
@@ -69,19 +70,22 @@ input_features = processor(
     waveform, sampling_rate=sampling_rate, return_tensors="pt"
 ).input_features.to("cuda")
 
+num_beams = 10
 # Generate token ids with beam search
 predicted_output = model.generate(
     input_features,
-    num_beams=20,  # Number of beams for beam search
-    num_beam_groups=10,
-    # 0.5 too small, 5.0 is rambly
-    diversity_penalty=1.0,
-    num_return_sequences=20,  # Number of sequences to return
+    num_beams=num_beams,  # Number of beams for beam search
+    num_beam_groups=num_beams//2,
+    # whisper small: 0.5 too small, 5.0 is rambly
+    # whisper v3: 1.0 too small, 5.0 rambles
+    diversity_penalty=10.0,
+    num_return_sequences=num_beams,  # Number of sequences to return
     output_scores=True,
     return_dict_in_generate=True,
+    length_penalty=-1.0,
     language="en", task="transcribe",
     # do_sample=True,
-    early_stopping=False  # Stop the beam search when the first beam is finished
+    early_stopping=True  # Stop the beam search when the first beam is finished
 )
 
 sequences = predicted_output.sequences
