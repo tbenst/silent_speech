@@ -1,6 +1,10 @@
 ##
 from transformers import AutoProcessor, SeamlessM4Tv2Model, SeamlessM4Tv2ForSpeechToText
-import os, torchaudio
+import os, torchaudio, subprocess
+
+hostname = subprocess.run("hostname", capture_output=True)
+ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+
 processor = AutoProcessor.from_pretrained("facebook/seamless-m4t-v2-large")
 model = SeamlessM4Tv2Model.from_pretrained("facebook/seamless-m4t-v2-large").to("cuda")
 # model = SeamlessM4Tv2ForSpeechToText.from_pretrained("facebook/seamless-m4t-v2-large").to("cuda")
@@ -9,15 +13,20 @@ model = SeamlessM4Tv2Model.from_pretrained("facebook/seamless-m4t-v2-large").to(
 # from datasets import load_dataset
 # dataset = load_dataset("arabic_speech_corpus", split="test", streaming=True)
 # audio_sample = next(iter(dataset))["audio"]
-# audio_sample['array'].shape
+# audio_sample['array'].shape™
 ##
-base_dir = "/scratch/GaddyPaper/emg_data/nonparallel_data/4-24/"
+if ON_SHERLOCK:
+    base_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
+else:
+    base_dir = "/scratch/GaddyPaper/"
+base_dir = os.path.join(base_dir, "emg_data/nonparallel_data/4-24/")
 i = 413
 audio_file = os.path.join(base_dir, f"{i}_audio.wav")
 # read wav
-audio = torchaudio.load(audio_file)[0].squeeze()
+# audio = torchaudio.load(audio_file)[0].squeeze()
+sr, audio = scipy.io.wavfile.read(audio_file)
 audio_inputs = processor(audios=audio, return_tensors="pt",
-                         sampling_rate=16000)
+                         sampling_rate=sr)
 audio_inputs = {k: v.cuda() for k, v in audio_inputs.items()}
 n_reps = 10
 audio_inputs['input_features'] = audio_inputs['input_features'].repeat(n_reps, 1, 1)
