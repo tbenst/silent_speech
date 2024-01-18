@@ -290,6 +290,7 @@ class XtoText(pl.LightningModule):
                 print("WARN: got prediction length of zero during validation.")
         # logging.warning(f"on_validation_epoch_end: calc wer")
         wer = jiwer.wer(step_text_target, step_text_pred)
+        print(f"{step_text_target=}, {step_text_pred=}")
         # print(f"{step_int_target=}, {step_int_pred=}")
         cer = token_error_rate(step_int_target, step_int_pred, self.text_transform)
         self.step_text_target.clear()
