@@ -189,11 +189,10 @@ if ON_SHERLOCK:
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
-# base_bz was 24 when run on 4 GPUs, so we need to set as 6 for 1 GPU..? this ensures high balance
+# base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
-base_bz = 6  # runs on A100 80GB
-# base_bz = 48
-val_bz = 16
+base_bz = 24*4
+val_bz = 8
 # max_len = 48000 # from best perf with 4 x V100
 # max_len = 128000 # OOM on A100 80GB
 # max_len = 64000
