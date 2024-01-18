@@ -887,6 +887,9 @@ class MONAConfig(XtoTextConfig):
     white_noise_sd:float = 0.2
     
     togglePhones:bool = False
+    use_dtw:bool = True
+    use_crossCon:bool = True
+    use_supCon:bool = True
     
     def __post_init__(self):
         if self.warmup_steps is None:
@@ -982,6 +985,9 @@ class MONA(GaddyBase):
         self.sup_nce_lambda = cfg.sup_nce_lambda
         
         self.fixed_length = cfg.fixed_length
+        self.use_dtw = cfg.use_dtw
+        self.use_crossCon = cfg.use_crossCon
+        self.use_supCon = cfg.use_supCon
         
         # self.supervised_contrastive_loss = SupConLoss(temperature=0.1)
     
@@ -1173,9 +1179,12 @@ class MONA(GaddyBase):
                   length_emg, length_neural, length_audio,
                   emg_phonemes, neural_phonemes, audio_phonemes,
                   paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx,
-                  emg_bz, neural_bz, audio_bz, use_supCon=True, use_crossCon=True, **kwargs):
+                  emg_bz, neural_bz, audio_bz, use_supCon=None, use_crossCon=None, **kwargs):
         # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
-        
+        if use_supCon is None:
+            use_supCon = self.use_supCon
+        if use_crossCon is None:
+            use_crossCon = self.use_crossCon
         if emg_pred is not None:
             length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
             emg_ctc_loss = self.ctc_loss(emg_pred, y_emg, length_emg, y_length_emg)
@@ -1205,31 +1214,39 @@ class MONA(GaddyBase):
             parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
             parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
             
-            # euclidean distance between silent emg and parallel audio
-            # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
-            # cosine dissimiliarity between silent emg and parallel audio
-            # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z).squeeze(0)
-            
-            # euclidean distance between silent emg and parallel emg
-            costs = torch.cdist(parallel_e_z, silent_e_z).squeeze(0)
-            # cosine dissimiliarity between silent emg and parallel emg
-            # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_e_z, silent_e_z).squeeze(0)
-            
-            # print(f"cdist: {costs.dtype}")                
-            # print(f"cos dissim: {costs.dtype}")
+            if self.use_dtw:
+                # euclidean distance between silent emg and parallel audio
+                # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
+                # cosine dissimiliarity between silent emg and parallel audio
+                # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_a_z, silent_e_z).squeeze(0)
+                
+                # euclidean distance between silent emg and parallel emg
+                costs = torch.cdist(parallel_e_z, silent_e_z).squeeze(0)
+                # cosine dissimiliarity between silent emg and parallel emg
+                # costs = 1 - torchmetrics.functional.pairwise_cosine_similarity(parallel_e_z, silent_e_z).squeeze(0)
+                
+                # print(f"cdist: {costs.dtype}")                
+                # print(f"cos dissim: {costs.dtype}")
             
             if use_crossCon or use_supCon:
                 # save on compute & avoid val crashes by only computing alignment on train
-                alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
-                aligned_a_z = parallel_a_z[alignment]
-                logging.debug(f"{len(alignment)=}, {max(alignment)=}, {len(parallel_a_z)=}, {len(aligned_a_z)=}")
-                frames_alignment = [a // 8 for a in alignment] # downsample to phoneme frames
-                aligned_a_phonemes = parallel_a_phonemes[frames_alignment]
+
+                emg_to_concat = [emg_z[i] for i in paired_emg_idx]
+                audio_to_concat = [audio_z[i] for i in paired_audio_idx]
+                
+                if self.use_dtw:
+                    alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
+                    aligned_a_z = parallel_a_z[alignment]
+                    logging.debug(f"{len(alignment)=}, {max(alignment)=}, {len(parallel_a_z)=}, {len(aligned_a_z)=}")
+                    frames_alignment = [a // 8 for a in alignment] # downsample to phoneme frames
+                    aligned_a_phonemes = parallel_a_phonemes[frames_alignment]
+                    emg_to_concat.append(silent_e_z)
+                    audio_to_concat.append(aligned_a_z)
                 # print(f"{silent_e_z.shape=}, {parallel_a_z.shape=}, {parallel_a_phonemes.shape=}," \
                 #       f"{len(alignment)=}, {aligned_a_z.shape=}, {aligned_a_phonemes.shape=}")
-
-                matched_e_z = torch.concatenate([*[emg_z[i] for i in paired_emg_idx], silent_e_z])
-                matched_a_z = torch.concatenate([*[audio_z[i] for i in paired_audio_idx], aligned_a_z])
+                
+                matched_e_z = torch.concatenate(emg_to_concat)
+                matched_a_z = torch.concatenate(audio_to_concat)
 
             
             ###### InfoNCE #####
@@ -1243,8 +1260,10 @@ class MONA(GaddyBase):
 
             ###### Supervised NCE #######
             if use_supCon:
-                paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
-                matched_phonemes = torch.concatenate([*paired_e_phonemes, aligned_a_phonemes])
+                emg_phonemes_to_concat = [emg_phonemes[i] for i in paired_emg_idx]
+                if self.use_dtw:
+                    emg_phonemes_to_concat.append(aligned_a_phonemes)
+                matched_phonemes = torch.concatenate(emg_phonemes_to_concat)
                 # for e,a in zip(paired_emg_idx,paired_audio_idx):
                 #     print(f"{emg_phonemes[e].shape=}, {emg_z[e].shape=}, {audio_phonemes[a].shape=}, {audio_z[a].shape=}")
                 # print(f"{matched_e_z.shape=}, {len(audio_z)=}, {silent_e_z.shape=}, {len(paired_e_phonemes)=}, {len(audio_phonemes)=}, {len(aligned_a_phonemes)=}")
@@ -1252,8 +1271,8 @@ class MONA(GaddyBase):
                 # print(f"{matched_e_z.shape=}, {torch.concatenate([*paired_e_phonemes]).shape=})")
                 # print(f"{torch.concatenate([*audio_z]).shape=}, {torch.concatenate([*audio_phonemes]).shape=})") 
                 # print(f"{silent_e_z.shape=}, {aligned_a_phonemes.shape=}") 
-                logging.debug(f"{matched_e_z.shape=}, {matched_phonemes.shape=}")
-                logging.debug(f"{[a.shape for a in audio_z]=}, {[a.shape for a in audio_phonemes]=}")
+                # logging.debug(f"{matched_e_z.shape=}, {matched_phonemes.shape=}")
+                # logging.debug(f"{[a.shape for a in audio_z]=}, {[a.shape for a in audio_phonemes]=}")
                 z = torch.concatenate([matched_e_z, *audio_z])
                 z_class = torch.concatenate([matched_phonemes, *audio_phonemes])
                 sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)

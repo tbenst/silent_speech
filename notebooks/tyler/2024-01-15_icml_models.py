@@ -92,6 +92,8 @@ DEBUG = False
 RESUME = False
 # RESUME = True
 
+torch.set_float32_matmul_precision("high")
+# torch.set_float32_matmul_precision("medium" | "high")
 
 if RESUME:
     # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
@@ -126,8 +128,8 @@ if DEBUG:
 
 else:
     NUM_GPUS = 1
-    # grad_accum = 2 # might need if run on 1 GPU
-    grad_accum = 1
+    grad_accum = 2 # might need if run on 1 GPU
+    # grad_accum = 1
     precision = "16-mixed"
     limit_train_batches = None
     limit_val_batches = None
@@ -203,7 +205,9 @@ learning_rate = 3e-4
 seqlen = 600
 white_noise_sd = 0
 constant_offset_sd = 0
-
+use_dtw = True
+use_crossCon = True
+use_supCon = True
 
 @app.command()
 def update_configs(
@@ -213,6 +217,9 @@ def update_configs(
     debug_cli: bool = typer.Option(False, "--debug"),
     phonemes_cli: bool = typer.Option(False, "--phonemes"),
     resume_cli: bool = typer.Option(RESUME, "--resume"),
+    use_dtw_cli: bool = typer.Option(use_dtw, "--dtw"),
+    use_crossCon_cli: bool = typer.Option(use_crossCon, "--crossCon"),
+    use_supCon_cli: bool = typer.Option(use_supCon, "--supCon"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option(precision, "--precision"),
     logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
@@ -225,13 +232,16 @@ def update_configs(
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
-    global learning_rate, devices, togglePhones
+    global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supCon
 
     # devices = devices_cli
     # try:
     #     devices = int(devices) # eg "2" -> 2
     # except:
     #     pass
+    use_dtw = use_dtw_cli
+    use_crossCon = use_crossCon_cli
+    use_supCon = use_supCon_cli
     togglePhones = phonemes_cli
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
@@ -416,6 +426,9 @@ config = MONAConfig(
     constant_offset_sd=constant_offset_sd,
     num_train_epochs=n_epochs,
     togglePhones=togglePhones,
+    use_dtw=use_dtw,
+    use_crossCon=use_crossCon,
+    use_supCon=use_supCon,
     # d_inner=8,
     # d_model=8,
     fixed_length=True,
