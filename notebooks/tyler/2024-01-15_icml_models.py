@@ -209,6 +209,7 @@ use_dtw = True
 use_crossCon = True
 use_supCon = True
 
+
 @app.command()
 def update_configs(
     constant_offset_sd_cli: float = typer.Option(0, "--constant-offset-sd"),
@@ -398,14 +399,11 @@ datamodule = EMGAndSpeechModule(
 )
 steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 
-
+# assert steps_per_epoch > 100, "too few steps per epoch"
+# assert steps_per_epoch < 1000, "too many steps per epoch"
 ##
 text_transform = TextTransform(togglePhones=togglePhones)
 os.makedirs(output_directory, exist_ok=True)
-
-# steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
-steps_per_epoch = len(datamodule.train) // base_bz // NUM_GPUS // grad_accum
-# steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1  # +1 for CTC blank token ( i think? )
@@ -416,7 +414,7 @@ config = MONAConfig(
     precision=precision,
     gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate,
-    audio_lambda=0.0,
+    audio_lambda=1.0,
     # neural_input_features=datamodule.train.n_features,
     neural_input_features=1,
     seqlen=seqlen,
