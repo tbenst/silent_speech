@@ -196,8 +196,7 @@ val_bz = 8
 # max_len = 48000 # from best perf with 4 x V100
 # max_len = 128000 # OOM on A100 80GB
 # max_len = 64000
-# max_len = 96000 # fits on A100 80GB
-max_len = 192000 
+max_len = 96000 # fits on A100 80GB
 
 ##
 
