@@ -603,6 +603,7 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
             self.class_n_per_batch.sum() == batch_size
         ), "Class proportion must evenly divide batch size"
 
+        # When we ran out of examples of a given class, we stop yielding
         self.num_batches = int(
             np.floor(np.min(self.num_examples_per_class / self.class_n_per_batch))
         )
@@ -616,9 +617,11 @@ class StratifiedBatchSampler(torch.utils.data.Sampler):
     def __iter__(self):
         if self.shuffle:
             self.class_indices = [np.random.permutation(x) for x in self.class_indices]
+        # num_batches is set to ensure we have enough examples of each class
         for batch in range(self.num_batches):
             batch_indices = []
             for i in range(self.class_n_per_batch.shape[0]):
+                # we add n of this class to the batch
                 s = batch * self.class_n_per_batch[i]
                 e = (batch + 1) * self.class_n_per_batch[i]
                 idxs = self.class_indices[i][s:e]
@@ -730,7 +733,7 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         seed: random seed
         num_replicas: number of GPUs
     """
-
+    # TODO: perhaps refactor out the Distributed code into a separate class
     def __init__(
         self,
         classes: np.ndarray,
@@ -748,6 +751,8 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
         assert (
             batch_size % self.num_replicas == 0
         ), "Batch size must be divisible by number of GPUs"
+        # we consider the batch_size to be the overall batch size, not the per-GPU batch size
+        # internal_bz is the batch size per GPU
         internal_bz = batch_size // self.num_replicas
         super().__init__(classes, class_proportion, internal_bz, shuffle, drop_last)
         mod = self.num_batches % self.num_replicas
@@ -773,6 +778,7 @@ class DistributedStratifiedBatchSampler(StratifiedBatchSampler):
                 x[torch.randperm(len(x), generator=g).tolist()]
                 for x in self.class_indices
             ]
+        # we split the dataset into num_replicas splits, and each GPU gets a different split
         for batch in range(self.rank, self.num_batches, self.num_replicas):
             batch_indices = []
             for i in range(self.class_n_per_batch.shape[0]):
@@ -848,6 +854,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
         if always_include_class is not None:
             # prevent oversampling
             self.class_n_per_batch[self.always_include_class] -= 1
+        # desired class labels for each mini batch, eg: [0, 0, 1, 2, 2, 2]
         self.mini_batch_classes = torch.from_numpy(
             np.concatenate(
                 [
@@ -863,7 +870,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             self.hardcode_len = self.min_len(200)  # assume 200 epochs
             self.constant_num_batches = True
             logging.warning(
-                f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work"
+                f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work, assuming 200 epochs"
             )
 
     def min_len(self, num_epochs: int):
@@ -918,7 +925,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     # logging.warning(f"DEBUG:return {self.len} batches. {self.epoch=}")
                     # logging.warning(f"DEBUG: {batches[10]=}, {batches[11]=}, {batches[12]=}")
                     avg_num_ex = np.mean([len(x) for x in batches])
-                    logging.debug(f"Average number of examples per batch: {avg_num_ex}")
+                    logging.debug(f"Average number of examples per batch: {avg_num_ex} for epoch {self.epoch} and rank {rank}")
                     # if self.len < self.hardcode_len:
                     #     logging.warning(f"Warning: returning {self.len} batches, which is less than hardcode_len {self.hardcode_len}")
                     if self.constant_num_batches:
@@ -934,11 +941,14 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
                     )
                     continue
                 if length + batch_length > self.max_len:
+                    # add batch before it gets too long
                     batches.append(batch)
                     batch = []
                     batch_length = 0
                     if self.always_include_class is not None:
                         break  # ensure we always include at least one example from this class
+                        # this means we will drop this index, but next batch will resample in 
+                        # a proportionally correct way
                 batch.append(idx)
                 batch_length += length
 
