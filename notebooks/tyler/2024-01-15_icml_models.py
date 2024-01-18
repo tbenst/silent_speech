@@ -128,7 +128,7 @@ if DEBUG:
 
 else:
     NUM_GPUS = 1
-    grad_accum = 2 # might need if run on 1 GPU
+    grad_accum = 2  # might need if run on 1 GPU
     # grad_accum = 1
     precision = "16-mixed"
     limit_train_batches = None
@@ -180,7 +180,8 @@ else:
 print(f"CPU affinity: {os.sched_getaffinity(0)}")
 
 data_dir = os.path.join(gaddy_dir, "processed_data/")
-lm_directory = os.path.join(gaddy_dir, "pretrained_models/librispeech_lm/")
+# lm_directory = os.path.join(gaddy_dir, "pretrained_models/librispeech_lm/")
+lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 
 if ON_SHERLOCK:
@@ -188,8 +189,8 @@ if ON_SHERLOCK:
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
-base_bz = 16 # runs on A100 80GB
-base_bz = 16
+# base_bz = 16 # runs on A100 80GB
+base_bz = 32
 # base_bz = 48
 val_bz = 16
 # max_len = 48000 # from best perf with 4 x V100
