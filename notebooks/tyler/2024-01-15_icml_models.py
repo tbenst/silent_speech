@@ -87,8 +87,8 @@ from contrastive import (
 import glob, scipy
 from helpers import load_npz_to_memory
 
-# DEBUG = False
-DEBUG = True
+DEBUG = False
+# DEBUG = True
 RESUME = False
 # RESUME = True
 
