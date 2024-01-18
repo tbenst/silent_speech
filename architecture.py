@@ -243,6 +243,8 @@ class XtoText(pl.LightningModule):
 
         # TODO: split text by emg, audio, neural
         pred_texts, pred_ints = self._beam_search_pred(pred.cpu())
+        # maybe this fixes the WER discrepancy?
+        pred_texts = [self.text_transform.clean_text(b) for b in pred_texts]
         target_texts  = [self.text_transform.clean_text(b) for b in batch['text']]
         # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
         for i, (target_text, pred_text, target_int, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints, target_ints)):
