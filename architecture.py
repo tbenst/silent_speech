@@ -251,10 +251,12 @@ class XtoText(pl.LightningModule):
             if len(target_text) > 0:
                 self.step_text_target.append(target_text)
                 self.step_text_pred.append(pred_text)
-                if i % 16 == 0 and type(self.logger) == NeptuneLogger:
-                    # log approx 10 examples
-                    self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
-                    self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
+                # TODO: only log every 10th example
+                # right now, our WER calc is broken for unknown reason
+                # if i % 16 == 0 and type(self.logger) == NeptuneLogger:
+                #     # log approx 10 examples
+                self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
+                self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
                     
                 self.step_int_target.append(target_int.numpy())
                 self.step_int_pred.append(pred_int.cpu().numpy())

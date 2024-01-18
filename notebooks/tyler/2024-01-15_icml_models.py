@@ -475,12 +475,19 @@ if log_neptune:
             neptune_logger.experiment["SLURM_JOB_ID"] = os.environ["SLURM_JOB_ID"]
 
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/wer",
+        monitor="val/emg_ctc_loss",
         mode="min",
         dirpath=output_directory,
-        save_top_k=10,  # TODO: try averaging weights afterwards to see if improve WER..?
-        filename=model.__class__.__name__ + "-{epoch:02d}-{val/wer:.3f}",
+        save_top_k=10,
+        filename=model.__class__.__name__ + "-{epoch:02d}-{val/emg_ctc_loss:.3f}",
     )
+    # checkpoint_callback = ModelCheckpoint(
+    #     monitor="val/wer",
+    #     mode="min",
+    #     dirpath=output_directory,
+    #     save_top_k=10,  # TODO: try averaging weights afterwards to see if improve WER..?
+    #     filename=model.__class__.__name__ + "-{epoch:02d}-{val/wer:.3f}",
+    # )
     callbacks.extend(
         [
             checkpoint_callback,
