@@ -16,7 +16,6 @@ import pytorch_lightning as pl
 from functools import lru_cache
 from copy import copy
 
-import soundfile as sf
 import librosa
 from scipy.io import loadmat
 

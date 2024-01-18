@@ -1,7 +1,6 @@
 import string
 
 import numpy as np
-import soundfile as sf
 import librosa
 from textgrids import TextGrid
 import jiwer

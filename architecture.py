@@ -228,8 +228,9 @@ class XtoText(pl.LightningModule):
         self._init_ctc_decoder()
 
     def validation_step(self, batch, batch_idx, task="val"):
-        ret = self.forward(batch)
-        c = self.calc_loss(**ret)
+        ret = self.forward(batch, fixed_length=False)
+        # supCon will fail for silent-only data
+        c = self.calc_loss(**ret, use_supCon=False, use_crossCon=False)
         pred = ret['pred']
         loss = c['loss']
         emg_bz = c['emg_bz'] if 'emg_bz' in c else 0
@@ -895,7 +896,8 @@ class MONA(GaddyBase):
     "Multimodal Orofacial Neural Audio"
     
     def __init__(self, cfg:MONAConfig, text_transform:TextTransform,
-                 profiler = None, no_emg=False, no_audio=False, sessions:List[str]=None):
+                 profiler = None, no_emg=False, no_audio=False, sessions:List[str]=None,
+                 no_neural=False):
         super().__init__(cfg, text_transform)
         self.profiler = profiler or PassThroughProfiler()
         
@@ -926,27 +928,30 @@ class MONA(GaddyBase):
                 ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
                 ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
             )
-        self.neural_conv_blocks = nn.Sequential(
-            # TODO: should we do a 2D conv here..? T x C x F,
-            # where C is the number of electrodes (256)
-            # and F is the number of features (5)
-            # could even do a 3D conv with spatial info, T x H x W x C x F
-            # ResBlock(cfg.neural_reduced_features, cfg.d_model, beta=cfg.beta),
-            ResBlock(cfg.neural_input_features, cfg.d_model, beta=cfg.beta),
-            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
-            ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
-        )
+        if not no_neural:
+            self.neural_conv_blocks = nn.Sequential(
+                # TODO: should we do a 2D conv here..? T x C x F,
+                # where C is the number of electrodes (256)
+                # and F is the number of features (5)
+                # could even do a 3D conv with spatial info, T x H x W x C x F
+                # ResBlock(cfg.neural_reduced_features, cfg.d_model, beta=cfg.beta),
+                ResBlock(cfg.neural_input_features, cfg.d_model, beta=cfg.beta),
+                ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**2),
+                ResBlock(cfg.d_model, cfg.d_model, beta=cfg.beta**3)
+            )
         
         # equivalent to w_raw_in in Gaddy's model
         # affine=False so emg&audio latent are both unit norm
         if not no_emg:
             self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
             self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
-        self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
-        self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
+        if not no_neural:
+            self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+            self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         if not no_audio:
             self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
             self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
+        
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
             nhead=cfg.num_heads, relative_positional=True,
             relative_positional_distance=100, dim_feedforward=cfg.d_inner,
@@ -1067,8 +1072,8 @@ class MONA(GaddyBase):
         z = self.audio_encoder(x) # latent space
         return self.decoder(z), z
     
-    def forward(self, batch):
-        sessions = batch['sessions']
+    def forward(self, batch, fixed_length=None):
+        sessions = batch['sessions'] if 'sessions' in batch else None
         emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
         emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
         neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
@@ -1078,9 +1083,10 @@ class MONA(GaddyBase):
         (emg_pred, neural_pred, audio_pred), \
             (emg_z, neural_z, audio_z), \
             (emg_bz, neural_bz, audio_bz) = self.multi_forward(emg, neural, audio, length_emg, length_neural, length_audio,
-                                                 sessions=sessions)
+                                                 sessions=sessions, fixed_length=fixed_length)
         ret = {
-            'pred': neural_pred, # temp hack for T12 data, manually choose neural 
+            # 'pred': neural_pred, # temp hack for T12 data, manually choose neural 
+            'pred': emg_pred, # temp hack for Gaddy-only val data
             'emg_pred': emg_pred, 'neural_pred': neural_pred, 'audio_pred': audio_pred,
             'emg_z': emg_z, 'neural_z': neural_z, 'audio_z': audio_z,
             'y_emg': y_emg, 'y_neural': y_neural, 'y_audio': y_audio,
@@ -1138,7 +1144,7 @@ class MONA(GaddyBase):
                 neural_pred = decollate_tensor(neural_pred, length_neural)
                 neural_z = decollate_tensor(neural_z, length_neural)
         else:
-            raise ValueError("Expecting neural right now")
+            # raise ValueError("Expecting neural right now")
             neural_pred, neural_z, neural_bz = None, None, 0
 
         if len(audio) > 0:
@@ -1167,7 +1173,7 @@ class MONA(GaddyBase):
                   length_emg, length_neural, length_audio,
                   emg_phonemes, neural_phonemes, audio_phonemes,
                   paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx,
-                  emg_bz, neural_bz, audio_bz, **kwargs):
+                  emg_bz, neural_bz, audio_bz, use_supCon=True, use_crossCon=True, **kwargs):
         # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
         
         if emg_pred is not None:
@@ -1212,38 +1218,48 @@ class MONA(GaddyBase):
             # print(f"cdist: {costs.dtype}")                
             # print(f"cos dissim: {costs.dtype}")
             
-            alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
-            aligned_a_z = parallel_a_z[alignment]
-            aligned_a_phonemes = parallel_a_phonemes[alignment]
-            # print(f"{silent_e_z.shape=}, {parallel_a_z.shape=}, {parallel_a_phonemes.shape=}," \
-            #       f"{len(alignment)=}, {aligned_a_z.shape=}, {aligned_a_phonemes.shape=}")
+            if use_crossCon or use_supCon:
+                # save on compute & avoid val crashes by only computing alignment on train
+                alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
+                aligned_a_z = parallel_a_z[alignment]
+                logging.debug(f"{len(alignment)=}, {max(alignment)=}, {len(parallel_a_z)=}, {len(aligned_a_z)=}")
+                frames_alignment = [a // 8 for a in alignment] # downsample to phoneme frames
+                aligned_a_phonemes = parallel_a_phonemes[frames_alignment]
+                # print(f"{silent_e_z.shape=}, {parallel_a_z.shape=}, {parallel_a_phonemes.shape=}," \
+                #       f"{len(alignment)=}, {aligned_a_z.shape=}, {aligned_a_phonemes.shape=}")
+
+                matched_e_z = torch.concatenate([*[emg_z[i] for i in paired_emg_idx], silent_e_z])
+                matched_a_z = torch.concatenate([*[audio_z[i] for i in paired_audio_idx], aligned_a_z])
 
             
             ###### InfoNCE #####
             # contrastive loss with emg_t, audio_t as positive pairs
-            
-            matched_e_z = torch.concatenate([*[emg_z[i] for i in paired_emg_idx], silent_e_z])
-            matched_a_z = torch.concatenate([*[audio_z[i] for i in paired_audio_idx], aligned_a_z])
-
-            # TODO: need to make a memoizing cos sim function
-            emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(matched_e_z, matched_a_z,
-                                                                device=self.device)
+            # TODO: need to make a memoizing cos sim function..?
+            if use_crossCon:
+                emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(matched_e_z, matched_a_z,
+                                                                    device=self.device)
+            else:
+                emg_audio_contrastive_loss = 0.
 
             ###### Supervised NCE #######
-            paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
-            matched_phonemes = torch.concatenate([*paired_e_phonemes, aligned_a_phonemes])
-            # for e,a in zip(paired_emg_idx,paired_audio_idx):
-            #     print(f"{emg_phonemes[e].shape=}, {emg_z[e].shape=}, {audio_phonemes[a].shape=}, {audio_z[a].shape=}")
-            # print(f"{matched_e_z.shape=}, {len(audio_z)=}, {silent_e_z.shape=}, {len(paired_e_phonemes)=}, {len(audio_phonemes)=}, {len(aligned_a_phonemes)=}")
-            # # TODO: we are duplicating some audio_z here. need to fix
-            # print(f"{matched_e_z.shape=}, {torch.concatenate([*paired_e_phonemes]).shape=})")
-            # print(f"{torch.concatenate([*audio_z]).shape=}, {torch.concatenate([*audio_phonemes]).shape=})") 
-            # print(f"{silent_e_z.shape=}, {aligned_a_phonemes.shape=}") 
-            z = torch.concatenate([matched_e_z, *audio_z])
-            z_class = torch.concatenate([matched_phonemes, *audio_phonemes])
-            sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+            if use_supCon:
+                paired_e_phonemes = [emg_phonemes[i] for i in paired_emg_idx]
+                matched_phonemes = torch.concatenate([*paired_e_phonemes, aligned_a_phonemes])
+                # for e,a in zip(paired_emg_idx,paired_audio_idx):
+                #     print(f"{emg_phonemes[e].shape=}, {emg_z[e].shape=}, {audio_phonemes[a].shape=}, {audio_z[a].shape=}")
+                # print(f"{matched_e_z.shape=}, {len(audio_z)=}, {silent_e_z.shape=}, {len(paired_e_phonemes)=}, {len(audio_phonemes)=}, {len(aligned_a_phonemes)=}")
+                # # TODO: we are duplicating some audio_z here. need to fix
+                # print(f"{matched_e_z.shape=}, {torch.concatenate([*paired_e_phonemes]).shape=})")
+                # print(f"{torch.concatenate([*audio_z]).shape=}, {torch.concatenate([*audio_phonemes]).shape=})") 
+                # print(f"{silent_e_z.shape=}, {aligned_a_phonemes.shape=}") 
+                logging.debug(f"{matched_e_z.shape=}, {matched_phonemes.shape=}")
+                logging.debug(f"{[a.shape for a in audio_z]=}, {[a.shape for a in audio_phonemes]=}")
+                z = torch.concatenate([matched_e_z, *audio_z])
+                z_class = torch.concatenate([matched_phonemes, *audio_phonemes])
+                sup_nce_loss = supervised_contrastive_loss(z, z_class, device=self.device)
+            else:
+                sup_nce_loss = 0.
             # sup_nce_loss = self.supervised_contrastive_loss(z[:, None], z_class)
-            # sup_nce_loss = 0.
             
             ###### 
         elif emg_z is not None:
