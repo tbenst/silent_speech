@@ -336,7 +336,7 @@ def split_batch_into_emg_neural_audio(batch):
     y_length_neural = []
     y_neural = []
 
-    paired_emg_idx = [] # simultaneous emg + audio
+    paired_emg_idx = []  # simultaneous emg + audio
     paired_audio_idx = []  # same length as paired_emg_idx
 
     silent_emg_idx = []  # silent emg
@@ -375,6 +375,7 @@ def split_batch_into_emg_neural_audio(batch):
                 y_emg.append(batch["text_int"][i])
                 emg_phonemes.append(batch["phonemes"][i])
 
+                # we append the silent emg data down below
                 silent_emg_idx.append(len(emg))
                 parallel_audio_idx.append(len(audio))
 
@@ -393,6 +394,7 @@ def split_batch_into_emg_neural_audio(batch):
                     f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}"
                 )
                 # print(f"appending these idxs for emg, audio: {len(emg)}, {len(audio)}")
+                # we append the vocalized/simultaneous/paired emg data down below
                 paired_emg_idx.append(len(emg))
                 paired_audio_idx.append(len(audio))
 

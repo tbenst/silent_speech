@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 
@@ -87,8 +87,8 @@ from contrastive import (
 import glob, scipy
 from helpers import load_npz_to_memory
 
-DEBUG = False
-# DEBUG = True
+# DEBUG = False
+DEBUG = True
 RESUME = False
 # RESUME = True
 
@@ -188,7 +188,8 @@ if ON_SHERLOCK:
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
-base_bz = 16  # decent compromise between class balance.
+base_bz = 16 # runs on A100 80GB
+base_bz = 16
 # base_bz = 48
 val_bz = 16
 # max_len = 48000 # from best perf with 4 x V100

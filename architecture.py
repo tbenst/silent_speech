@@ -146,10 +146,15 @@ class XtoText(pl.LightningModule):
         else:
             self.lexicon_file = os.path.join(cfg.lm_directory, 'lexicon_graphemes_noApostrophe.txt')
             
-        self.step_text_target = []
-        self.step_text_pred = []
-        self.step_int_target = []
-        self.step_int_pred = []
+        self.step_vocal_emg_text_target = []
+        self.step_vocal_emg_text_pred = []
+        self.step_vocal_emg_int_target = []
+        self.step_vocal_emg_int_pred = []
+
+        self.step_silent_emg_text_target = []
+        self.step_silent_emg_text_pred = []
+        self.step_silent_emg_int_target = []
+        self.step_silent_emg_int_pred = []
 
 
     def _init_ctc_decoder(self):
@@ -241,25 +246,59 @@ class XtoText(pl.LightningModule):
         summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
 
 
+        silent_emg_idx = ret['silent_emg_idx']
+        parallel_emg_idx = ret['parallel_emg_idx']
+        # logging.debug(f"{silent_emg_idx=}, {parallel_emg_idx=}, {emg_bz=}")
+        assert len(silent_emg_idx) + len(parallel_emg_idx) == emg_bz, \
+            f"Expeceted all examples to be silent or parallel EMG, but got other examples, too"
+            
+        is_silent = []
+        for i in range(emg_bz):
+            if i in silent_emg_idx:
+                is_silent.append(True)
+            elif i in parallel_emg_idx:
+                is_silent.append(False)
+            else:
+                raise ValueError("Expected all examples to be silent or parallel EMG, but got other examples, too")
+    
         # TODO: split text by emg, audio, neural
         pred_texts, pred_ints = self._beam_search_pred(pred.cpu())
         # maybe this fixes the WER discrepancy?
         pred_texts = [self.text_transform.clean_text(b) for b in pred_texts]
         target_texts  = [self.text_transform.clean_text(b) for b in batch['text']]
         # print(f"text: {batch['text']}; target_text: {target_text}; pred_text: {pred_text}")
-        for i, (target_text, pred_text, target_int, pred_int) in enumerate(zip(target_texts, pred_texts, pred_ints, target_ints)):
+        
+        for i, (target_text, pred_text, target_int, pred_int, is_s) in \
+        enumerate(zip(target_texts, pred_texts, pred_ints, target_ints, is_silent)):
             if len(target_text) > 0:
-                self.step_text_target.append(target_text)
-                self.step_text_pred.append(pred_text)
+                if is_s:
+                    stt = self.step_silent_emg_text_target
+                    stp = self.step_silent_emg_text_pred
+                    sit = self.step_silent_emg_int_target
+                    sip = self.step_silent_emg_int_pred
+                    # if i % 16 == 0 and type(self.logger) == NeptuneLogger:
+                    #     # log approx 10 examples
+                    if type(self.logger) == NeptuneLogger:
+                        self.logger.experiment[f"training/{task}/silent_emg_sentence_target"].append(target_text)
+                        self.logger.experiment[f"training/{task}/silent_emg_sentence_pred"].append(pred_text)
+
+                else:
+                    stt = self.step_vocal_emg_text_target
+                    stp = self.step_vocal_emg_text_pred
+                    sit = self.step_vocal_emg_int_target
+                    sip = self.step_vocal_emg_int_pred
+                    # if i % 16 == 0 and type(self.logger) == NeptuneLogger:
+                    if type(self.logger) == NeptuneLogger:
+                        self.logger.experiment[f"training/{task}/vocal_emg_sentence_target"].append(target_text)
+                        self.logger.experiment[f"training/{task}/vocal_emg_sentence_pred"].append(pred_text)
+
+                stt.append(target_text)
+                stp.append(pred_text)
                 # TODO: only log every 10th example
                 # right now, our WER calc is broken for unknown reason
-                # if i % 16 == 0 and type(self.logger) == NeptuneLogger:
-                #     # log approx 10 examples
-                self.logger.experiment[f"training/{task}/sentence_target"].append(target_text)
-                self.logger.experiment[f"training/{task}/sentence_pred"].append(pred_text)
                     
-                self.step_int_target.append(target_int.numpy())
-                self.step_int_pred.append(pred_int.cpu().numpy())
+                sit.append(target_int.numpy())
+                sip.append(pred_int.cpu().numpy())
             
         self.maybe_log(f"{task}/loss", c, "loss",
             prog_bar=True, batch_size=summed_bz, sync_dist=True)
@@ -272,38 +311,60 @@ class XtoText(pl.LightningModule):
         
         return loss
     
-    def on_validation_epoch_end(self) -> None:
+    def _on_validation_epoch_end(self, text_target, text_pred, int_target, int_pred) -> None:
+        "Helper function for vocal & silent emg."
         # TODO: this may not be implemented correctly for DDP
         # raise NotImplementedError("on_validation_epoch_end not implemented neural, librispeech")
         # logging.warning(f"start on_validation_epoch_end")
-        step_text_target = []
-        step_text_pred = []
-        step_int_target = []
-        step_int_pred = []
-        for t,p,i,j in zip(self.step_text_target, self.step_text_pred, self.step_int_target, self.step_int_pred):
+        nonzero_text_target = []
+        nonzero_text_pred = []
+        nonzero_int_target = []
+        nonzero_int_pred = []
+        for t,p,i,j in zip(text_target, text_pred, int_target, int_pred):
             if len(t) > 0:
-                step_text_target.append(t)
-                step_text_pred.append(p)
-                step_int_target.append(i)
-                step_int_pred.append(j)
+                nonzero_text_target.append(t)
+                nonzero_text_pred.append(p)
+                nonzero_int_target.append(i)
+                nonzero_int_pred.append(j)
             else:
                 print("WARN: got target length of zero during validation.")
             if len(p) == 0:
                 print("WARN: got prediction length of zero during validation.")
         # logging.warning(f"on_validation_epoch_end: calc wer")
-        wer = jiwer.wer(step_text_target, step_text_pred)
-        print(f"{step_text_target=}, {step_text_pred=}")
-        # print(f"{step_int_target=}, {step_int_pred=}")
-        cer = token_error_rate(step_int_target, step_int_pred, self.text_transform)
-        self.step_text_target.clear()
-        self.step_text_pred.clear()
-        self.step_int_target.clear()
-        self.step_int_pred.clear()
-        self.log("val/wer", wer, prog_bar=True, sync_dist=True)
-        self.log("val/cer", cer, prog_bar=True, sync_dist=True)
+        wer = jiwer.wer(nonzero_text_target, nonzero_text_pred)
+        print(f"{nonzero_text_target=}, {nonzero_text_pred=}")
+        print(f"WER: {wer}")
+        # print(f"{nonzero_int_target=}, {nonzero_int_pred=}")
+        cer = token_error_rate(nonzero_int_target, nonzero_int_pred, self.text_transform)
+        text_target.clear()
+        text_pred.clear()
+        int_target.clear()
+        int_pred.clear()
+        return wer, cer
+
         # self.profiler.stop(f"validation loop")
         # self.profiler.describe()
         # logging.warning(f"on_validation_epoch_end: gc.collect()")
+        gc.collect()
+        torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
+    
+    def on_validation_epoch_end(self) -> None:
+        
+        vocal_wer, vocal_cer = self._on_validation_epoch_end(self.step_vocal_emg_text_target, self.step_vocal_emg_text_pred,
+                                                 self.step_vocal_emg_int_target, self.step_vocal_emg_int_pred)
+    
+        self.log("val/vocal_wer", vocal_wer, prog_bar=True, sync_dist=True)
+        self.log("val/vocal_cer", vocal_cer, prog_bar=True, sync_dist=True)
+        
+        silent_wer, silent_cer = self._on_validation_epoch_end(self.step_silent_emg_text_target, self.step_silent_emg_text_pred,
+                                                    self.step_silent_emg_int_target, self.step_silent_emg_int_pred)
+        self.log("val/silent_wer", silent_wer, prog_bar=True, sync_dist=True)
+        self.log("val/silent_cer", silent_cer, prog_bar=True, sync_dist=True)
+        
+        # log for backwards compatibility / easy comparison with old results
+        self.log("val/wer", silent_wer, prog_bar=True, sync_dist=True)
+        self.log("val/cer", silent_cer, prog_bar=True, sync_dist=True)
+        
         gc.collect()
         torch.cuda.empty_cache() # TODO: see if fixes occasional freeze...?
 
