@@ -2031,14 +2031,6 @@ class BalancedBinPackingBatchSampler(DistributedBatchSampler):
         super().__init__(self, num_replicas, constant_num_batches)
 
     def iter_batches(self, rank):
-        print(
-            self.lengths,
-            self.classes,
-            self.max_len,
-            self.class_proportion,
-            self.always_include_class,
-            self.shuffle,
-        )
         batches = pack_items(
             self.lengths,
             self.classes,
