@@ -335,7 +335,7 @@ if NUM_GPUS > 1:
         BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
         max_len=max_len // 8,
-        always_include_class=[0],
+        always_include_class=[0,1],
     )
     ValSampler = lambda: DistributedSampler(
         emg_datamodule.val, shuffle=False, num_replicas=NUM_GPUS
