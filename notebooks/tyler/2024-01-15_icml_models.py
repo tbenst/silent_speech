@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 
@@ -76,6 +76,7 @@ from dataloaders import (
     T12Dataset,
     NeuralDataset,
     T12CompDataModule,
+    BalancedBinPackingBatchSampler,
 )
 from functools import partial
 from contrastive import (
@@ -191,12 +192,12 @@ gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
 # base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
-base_bz = 24*4
+base_bz = 24 * 4
 val_bz = 8
 # max_len = 48000 # from best perf with 4 x V100
 # max_len = 128000 # OOM on A100 80GB
 # max_len = 64000
-max_len = 96000 # fits on A100 80GB
+max_len = 96000  # fits on A100 80GB
 
 ##
 
@@ -331,10 +332,10 @@ if NUM_GPUS > 1:
     # TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS)
     TrainBatchSampler = partial(
-        DistributedSizeAwareStratifiedBatchSampler,
+        BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
         max_len=max_len // 8,
-        always_include_class=0,
+        always_include_class=[0],
     )
     ValSampler = lambda: DistributedSampler(
         emg_datamodule.val, shuffle=False, num_replicas=NUM_GPUS
@@ -345,10 +346,10 @@ if NUM_GPUS > 1:
 else:
     # TrainBatchSampler = SizeAwareStratifiedBatchSampler
     TrainBatchSampler = partial(
-        DistributedSizeAwareStratifiedBatchSampler,
+        BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
         max_len=max_len // 8,
-        always_include_class=0,
+        always_include_class=[0],
     )
     # num_workers=32
     num_workers = 0  # prob better now that we're caching
@@ -360,7 +361,6 @@ else:
 if rank == 0:
     os.makedirs(output_directory, exist_ok=True)
 
-##
 
 # must run 2023-07-17_cache_dataset_with_attrs_.py first
 librispeech_train_cache = os.path.join(
@@ -543,8 +543,8 @@ if log_neptune:
     print(f"saved checkpoint to {ckpt_path}")
 
 ##
-# dl = datamodule.train_dataloader()
-dl = datamodule.val_dataloader()
+dl = datamodule.train_dataloader()
+# dl = datamodule.val_dataloader()
 for b in dl:
     break
 b
