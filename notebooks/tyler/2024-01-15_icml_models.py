@@ -93,7 +93,8 @@ DEBUG = False
 RESUME = False
 # RESUME = True
 
-torch.set_float32_matmul_precision("high")
+# torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
 # torch.set_float32_matmul_precision("medium" | "high")
 
 if RESUME:
