@@ -1005,13 +1005,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             return len(iter(self))
 
 
-# @persist_to_file("/tmp/2023-07-07_emg_speech_dset_lengths.pkl")
-# @persist_to_file("/tmp/2023-07-20_emg_only_dset_lengths.pkl")
-# isotime = datetime.datetime.now().isoformat()
-# @persist_to_file(f"/tmp/{isotime}.pkl")
-# @persist_to_file(f"/tmp/2023-07-24_emg-only.pkl")
-# @persist_to_file(f"/tmp/2023-07-25_emg_speech_dset_lengths.pkl")
-@persist_to_file(f"/lscratch/tbenst/2023-07-25_emg_speech_dset_lengths.pkl")
+@persist_to_file(f"/lscratch/tbenst/2024-01-20_emg_speech_dset_lengths.pkl")
 def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
 
@@ -1020,8 +1014,10 @@ def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     lengths = []
     for d in tqdm(dset, desc="calc lengths for sampler"):
         if "silent" in d:
-            # add length in latent space
-            lengths.append(d["raw_emg"].shape[0] // 8)
+            # add length in latent space which is // 8 vs raw emg
+            # we double this because we will use the parallel emg, too
+            # TODO: should actually get the length of the parallel emg
+            lengths.append(d["raw_emg"].shape[0] // 4)
         elif "raw_emg" not in d:
             # audio only
             # same dim as latent space, no need to divide by 8

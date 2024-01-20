@@ -333,7 +333,7 @@ class XtoText(pl.LightningModule):
 
         silent_emg_idx = ret["silent_emg_idx"]
         parallel_emg_idx = ret["parallel_emg_idx"]
-        target_ints = ret["text_int"]
+        target_ints = ret["y_emg"]
         batch_text = ret["emg_text"]
         
         # logging.debug(f"{silent_emg_idx=}, {parallel_emg_idx=}, {emg_bz=}")
