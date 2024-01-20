@@ -325,18 +325,21 @@ def split_batch_into_emg_neural_audio(batch):
     length_emg = []
     y_length_emg = []
     y_emg = []
+    text_emg = []
 
     audio = []
     audio_phonemes = []
     length_audio = []
     y_length_audio = []
     y_audio = []
+    text_audio = []
 
     neural = []
     neural_phonemes = []
     length_neural = []
     y_length_neural = []
     y_neural = []
+    text_neural = []
 
     paired_emg_idx = []  # simultaneous emg + audio
     paired_audio_idx = []  # same length as paired_emg_idx
@@ -363,6 +366,7 @@ def split_batch_into_emg_neural_audio(batch):
             neural.append(batch["neural_features"][i])
             length_neural.append(batch["neural_feature_lengths"][i])
             y_length_neural.append(batch["text_int_lengths"][i])
+            text_neural.append(batch["text"][i])
             y_neural.append(batch["text_int"][i])
             neural_phonemes.append(batch["phonemes"][i])
 
@@ -374,6 +378,7 @@ def split_batch_into_emg_neural_audio(batch):
                 emg.append(batch["parallel_raw_emg"][i])
                 length_emg.append(batch["parallel_raw_emg_lengths"][i])
                 y_length_emg.append(batch["text_int_lengths"][i])
+                text_emg.append(batch["text"][i])
                 y_emg.append(batch["text_int"][i])
                 emg_phonemes.append(batch["phonemes"][i])
 
@@ -403,6 +408,7 @@ def split_batch_into_emg_neural_audio(batch):
             emg.append(batch["raw_emg"][i])
             length_emg.append(batch["raw_emg_lengths"][i])
             y_length_emg.append(batch["text_int_lengths"][i])
+            text_emg.append(batch["text"][i])
             y_emg.append(batch["text_int"][i])
             emg_phonemes.append(batch["phonemes"][i])
 
@@ -411,12 +417,13 @@ def split_batch_into_emg_neural_audio(batch):
             audio.append(aud)
             length_audio.append(batch["audio_feature_lengths"][i])
             y_length_audio.append(batch["text_int_lengths"][i])
+            text_audio.append(batch["text"][i])
             y_audio.append(batch["text_int"][i])
             audio_phonemes.append(batch["phonemes"][i])
 
-    emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg)
-    neural_tup = (neural, length_neural, neural_phonemes, y_length_neural, y_neural)
-    audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio)
+    emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg, text_emg)
+    neural_tup = (neural, length_neural, neural_phonemes, y_length_neural, y_neural, text_neural)
+    audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio, text_audio)
     idxs = (
         paired_emg_idx,
         paired_audio_idx,

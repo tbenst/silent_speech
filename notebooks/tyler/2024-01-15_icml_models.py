@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 
@@ -93,8 +93,9 @@ DEBUG = False
 RESUME = False
 # RESUME = True
 
+# https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
 # torch.set_float32_matmul_precision("high")
-torch.set_float32_matmul_precision("medium")
+torch.set_float32_matmul_precision("medium")  # bfloat16
 # torch.set_float32_matmul_precision("medium" | "high")
 
 if RESUME:
@@ -582,3 +583,39 @@ bins1[0], bins2[0]
 ##
 [datamodule.TrainBatchSampler.classes[i] for i in bins[382]]
 ##
+datamodule.setup()
+dl = datamodule.val_dataloader()
+batches = []
+for b, batch in enumerate(dl):
+    batches.append(batch)
+    if b > 1:
+        break
+##
+batches[0]['text'], batches[1]['text']
+##
+for k,v in batches[0].items():
+    print(k, len(v))  
+##
+
+batch = batches[1]
+
+def print_pairs(x, y, text="x\t"):
+    print(f"{text}\tpairs with")
+    for e, ye in zip([e.sum() for e in x],
+                    [ye.sum() for ye in y]):
+        print(f"{e:.3f}\t\t{ye}")
+        
+print_pairs(batch['raw_emg'], batch['text_int'], "silent emg")
+print('\n')
+emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
+emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
+neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
+audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
+paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx = idxs
+# check if emg & text still match up
+
+print_pairs(emg, y_emg, "silent emg")
+##
+list(zip(np.arange(3), np.arange(5)))
+##
+

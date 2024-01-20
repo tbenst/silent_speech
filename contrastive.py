@@ -254,6 +254,8 @@ def nobatch_cross_contrastive_loss(x,y, cos_sim=None, temperature=0.1, device='c
         cos_sim (optional): L x L matrix of cosine similarities between x and y
         
     """
+    assert x.shape[0] == y.shape[0], f"{x.shape=}, {y.shape=}"
+    assert x.shape[1] == y.shape[1], f"{x.shape=}, {y.shape=}"
     L, D = x.shape
     
     positives_mask, denominator_mask = infoNCE_masks(L, device=device)
