@@ -193,7 +193,7 @@ assert gpu_ram > 70, "needs A100 80GB"
 # base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
 base_bz = 24 * 4
-val_bz = 2 # terrible memory usage even at 8, I'm not sure why so bad...
+val_bz = 2  # terrible memory usage even at 8, I'm not sure why so bad...
 # max_len = 48000 # from best perf with 4 x V100
 # max_len = 128000 # OOM on A100 80GB
 # max_len = 64000
@@ -211,6 +211,7 @@ constant_offset_sd = 0
 use_dtw = True
 use_crossCon = True
 use_supCon = True
+batch_class_proportions = np.array([0.16, 0.42, 0.42])
 
 
 @app.command()
@@ -398,6 +399,7 @@ datamodule = EMGAndSpeechModule(
     TrainBatchSampler=TrainBatchSampler,
     ValSampler=ValSampler,
     TestSampler=TestSampler,
+    batch_class_proportions=batch_class_proportions,
 )
 steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 
@@ -429,6 +431,7 @@ config = MONAConfig(
     use_dtw=use_dtw,
     use_crossCon=use_crossCon,
     use_supCon=use_supCon,
+    batch_class_proportions=batch_class_proportions,
     # d_inner=8,
     # d_model=8,
     fixed_length=True,
