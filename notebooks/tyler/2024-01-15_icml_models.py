@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 
@@ -335,7 +335,7 @@ if NUM_GPUS > 1:
         BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
         max_len=max_len // 8,
-        always_include_class=[0,1],
+        always_include_class=[0, 1],
     )
     ValSampler = lambda: DistributedSampler(
         emg_datamodule.val, shuffle=False, num_replicas=NUM_GPUS
@@ -349,7 +349,7 @@ else:
         BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
         max_len=max_len // 8,
-        always_include_class=[0],
+        always_include_class=[0, 1],
     )
     # num_workers=32
     num_workers = 0  # prob better now that we're caching
@@ -550,4 +550,22 @@ for b in dl:
 b
 ##
 split_batch_into_emg_neural_audio(b)
+##
+dl = datamodule.train_dataloader()
+for b, batch in enumerate(dl):
+    # check if we have a paired_idx as expected ("class 1")
+    audio_only = batch["audio_only"]
+    silent = batch["silent"]
+    paired = np.logical_and(np.logical_not(audio_only), np.logical_not(silent))
+    assert np.sum(paired) > 0, f"no paired examples in batch {b}"
+
+
+##
+bins1 = list(datamodule.TrainBatchSampler.iter_batches(0))
+bins2 = list(datamodule.TrainBatchSampler.iter_batches(0))
+bins1[0], bins2[0]
+##
+[datamodule.TrainBatchSampler.classes[i] for i in bins1[519]]
+##
+[datamodule.TrainBatchSampler.classes[i] for i in bins[382]]
 ##

@@ -1079,7 +1079,10 @@ class EMGAndSpeechModule(pl.LightningDataModule):
 
         # 0: EMG only (silent), 1: EMG & Audio, 2: Audio only
         classes = np.concatenate(
-            [np.zeros(train_emg_len, dtype=int), 2 * np.ones(len(speech_train), dtype=int)]
+            [
+                np.zeros(train_emg_len, dtype=int),
+                2 * np.ones(len(speech_train), dtype=int),
+            ]
         )
         for i, b in enumerate(emg_train):
             if not b["silent"]:
@@ -1592,7 +1595,14 @@ class T12CompDataModule(pl.LightningDataModule):
 
 # see 2024-01-18_approx_class_balance_bin_packing.py for example usage, etc.
 def fill_remaining_bins(
-    bins, bin_sums, idx_per_class, lengths, max_len, class_proportion, class_debt
+    bins,
+    bin_sums,
+    idx_per_class,
+    lengths,
+    max_len,
+    class_proportion,
+    class_debt,
+    generator,
 ):
     "Try to fill remaining bins with random classes"
     rejected_sample_count = 0
@@ -1608,7 +1618,7 @@ def fill_remaining_bins(
         proportion = np.array([class_proportion[c] for c in valid_classes])
         proportion /= proportion.sum()
 
-        sampled_class = np.random.choice(valid_classes, p=proportion)
+        sampled_class = seeded_random_choice(valid_classes, proportion, generator)
 
         # if we can pay off debt, do so and sample again
         if class_debt[sampled_class] > 0:
@@ -1721,6 +1731,22 @@ def test_add_class_to_any_bin():
     assert bin_sums[1] == 4
 
 
+def seeded_shuffle(x, generator):
+    new = x.copy()
+    if type(x) is list:
+        is_list = True
+        new = np.array(new)
+    new = new[torch.randperm(len(x), generator=generator).tolist()]
+    if is_list:
+        new = new.tolist()
+    return new
+
+
+def seeded_random_choice(x, p, generator):
+    "Using torch generator, sample from x with probabilities p"
+    return x[torch.multinomial(torch.tensor(p), 1,
+        generator=generator)[0].item()]
+
 def pack_items(
     lengths: List[float],
     classes: List[int],
@@ -1728,6 +1754,7 @@ def pack_items(
     class_proportion: Tuple[float],
     always_include: List[int],
     shuffle: bool = True,
+    seed: int = 20240119,
 ):
     """
     Greedily and randomly packs each of the N items into a bin (list) of
@@ -1738,7 +1765,9 @@ def pack_items(
     max_len is small,
     """
     # drop any index that exceeds max_len
-    assert type(classes[0]) is int or type(classes[0]) is np.int64, f"{type(classes[0])=}"
+    assert (
+        type(classes[0]) is int or type(classes[0]) is np.int64
+    ), f"{type(classes[0])=}"
     items = []
     new_classes = []
     for i, l in enumerate(lengths):
@@ -1752,9 +1781,11 @@ def pack_items(
         idx_per_class[c].append(i)
 
     # shuffle indices within each class
+    g = torch.Generator()
+    g.manual_seed(seed)
     if shuffle:
         for c in idx_per_class:
-            random.shuffle(idx_per_class[c])
+            idx_per_class[c] = seeded_shuffle(idx_per_class[c], g)
 
     valid_classes = np.array(list(set(idx_per_class.keys())))
     assert len(valid_classes) > 0, "no items to pack under max_len"
@@ -1775,7 +1806,7 @@ def pack_items(
                 stop_loop = True
         if stop_loop:
             break
-        sampled_class = np.random.choice(valid_classes, p=class_proportion)
+        sampled_class = seeded_random_choice(valid_classes, class_proportion, g)
 
         # check if we can pay off debt
         if class_debt[sampled_class] > 0:
@@ -1814,6 +1845,7 @@ def pack_items(
                         max_len,
                         class_proportion,
                         class_debt,
+                        g,
                     )
                 if c == sampled_class:
                     # no debt accrues
@@ -1839,7 +1871,7 @@ def pack_items(
                 idx_per_class[sampled_class].insert(0, index)
 
     return fill_remaining_bins(
-        bins, bin_sums, idx_per_class, lengths, max_len, class_proportion, class_debt
+        bins, bin_sums, idx_per_class, lengths, max_len, class_proportion, class_debt, g
     )
 
 
@@ -1950,7 +1982,7 @@ class DistributedBatchSampler(torch.utils.data.Sampler):
             logging.warning(
                 f"Hard coding len to {self.hardcode_len} as hack to get pytorch lightning to work, assuming 200 epochs"
             )
-        
+
         rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
         self.rank = int(os.environ[rank_key]) if rank_key in os.environ else 0
 
@@ -2038,6 +2070,7 @@ class BalancedBinPackingBatchSampler(DistributedBatchSampler):
             self.class_proportion,
             self.always_include_class,
             shuffle=self.shuffle,
+            seed=self.seed + self.epoch,
         )
         avg_num_ex = np.mean([len(x) for x in batches])
         logging.debug(
