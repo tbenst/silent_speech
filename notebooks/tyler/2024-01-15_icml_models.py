@@ -335,6 +335,7 @@ if NUM_GPUS > 1:
     TrainBatchSampler = partial(
         BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
+        # in emg_speech_dset_lengths we divide length by 8
         max_len=max_len // 8,
         always_include_class=[0, 1],
     )
@@ -349,6 +350,7 @@ else:
     TrainBatchSampler = partial(
         BalancedBinPackingBatchSampler,
         num_replicas=NUM_GPUS,
+        # in emg_speech_dset_lengths we divide length by 8
         max_len=max_len // 8,
         always_include_class=[0, 1],
     )
@@ -435,6 +437,8 @@ config = MONAConfig(
     # d_inner=8,
     # d_model=8,
     fixed_length=True,
+    weight_decay=0.1,
+    latent_affine=True
 )
 
 model = MONA(config, text_transform, no_neural=True)

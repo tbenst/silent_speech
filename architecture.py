@@ -958,6 +958,7 @@ class MONAConfig(XtoTextConfig):
     use_crossCon:bool = True
     use_supCon:bool = True
     batch_class_proportions:np.ndarray = np.array([0.16, 0.42, 0.42])
+    latent_affine:bool = False # so emg&audio latent are both unit norm
     
     def __post_init__(self):
         if self.warmup_steps is None:
@@ -1015,12 +1016,12 @@ class MONA(GaddyBase):
         # affine=False so emg&audio latent are both unit norm
         if not no_emg:
             self.emg_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
-            self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+            self.emg_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=cfg.latent_affine)
         if not no_neural:
-            self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+            self.neural_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=cfg.latent_affine)
             self.neural_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         if not no_audio:
-            self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=False)
+            self.audio_latent_norm = nn.BatchNorm1d(cfg.d_model, affine=cfg.latent_affine)
             self.audio_latent_linear = nn.Linear(cfg.d_model, cfg.d_model)
         
         encoder_layer = TransformerEncoderLayer(d_model=cfg.d_model,
