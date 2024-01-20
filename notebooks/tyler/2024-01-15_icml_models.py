@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 ##
 import os, subprocess
 
