@@ -218,7 +218,6 @@ use_supCon = True
 batch_class_proportions = np.array([0.30, 0.60, 0.10])
 
 
-
 @app.command()
 def update_configs(
     constant_offset_sd_cli: float = typer.Option(0, "--constant-offset-sd"),
@@ -443,7 +442,7 @@ config = MONAConfig(
     # d_model=8,
     fixed_length=True,
     weight_decay=0.1,
-    latent_affine=True
+    latent_affine=True,
 )
 
 model = MONA(config, text_transform, no_neural=True)
