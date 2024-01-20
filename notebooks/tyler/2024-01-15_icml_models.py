@@ -211,7 +211,9 @@ constant_offset_sd = 0
 use_dtw = True
 use_crossCon = True
 use_supCon = True
-batch_class_proportions = np.array([0.16, 0.42, 0.42])
+# Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
+# batch_class_proportions = np.array([0.8, 0.42, 0.5])
+batch_class_proportions = np.array([0.24, 0.34, 0.42])
 
 
 @app.command()
