@@ -193,11 +193,11 @@ assert gpu_ram > 70, "needs A100 80GB"
 # base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
 base_bz = 24 * 4
-val_bz = 8
+val_bz = 2 # terrible memory usage even at 8, I'm not sure why so bad...
 # max_len = 48000 # from best perf with 4 x V100
 # max_len = 128000 # OOM on A100 80GB
 # max_len = 64000
-max_len = 96000  # fits on A100 80GB
+max_len = 256000
 
 ##
 

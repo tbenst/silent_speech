@@ -236,7 +236,7 @@ class XtoText(pl.LightningModule):
     def validation_step(self, batch, batch_idx, task="val"):
         ret = self.forward(batch, fixed_length=False)
         # supCon will fail for silent-only data
-        c = self.calc_loss(**ret, use_supCon=False, use_crossCon=False)
+        c = self.calc_loss(**ret, use_supCon=False, use_crossCon=False, use_dtw=False)
         pred = ret['pred']
         loss = c['loss']
         emg_bz = c['emg_bz'] if 'emg_bz' in c else 0
@@ -1246,12 +1246,16 @@ class MONA(GaddyBase):
                   length_emg, length_neural, length_audio,
                   emg_phonemes, neural_phonemes, audio_phonemes,
                   paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx,
-                  emg_bz, neural_bz, audio_bz, use_supCon=None, use_crossCon=None, **kwargs):
+                  emg_bz, neural_bz, audio_bz, use_supCon=None, use_crossCon=None, use_dtw=None,
+                  **kwargs):
         # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
         if use_supCon is None:
             use_supCon = self.use_supCon
         if use_crossCon is None:
             use_crossCon = self.use_crossCon
+        if use_dtw is None:
+            use_dtw = self.use_dtw
+
         if emg_pred is not None:
             length_emg = [l//8 for l in length_emg] # Gaddy doesn't do this but I think it's necessary
             emg_ctc_loss = self.ctc_loss(emg_pred, y_emg, length_emg, y_length_emg)
@@ -1281,7 +1285,7 @@ class MONA(GaddyBase):
             parallel_a_z = torch.concatenate([audio_z[i] for i in parallel_audio_idx])
             parallel_a_phonemes = torch.concatenate([audio_phonemes[i] for i in parallel_audio_idx])
             
-            if self.use_dtw:
+            if use_dtw:
                 # euclidean distance between silent emg and parallel audio
                 # costs = torch.cdist(parallel_a_z, silent_e_z).squeeze(0)
                 # cosine dissimiliarity between silent emg and parallel audio
@@ -1301,7 +1305,7 @@ class MONA(GaddyBase):
                 emg_to_concat = [emg_z[i] for i in paired_emg_idx]
                 audio_to_concat = [audio_z[i] for i in paired_audio_idx]
                 
-                if self.use_dtw:
+                if use_dtw:
                     alignment = align_from_distances(costs.T.detach().cpu().float().numpy())
                     aligned_a_z = parallel_a_z[alignment]
                     logging.debug(f"{len(alignment)=}, {max(alignment)=}, {len(parallel_a_z)=}, {len(aligned_a_z)=}")
