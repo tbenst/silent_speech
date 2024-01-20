@@ -957,6 +957,7 @@ class MONAConfig(XtoTextConfig):
     use_dtw:bool = True
     use_crossCon:bool = True
     use_supCon:bool = True
+    batch_class_proportions:np.ndarray = np.array([0.16, 0.42, 0.42])
     
     def __post_init__(self):
         if self.warmup_steps is None:
