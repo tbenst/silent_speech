@@ -131,7 +131,8 @@ else:
     NUM_GPUS = 1
     grad_accum = 2  # might need if run on 1 GPU
     # grad_accum = 1
-    precision = "16-mixed"
+    # precision = "16-mixed"
+    precision = "bf16-mixed"
     limit_train_batches = None
     limit_val_batches = None
     log_neptune = True
@@ -215,7 +216,7 @@ use_supCon = True
 # batch_class_proportions = np.array([0.8, 0.42, 0.5])
 # batch_class_proportions = np.array([0.24, 0.34, 0.42])
 # batch_class_proportions = np.array([0.24, 0.34, 0.42])
-batch_class_proportions = np.array([0.30, 0.60, 0.10])
+batch_class_proportions = np.array([0.30, 0.60, 0.10])  # CUDA illegal memory access??
 
 
 @app.command()
