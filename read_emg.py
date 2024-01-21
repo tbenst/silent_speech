@@ -107,6 +107,8 @@ def load_utterance(
     x = x[raw_emg_before.shape[0] : x.shape[0] - raw_emg_after.shape[0], :]
 
     # TODO/INFO: why do we subsample
+    # I think this is misnamed, it's actually downsampling so that audio
+    # and emg have the same number of frames
     if returnRaw:
         emg_orig = apply_to_all(subsample, x, 689.06, 1000)
     else:
@@ -342,7 +344,7 @@ class EMGDataset(torch.utils.data.Dataset):
         test=False,
         no_testset=False,
         no_normalizers=False,
-        returnRaw=False,
+        returnRaw=True,
         togglePhones=False,
     ):
         self.text_align_directory = TEXT_ALIGN_DIRECTORY

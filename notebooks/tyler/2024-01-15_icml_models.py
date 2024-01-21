@@ -456,7 +456,7 @@ config = MONAConfig(
     # d_model=8,
     fixed_length=True,
     weight_decay=0.1,
-    latent_affine=True,
+    latent_affine=False,
 )
 
 model = MONA(config, text_transform, no_neural=True)
