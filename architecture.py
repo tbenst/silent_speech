@@ -406,10 +406,10 @@ class XtoText(pl.LightningModule):
                 # it should be a tensor, so this is a mystery
                 # TODO: resolve and remove this hack
                 if type(target_int) is list:
-                    logging.warning(f"target_int is list: {target_int=}")
+                    logging.warning(f"target_int is list: {target_int=}. {target_text=}")
                     target_int = np.array(target_int)
                 if type(pred_int) is list:
-                    logging.warning(f"target_int is list: {target_int=}")
+                    logging.warning(f"target_int is list: {target_int=}. {target_text=}")
                     target_int = np.array(target_int)
 
                 sit.append(target_int.numpy())
