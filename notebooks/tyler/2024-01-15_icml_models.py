@@ -572,7 +572,27 @@ b
 ##
 split_batch_into_emg_neural_audio(b)
 ##
+datamodule.setup()
+##
+tbs = datamodule.TrainBatchSampler
+len(tbs)
+##
+# print(len(list(tbs.iter_batches(0))))
+print(len(list(tbs.iter_batches(1))))
+##
+##
+datamodule.TrainBatchSampler.set_epoch(0)
 dl = datamodule.train_dataloader()
+for b1, bat1 in enumerate(dl):
+    pass
+##
+datamodule.TrainBatchSampler.set_epoch(1)
+dl = datamodule.train_dataloader()
+for b2, bat2 in enumerate(dl):
+    pass
+assert b1==b2, f"b1={b1}, b2={b2}"
+
+##
 for b, batch in enumerate(dl):
     # check if we have a paired_idx as expected ("class 1")
     audio_only = batch["audio_only"]

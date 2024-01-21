@@ -8,6 +8,7 @@ from functools import partial
 from joblib import Memory
 from typing import List, Tuple
 from collections import defaultdict
+from joblib import Parallel, delayed
 
 
 def persist_to_file(file_name):
@@ -1030,10 +1031,12 @@ def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     for d in tqdm(dset, desc="calc lengths for sampler"):
         if "silent" in d:
             new_len = d["raw_emg"].shape[0] // 8
-            if d['silent']:
+            if d["silent"]:
                 # will do forward pass on all of this data
-                new_len += d["parallel_voiced_raw_emg"].shape[0] \
+                new_len += (
+                    d["parallel_voiced_raw_emg"].shape[0]
                     + d["parallel_voiced_audio_features"].shape[0]
+                )
             else:
                 new_len += d["audio_features"].shape[0]
             lengths.append(new_len)
@@ -1998,6 +2001,7 @@ class DistributedBatchSampler(torch.utils.data.Sampler):
         self.num_replicas = num_replicas if type(num_replicas) is int else 1
         self.constant_num_batches = constant_num_batches
         self.epoch = 0
+        self.num_epochs = num_epochs
 
         self.constant_num_batches = False
         if constant_num_batches:
@@ -2012,16 +2016,23 @@ class DistributedBatchSampler(torch.utils.data.Sampler):
 
     def min_len(self, num_epochs: int):
         """Minimum number of batches in dataset on any GPU."""
+        logging.debug("Calling min_len")
         cur_epoch = self.epoch
         min_length = np.inf
-        # minimum per epoch
-        for epoch in range(num_epochs):
+
+        def batch_length(epoch, rank):
             self.set_epoch(epoch)
-            # minimum per GPU
-            for rank in range(self.num_replicas):
-                N = len(list(self.iter_batches(rank)))
-                if N < min_length:
-                    min_length = N
+            return len(list(self.iter_batches(rank)))
+
+        # Calculate batch lengths in parallel
+        results = Parallel(n_jobs=-1)(
+            delayed(batch_length)(epoch, rank)
+            for epoch in range(num_epochs)
+            for rank in range(self.num_replicas)
+        )
+
+        min_length = min(results)
+
         self.set_epoch(cur_epoch)
         return min_length
 
@@ -2064,6 +2075,7 @@ class BalancedBinPackingBatchSampler(DistributedBatchSampler):
         num_replicas: int = None,
         constant_num_batches: bool = True,
         always_include_class: List[int] = [],
+        num_epochs: int = 200,
         **kwargs,  # ignore extra arguments
     ):
         assert np.allclose(
@@ -2084,7 +2096,7 @@ class BalancedBinPackingBatchSampler(DistributedBatchSampler):
         self.shuffle = shuffle
         self.seed = seed
         self.epoch = 0
-        super().__init__(self, num_replicas, constant_num_batches)
+        super().__init__(num_replicas, constant_num_batches, num_epochs)
 
     def iter_batches(self, rank):
         batches = pack_items(
@@ -2100,4 +2112,7 @@ class BalancedBinPackingBatchSampler(DistributedBatchSampler):
         logging.debug(
             f"Average number of examples per batch: {avg_num_ex} for epoch {self.epoch} and rank {rank}"
         )
-        return iter(batches)
+        if self.constant_num_batches:
+            return iter(batches[: self.hardcode_len])
+        else:
+            return iter(batches)
