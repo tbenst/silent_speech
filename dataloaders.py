@@ -360,6 +360,7 @@ def split_batch_into_emg_neural_audio(batch):
         has_neural = [False] * len(batch["silent"])
 
     for i, (s, a, n) in enumerate(zip(batch["silent"], audio_only, has_neural)):
+        aud = batch["audio_features"][i]
         # logging.debug(f"{type(batch['phonemes'])=}")
         if n:
             # T12 neural data
@@ -385,6 +386,7 @@ def split_batch_into_emg_neural_audio(batch):
                 # we append the silent emg data down below
                 silent_emg_idx.append(len(emg))
                 parallel_audio_idx.append(len(audio))
+                assert aud is not None
 
                 # INFO: we skip parallel emg and use only the parallel audio with silent emg
                 # emg.append(batch['parallel_raw_emg'][i])
@@ -412,7 +414,6 @@ def split_batch_into_emg_neural_audio(batch):
             y_emg.append(batch["text_int"][i])
             emg_phonemes.append(batch["phonemes"][i])
 
-        aud = batch["audio_features"][i]
         if aud is not None:
             audio.append(aud)
             length_audio.append(batch["audio_feature_lengths"][i])
@@ -422,8 +423,22 @@ def split_batch_into_emg_neural_audio(batch):
             audio_phonemes.append(batch["phonemes"][i])
 
     emg_tup = (emg, length_emg, emg_phonemes, y_length_emg, y_emg, text_emg)
-    neural_tup = (neural, length_neural, neural_phonemes, y_length_neural, y_neural, text_neural)
-    audio_tup = (audio, length_audio, audio_phonemes, y_length_audio, y_audio, text_audio)
+    neural_tup = (
+        neural,
+        length_neural,
+        neural_phonemes,
+        y_length_neural,
+        y_neural,
+        text_neural,
+    )
+    audio_tup = (
+        audio,
+        length_audio,
+        audio_phonemes,
+        y_length_audio,
+        y_audio,
+        text_audio,
+    )
     idxs = (
         paired_emg_idx,
         paired_audio_idx,
@@ -1005,7 +1020,7 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             return len(iter(self))
 
 
-@persist_to_file(f"/lscratch/tbenst/2024-01-20_emg_speech_dset_lengths.pkl")
+@persist_to_file(f"/lscratch/tbenst/2024-01-20c_emg_speech_dset_lengths.pkl")
 def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
 
@@ -1014,15 +1029,21 @@ def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     lengths = []
     for d in tqdm(dset, desc="calc lengths for sampler"):
         if "silent" in d:
-            # add length in latent space which is // 8 vs raw emg
-            # we double this because we will use the parallel emg, too
-            # TODO: should actually get the length of the parallel emg
-            lengths.append(d["raw_emg"].shape[0] // 4)
+            new_len = d["raw_emg"].shape[0] // 8
+            if d['silent']:
+                # will do forward pass on all of this data
+                new_len += d["parallel_voiced_raw_emg"].shape[0] \
+                    + d["parallel_voiced_audio_features"].shape[0]
+            else:
+                new_len += d["audio_features"].shape[0]
+            lengths.append(new_len)
         elif "raw_emg" not in d:
             # audio only
             # same dim as latent space, no need to divide by 8
             lengths.append(d["audio_features"].shape[0])
         else:
+            # perhaps will crash neural now
+            raise ValueError("Unknown dataset format")
             # EMG + audio, so length is sum of both
             emg_z_len = d["raw_emg"].shape[0] // 8
             audio_z_len = d["audio_features"].shape[0]
@@ -1747,8 +1768,8 @@ def seeded_shuffle(x, generator):
 
 def seeded_random_choice(x, p, generator):
     "Using torch generator, sample from x with probabilities p"
-    return x[torch.multinomial(torch.tensor(p), 1,
-        generator=generator)[0].item()]
+    return x[torch.multinomial(torch.tensor(p), 1, generator=generator)[0].item()]
+
 
 def pack_items(
     lengths: List[float],

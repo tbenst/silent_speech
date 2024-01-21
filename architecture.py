@@ -209,8 +209,8 @@ class XtoText(pl.LightningModule):
         emg_bz = c["emg_bz"] if "emg_bz" in c else 0
         neural_bz = c["neural_bz"] if "neural_bz" in c else 0
         audio_bz = c["audio_bz"] if "audio_bz" in c else 0
-        paired_bz = c["paired_bz"] if "paired_bz" in c else 0
-        summed_bz = emg_bz + neural_bz + audio_bz + paired_bz
+        cross_con_bz = c["cross_con_bz"] if "cross_con_bz" in c else 0
+        summed_bz = emg_bz + neural_bz + audio_bz
 
         self.maybe_log(
             "train/loss",
@@ -264,7 +264,7 @@ class XtoText(pl.LightningModule):
             on_epoch=True,
             logger=True,
             prog_bar=False,
-            batch_size=paired_bz,
+            batch_size=cross_con_bz,
             sync_dist=True,
         )
         self.maybe_log(
@@ -275,7 +275,9 @@ class XtoText(pl.LightningModule):
             on_epoch=True,
             logger=True,
             prog_bar=False,
-            batch_size=paired_bz,
+            # same batch size as cross_con_bz as implemented in MONA calc_loss
+            # but not generally true
+            batch_size=cross_con_bz,
             sync_dist=True,
         )
         self.maybe_log(
@@ -334,7 +336,7 @@ class XtoText(pl.LightningModule):
         silent_emg_idx = ret["silent_emg_idx"]
         parallel_emg_idx = ret["parallel_emg_idx"]
         target_ints = ret["y_emg"]
-        batch_text = ret["emg_text"]
+        batch_text = ret["text_emg"]
         
         # logging.debug(f"{silent_emg_idx=}, {parallel_emg_idx=}, {emg_bz=}")
         assert (
@@ -1558,6 +1560,12 @@ class MONA(GaddyBase):
             use_crossCon = self.use_crossCon
         if use_dtw is None:
             use_dtw = self.use_dtw
+            
+        # we assume every emg example is either silent,
+        # paired (simultaneous with audio), or parallel
+        assert len(emg_pred) == len(silent_emg_idx) \
+            + len(paired_emg_idx) + len(parallel_emg_idx), \
+            f"{len(emg_pred)=}, {len(silent_emg_idx)=}, {len(paired_emg_idx)=}, {len(parallel_emg_idx)=}"
 
         if emg_pred is not None:
             length_emg = [
@@ -1613,8 +1621,10 @@ class MONA(GaddyBase):
             if use_crossCon or use_supCon:
                 # save on compute & avoid val crashes by only computing alignment on train
 
-                emg_to_concat = [emg_z[i] for i in paired_emg_idx]
-                audio_to_concat = [audio_z[i] for i in paired_audio_idx]
+                emg_to_concat = [emg_z[i] for i in paired_emg_idx] + \
+                    [emg_z[i] for i in parallel_emg_idx]
+                audio_to_concat = [audio_z[i] for i in paired_audio_idx] + \
+                    [audio_z[i] for i in parallel_audio_idx]
 
                 if use_dtw:
                     alignment = align_from_distances(
@@ -1648,7 +1658,8 @@ class MONA(GaddyBase):
 
             ###### Supervised NCE #######
             if use_supCon:
-                emg_phonemes_to_concat = [emg_phonemes[i] for i in paired_emg_idx]
+                emg_phonemes_to_concat = [emg_phonemes[i] for i in paired_emg_idx] + \
+                    [emg_phonemes[i] for i in parallel_emg_idx]
                 if self.use_dtw:
                     emg_phonemes_to_concat.append(aligned_a_phonemes)
                 matched_phonemes = torch.concatenate(emg_phonemes_to_concat)
@@ -1719,8 +1730,9 @@ class MONA(GaddyBase):
             # logging.warning(f"Loss is Inf. EMG isinf output: {emg_isinf}. " \
             #       f"Audio isinf output: {audio_isinf}")
 
-        paired_bz = len(paired_emg_idx)
-        # paired_bz <= min(emg_bz, audio_bz)
+        cross_con_bz = len(paired_emg_idx) + len(parallel_emg_idx)
+        if use_dtw:
+            cross_con_bz += len(silent_emg_idx)
         if not emg_z is None:
             emg_z_mean = torch.concatenate([e.reshape(-1).abs() for e in emg_z]).mean()
         else:
@@ -1753,7 +1765,7 @@ class MONA(GaddyBase):
             "emg_bz": emg_bz,
             "neural_bz": neural_bz,
             "audio_bz": audio_bz,
-            "paired_bz": paired_bz,
+            "cross_con_bz": cross_con_bz,
         }
 
     def _beam_search_batch(self, batch):

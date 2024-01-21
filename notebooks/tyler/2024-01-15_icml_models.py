@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 ##
 import os, subprocess
 
@@ -89,7 +89,7 @@ import glob, scipy
 from helpers import load_npz_to_memory
 
 DEBUG = False
-# DEBUG = True
+DEBUG = True
 RESUME = False
 # RESUME = True
 
@@ -159,13 +159,16 @@ if ON_SHERLOCK:
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["SCRATCH"]
     # scratch_directory = os.environ["LOCAL_SCRATCH"]
-    gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
-    scratch_lengths_pkl = os.path.join(
-        scratch_directory, "2023-07-25_emg_speech_dset_lengths.pkl"
+    # gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
+    gaddy_dir = os.path.join(
+        scratch_directory, "GaddyPaper"
     )
-    tmp_lengths_pkl = os.path.join("/tmp", "2023-07-25_emg_speech_dset_lengths.pkl")
-    if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
-        shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
+    # scratch_lengths_pkl = os.path.join(
+    #     scratch_directory, "2023-07-25_emg_speech_dset_lengths.pkl"
+    # )
+    # tmp_lengths_pkl = os.path.join("/tmp", "2023-07-25_emg_speech_dset_lengths.pkl")
+    # if os.path.exists(scratch_lengths_pkl) and not os.path.exists(tmp_lengths_pkl):
+    #     shutil.copy(scratch_lengths_pkl, tmp_lengths_pkl)
     t12_npz_path = os.path.join(scratch_directory, "2023-08-21_T12_dataset.npz")
     T12_dir = os.path.join(scratch_directory, "T12_data_v4")
     if len(os.sched_getaffinity(0)) > 16:
@@ -215,8 +218,8 @@ use_dtw = True
 use_crossCon = True
 use_supCon = True
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
-# batch_class_proportions = np.array([0.8, 0.42, 0.5])
-batch_class_proportions = np.array([0.16, 0.42, 0.42])
+batch_class_proportions = np.array([0.8, 0.42, 0.5])
+# batch_class_proportions = np.array([0.16, 0.42, 0.42])
 # batch_class_proportions = np.array([0.24, 0.34, 0.42])
 # batch_class_proportions = np.array([0.30, 0.60, 0.10])  # CUDA illegal memory access??
 
@@ -316,8 +319,6 @@ logging.debug("DEBUG mode")
 if not log_neptune:
     logging.warning("not logging to neptune")
 ##
-# TODO: From DTW notebook: do i need this block??
-
 if NUM_GPUS > 1:
     num_workers = 0  # nccl backend doesn't support num_workers>0
     rank_key = "RANK" if "RANK" in os.environ else "LOCAL_RANK"
@@ -333,7 +334,7 @@ if NUM_GPUS > 1:
     # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
     # or we get this error:
     # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
-    # always include at least one example of class 0 (silent EMG & parallel Audio) in batch
+    # always include at least one example of class 0 (silent EMG & parallel EMG & parallel Audio) in batch
     # always include at least one example of class 1 (EMG & Audio) in batch
     # TrainBatchSampler = partial(Distributed`SizeAwareStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
@@ -344,7 +345,7 @@ if NUM_GPUS > 1:
         num_replicas=NUM_GPUS,
         # in emg_speech_dset_lengths we divide length by 8
         max_len=max_len // 8,
-        always_include_class=[0, 1],
+        always_include_class=[0],
     )
     ValSampler = lambda: DistributedSampler(
         emg_datamodule.val, shuffle=False, num_replicas=NUM_GPUS
@@ -359,7 +360,7 @@ else:
         num_replicas=NUM_GPUS,
         # in emg_speech_dset_lengths we divide length by 8
         max_len=max_len // 8,
-        always_include_class=[0, 1],
+        always_include_class=[0],
     )
     # num_workers=32
     num_workers = 0  # prob better now that we're caching
@@ -557,6 +558,8 @@ if log_neptune:
     print(f"saved checkpoint to {ckpt_path}")
 
 ##
+exit(0)
+##
 dl = datamodule.train_dataloader()
 # dl = datamodule.val_dataloader()
 for b in dl:
@@ -618,4 +621,13 @@ print_pairs(emg, y_emg, "silent emg")
 ##
 list(zip(np.arange(3), np.arange(5)))
 ##
+td = EMGDataset(
+        base_dir = None, dev = True, test = False, returnRaw = True,
+        togglePhones = False, normalizers_file = normalizers_file)
 
+
+##
+td[2]
+##
+td.voiced_data_locations.keys()
+##
