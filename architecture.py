@@ -378,9 +378,8 @@ class XtoText(pl.LightningModule):
                     stp = self.step_silent_emg_text_pred
                     sit = self.step_silent_emg_int_target
                     sip = self.step_silent_emg_int_pred
-                    # if i % 16 == 0 and type(self.logger) == NeptuneLogger:
-                    #     # log approx 10 examples
-                    if type(self.logger) == NeptuneLogger:
+                    if i % 16 == 0 and type(self.logger) == NeptuneLogger:
+                        # log approx 10 examples
                         self.logger.experiment[
                             f"training/{task}/silent_emg_sentence_target"
                         ].append(target_text)
@@ -393,8 +392,7 @@ class XtoText(pl.LightningModule):
                     stp = self.step_vocal_emg_text_pred
                     sit = self.step_vocal_emg_int_target
                     sip = self.step_vocal_emg_int_pred
-                    # if i % 16 == 0 and type(self.logger) == NeptuneLogger:
-                    if type(self.logger) == NeptuneLogger:
+                    if i % 16 == 0 and type(self.logger) == NeptuneLogger:
                         self.logger.experiment[
                             f"training/{task}/vocal_emg_sentence_target"
                         ].append(target_text)
@@ -404,8 +402,15 @@ class XtoText(pl.LightningModule):
 
                 stt.append(target_text)
                 stp.append(pred_text)
-                # TODO: only log every 10th example
-                # right now, our WER calc is broken for unknown reason
+                # when using supTcon, sometimes target_int is a list..?
+                # it should be a tensor, so this is a mystery
+                # TODO: resolve and remove this hack
+                if type(target_int) is list:
+                    logging.warning(f"target_int is list: {target_int=}")
+                    target_int = np.array(target_int)
+                if type(pred_int) is list:
+                    logging.warning(f"target_int is list: {target_int=}")
+                    target_int = np.array(target_int)
 
                 sit.append(target_int.numpy())
                 sip.append(pred_int.cpu().numpy())
