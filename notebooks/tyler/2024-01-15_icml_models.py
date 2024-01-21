@@ -251,7 +251,7 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
-    audio_lambda_cli: float = typer.Option(audio_lambda, "--audio_lambda"),
+    audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
