@@ -201,6 +201,8 @@ assert gpu_ram > 70, "needs A100 80GB"
 # of classes in each batch. and maybe overrepresents silent EMG
 base_bz = 24 * 4
 val_bz = 2  # terrible memory usage even at 8, I'm not sure why so bad...
+# gaddy used max_len = 128000, we double because of LibriSpeech
+# TODO: try 512000 and grad_accum=1 (prob OOM but might be faster!)
 # max_len = 48000 # from best perf with 4 x V100
 # max_len = 128000 # OOM on A100 80GB
 # max_len = 64000
@@ -219,7 +221,7 @@ use_dtw = True
 use_crossCon = True
 use_supCon = True
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
-batch_class_proportions = np.array([0.8, 0.42, 0.5])
+batch_class_proportions = np.array([0.08, 0.42, 0.5])
 # batch_class_proportions = np.array([0.16, 0.42, 0.42])
 # batch_class_proportions = np.array([0.24, 0.34, 0.42])
 # batch_class_proportions = np.array([0.30, 0.60, 0.10])  # CUDA illegal memory access??
