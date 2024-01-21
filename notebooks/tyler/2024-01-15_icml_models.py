@@ -1,6 +1,9 @@
 ##
+# based on these two files:
 # 2023-07-25_dtw_speech_silent_emg.py : best sEMG results
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
+# to run:
+# CUDA_VISIBLE_DEVICES=0 taskset -c 0-7 python 2024-01-15_icml_models.py --no-dtw --no-supCon
 2
 ##
 # %load_ext autoreload
@@ -161,9 +164,7 @@ if ON_SHERLOCK:
     scratch_directory = os.environ["SCRATCH"]
     # scratch_directory = os.environ["LOCAL_SCRATCH"]
     # gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
-    gaddy_dir = os.path.join(
-        scratch_directory, "GaddyPaper"
-    )
+    gaddy_dir = os.path.join(scratch_directory, "GaddyPaper")
     # scratch_lengths_pkl = os.path.join(
     #     scratch_directory, "2023-07-25_emg_speech_dset_lengths.pkl"
     # )
@@ -590,7 +591,7 @@ datamodule.TrainBatchSampler.set_epoch(1)
 dl = datamodule.train_dataloader()
 for b2, bat2 in enumerate(dl):
     pass
-assert b1==b2, f"b1={b1}, b2={b2}"
+assert b1 == b2, f"b1={b1}, b2={b2}"
 
 ##
 for b, batch in enumerate(dl):
@@ -618,27 +619,34 @@ for b, batch in enumerate(dl):
     if b > 1:
         break
 ##
-batches[0]['text'], batches[1]['text']
+batches[0]["text"], batches[1]["text"]
 ##
-for k,v in batches[0].items():
-    print(k, len(v))  
+for k, v in batches[0].items():
+    print(k, len(v))
 ##
 
 batch = batches[1]
 
+
 def print_pairs(x, y, text="x\t"):
     print(f"{text}\tpairs with")
-    for e, ye in zip([e.sum() for e in x],
-                    [ye.sum() for ye in y]):
+    for e, ye in zip([e.sum() for e in x], [ye.sum() for ye in y]):
         print(f"{e:.3f}\t\t{ye}")
-        
-print_pairs(batch['raw_emg'], batch['text_int'], "silent emg")
-print('\n')
+
+
+print_pairs(batch["raw_emg"], batch["text_int"], "silent emg")
+print("\n")
 emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
 emg, length_emg, emg_phonemes, y_length_emg, y_emg = emg_tup
 neural, length_neural, neural_phonemes, y_length_neural, y_neural = neural_tup
 audio, length_audio, audio_phonemes, y_length_audio, y_audio = audio_tup
-paired_emg_idx, paired_audio_idx, silent_emg_idx, parallel_emg_idx, parallel_audio_idx = idxs
+(
+    paired_emg_idx,
+    paired_audio_idx,
+    silent_emg_idx,
+    parallel_emg_idx,
+    parallel_audio_idx,
+) = idxs
 # check if emg & text still match up
 
 print_pairs(emg, y_emg, "silent emg")
@@ -646,8 +654,13 @@ print_pairs(emg, y_emg, "silent emg")
 list(zip(np.arange(3), np.arange(5)))
 ##
 td = EMGDataset(
-        base_dir = None, dev = True, test = False, returnRaw = True,
-        togglePhones = False, normalizers_file = normalizers_file)
+    base_dir=None,
+    dev=True,
+    test=False,
+    returnRaw=True,
+    togglePhones=False,
+    normalizers_file=normalizers_file,
+)
 
 
 ##
