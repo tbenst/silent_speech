@@ -206,9 +206,9 @@ val_bz = 2  # terrible memory usage even at 8, I'm not sure why so bad...
 # TODO: try 512000 and grad_accum=1 (prob OOM but might be faster!)
 # also almost def won't work for supCon + dtw
 # max_len = 48000 # from best perf with 4 x V100
-# max_len = 128000 # OOM on A100 80GB
+max_len = 128000  #
 # max_len = 64000
-max_len = 256000
+# max_len = 256000 # OOM on A100 80GB w/ supTcon
 
 ##
 
