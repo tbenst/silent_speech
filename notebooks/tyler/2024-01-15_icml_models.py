@@ -163,7 +163,8 @@ if ON_SHERLOCK:
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["SCRATCH"]
     librispeech_scratch_directory = os.path.join(
-        os.environ["LOCAL_SCRATCH"], "librispeech")
+        os.environ["LOCAL_SCRATCH"], "librispeech"
+    )
     # scratch_directory = os.environ["LOCAL_SCRATCH"]
     # gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
     gaddy_dir = os.path.join(scratch_directory, "GaddyPaper")
@@ -224,6 +225,7 @@ constant_offset_sd = 0
 use_dtw = True
 use_crossCon = True
 use_supCon = True
+audio_lambda = 1.0
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
 batch_class_proportions = np.array([0.08, 0.42, 0.5])
 # batch_class_proportions = np.array([0.16, 0.42, 0.42])
@@ -249,12 +251,14 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
+    audio_lambda_cli: float = typer.Option(audio_lambda, "--audio_lambda"),
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supCon
+    global audio_lambda
 
     # devices = devices_cli
     # try:
@@ -277,6 +281,7 @@ def update_configs(
     val_bz = val_bz_cli
     max_len = max_len_cli
     seqlen = seqlen_cli
+    audio_lambda = audio_lambda_cli
     print("Updated configurations using command-line arguments.")
 
 
@@ -446,7 +451,7 @@ config = MONAConfig(
     precision=precision,
     gradient_accumulation_steps=grad_accum,
     learning_rate=learning_rate,
-    audio_lambda=1.0,
+    audio_lambda=audio_lambda,
     # neural_input_features=datamodule.train.n_features,
     neural_input_features=1,
     seqlen=seqlen,
