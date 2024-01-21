@@ -494,8 +494,8 @@ class XtoText(pl.LightningModule):
             self.step_vocal_emg_int_pred,
         )
 
-        self.log("val/vocal_wer", vocal_wer, prog_bar=True, sync_dist=True)
-        self.log("val/vocal_cer", vocal_cer, prog_bar=True, sync_dist=True)
+        self.log("val/vocal_emg_wer", vocal_wer, prog_bar=True, sync_dist=True)
+        self.log("val/vocal_emg_cer", vocal_cer, prog_bar=True, sync_dist=True)
 
         silent_wer, silent_cer = self._on_validation_epoch_end(
             self.step_silent_emg_text_target,
@@ -503,8 +503,8 @@ class XtoText(pl.LightningModule):
             self.step_silent_emg_int_target,
             self.step_silent_emg_int_pred,
         )
-        self.log("val/silent_wer", silent_wer, prog_bar=True, sync_dist=True)
-        self.log("val/silent_cer", silent_cer, prog_bar=True, sync_dist=True)
+        self.log("val/silent_emg_wer", silent_wer, prog_bar=True, sync_dist=True)
+        self.log("val/silent_emg_cer", silent_cer, prog_bar=True, sync_dist=True)
 
         # log for backwards compatibility / easy comparison with old results
         self.log("val/wer", silent_wer, prog_bar=True, sync_dist=True)

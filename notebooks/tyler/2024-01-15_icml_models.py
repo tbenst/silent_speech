@@ -3,8 +3,8 @@
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 2
 ##
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 ##
 import os, subprocess
 
@@ -89,13 +89,14 @@ import glob, scipy
 from helpers import load_npz_to_memory
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 RESUME = False
 # RESUME = True
 
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
-# torch.set_float32_matmul_precision("high")
-torch.set_float32_matmul_precision("medium")  # bfloat16
+# not sure if makes a difference since we use fp16
+torch.set_float32_matmul_precision("high")
+# torch.set_float32_matmul_precision("medium")  # bfloat16
 # torch.set_float32_matmul_precision("medium" | "high")
 
 if RESUME:
@@ -133,8 +134,8 @@ else:
     NUM_GPUS = 1
     grad_accum = 2  # might need if run on 1 GPU
     # grad_accum = 1
-    # precision = "16-mixed"
-    precision = "bf16-mixed"
+    precision = "16-mixed"
+    # precision = "bf16-mixed"
     limit_train_batches = None
     limit_val_batches = None
     log_neptune = True
@@ -491,20 +492,20 @@ if log_neptune:
         if "SLURM_JOB_ID" in os.environ:
             neptune_logger.experiment["SLURM_JOB_ID"] = os.environ["SLURM_JOB_ID"]
 
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val/emg_ctc_loss",
-        mode="min",
-        dirpath=output_directory,
-        save_top_k=10,
-        filename=model.__class__.__name__ + "-{epoch:02d}-{val/emg_ctc_loss:.3f}",
-    )
     # checkpoint_callback = ModelCheckpoint(
-    #     monitor="val/wer",
+    #     monitor="val/emg_ctc_loss",
     #     mode="min",
     #     dirpath=output_directory,
-    #     save_top_k=10,  # TODO: try averaging weights afterwards to see if improve WER..?
-    #     filename=model.__class__.__name__ + "-{epoch:02d}-{val/wer:.3f}",
+    #     save_top_k=10,
+    #     filename=model.__class__.__name__ + "-{epoch:02d}-{val/emg_ctc_loss:.3f}",
     # )
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val/silent_emg_wer",
+        mode="min",
+        dirpath=output_directory,
+        save_top_k=10,  # TODO: try averaging weights afterwards to see if improve WER..?
+        filename=model.__class__.__name__ + "-{epoch:02d}-{val/silent_emg_wer:.3f}",
+    )
     callbacks.extend(
         [
             checkpoint_callback,
