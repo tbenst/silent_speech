@@ -58,9 +58,11 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         self.text_transform = text_transform
         self.mfcc_norm = mfcc_norm
         self.alignment_dirs = alignment_dirs
+        # we will delete the dataset when caching so save length
+        self.length = len(dataset)
 
     def __len__(self):
-        return len(self.dataset)
+        return self.length
 
     def get_textgrid_path(self, item):
         speaker_id = item["speaker_id"]
@@ -450,10 +452,14 @@ def split_batch_into_emg_neural_audio(batch):
     return emg_tup, neural_tup, audio_tup, idxs
 
 
-def cache_dataset(cache_path, Dataset=None, per_index_cache=False):
+def cache_dataset(cache_path, Dataset=None, per_index_cache=False,
+                  remove_attrs_before_pickle=None):
     """Class factory to modify Dataset to cache getitem to disk. Returns a Callable.
 
     This allows for retaining attributes & methods of the original Dataset class.
+    
+    `remove_attrs_before_pickle=["dataset"]` is useful to unbreak huggingface's
+    terrible design of classes depending on transient cache.
 
     Usage:
     >>> CachedMyDataset = cache_dataset('/path/my_dataset_cache.pkl', MyDataset)
@@ -527,6 +533,15 @@ def cache_dataset(cache_path, Dataset=None, per_index_cache=False):
             # save instance to file
             with open(instance_path, "wb") as f:
                 pickle.dump(self, f)
+        
+        def __getstate__(self):
+            "Customize what gets pickled to avoid messy attributes."
+            state = self.__dict__.copy()
+            if remove_attrs_before_pickle:
+                for attr in remove_attrs_before_pickle:
+                    if attr in state:
+                        del state[attr]
+            return state
 
         def approximate_memory_usage(self):
             sz = len(

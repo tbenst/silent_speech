@@ -380,22 +380,27 @@ if rank == 0:
 
 # must run 2023-07-17_cache_dataset_with_attrs_.py first
 librispeech_train_cache = os.path.join(
-    scratch_directory, "librispeech", "librispeech_960_train_phoneme_cache"
+    scratch_directory, "librispeech", "2024-01-20_librispeech_train_phoneme_cache"
 )
 librispeech_val_cache = os.path.join(
-    scratch_directory, "librispeech", "librispeech_val_phoneme_cache"
+    scratch_directory, "librispeech", "2024-01-20_librispeech_val_phoneme_cache"
 )
 librispeech_test_cache = os.path.join(
-    scratch_directory, "librispeech", "librispeech_test_phoneme_cache"
+    scratch_directory, "librispeech", "2024-01-20_librispeech_test_phoneme_cache"
 )
 
-speech_val = cache_dataset(librispeech_val_cache, LibrispeechDataset, per_index_cache)()
+speech_val = cache_dataset(
+    librispeech_val_cache, LibrispeechDataset, per_index_cache,
+    remove_attrs_before_pickle = ["dataset"]
+)()
 speech_train = cache_dataset(
-    librispeech_train_cache, LibrispeechDataset, per_index_cache
+    librispeech_train_cache, LibrispeechDataset, per_index_cache,
+    remove_attrs_before_pickle = ["dataset"]
 )()
 speech_train.len = 281185  # TODO: recompute cache and remove this hack
 speech_test = cache_dataset(
-    librispeech_test_cache, LibrispeechDataset, per_index_cache
+    librispeech_test_cache, LibrispeechDataset, per_index_cache,
+    remove_attrs_before_pickle = ["dataset"]
 )()
 
 

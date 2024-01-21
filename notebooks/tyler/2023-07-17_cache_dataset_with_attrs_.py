@@ -27,7 +27,6 @@ text_transform = TextTransform(togglePhones = False)
 ##
 if ON_SHERLOCK:
     sessions_dir = '/oak/stanford/projects/babelfish/magneto/'
-    # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["SCRATCH"]
     gaddy_dir = '/oak/stanford/projects/babelfish/magneto/GaddyPaper/'
 else:
@@ -35,24 +34,39 @@ else:
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
 
-librispeech_train_cache = os.path.join(scratch_directory, "librispeech", "librispeech_960_train_phoneme_cache")
-librispeech_val_cache = os.path.join(scratch_directory, "librispeech", "librispeech_val_phoneme_cache")
-# librispeech_val_cache = os.path.join(scratch_directory, "librispeech", "librispeech_val_phoneme_cache.pkl")
-librispeech_test_cache = os.path.join(scratch_directory, "librispeech", "librispeech_test_phoneme_cache")
-alignment_dir = os.path.join(scratch_directory, "librispeech", "librispeech-alignments")
+librispeech_train_cache = os.path.join(scratch_directory, "librispeech",
+    "2024-01-20_librispeech_train_phoneme_cache")
+librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
+    "2024-01-20_librispeech_val_phoneme_cache")
+# librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
+#   "librispeech_val_phoneme_cache.pkl")
+librispeech_test_cache = os.path.join(scratch_directory, "librispeech",
+    "2024-01-20_librispeech_test_phoneme_cache")
+alignment_dir = os.path.join(scratch_directory, "librispeech",
+    "librispeech-alignments")
 
 ##
-alignment_dirs = [os.path.join(alignment_dir, d) for d in os.listdir(alignment_dir)]
+alignment_dirs = [os.path.join(alignment_dir, d)
+                  for d in os.listdir(alignment_dir)]
 per_index_cache = True
-cached_speech_val = cache_dataset(librispeech_val_cache, LibrispeechDataset, per_index_cache)(
-    librispeech_clean_val, text_transform, mfcc_norm,
-    list(filter(lambda x: "dev" in x, alignment_dirs)))
+cached_speech_val = cache_dataset(
+    librispeech_val_cache, LibrispeechDataset, per_index_cache,
+    remove_attrs_before_pickle = ["dataset"])(
+        librispeech_clean_val, text_transform, mfcc_norm,
+        list(filter(lambda x: "dev" in x, alignment_dirs)
+))
 del cached_speech_val
-cached_speech_train = cache_dataset(librispeech_train_cache, LibrispeechDataset, per_index_cache)(
-    librispeech_train, text_transform, mfcc_norm,
-    list(filter(lambda x: "train" in x, alignment_dirs)))
+cached_speech_train = cache_dataset(
+    librispeech_train_cache, LibrispeechDataset, per_index_cache,
+    remove_attrs_before_pickle = ["dataset"])(
+        librispeech_train, text_transform, mfcc_norm,
+        list(filter(lambda x: "train" in x, alignment_dirs)
+))
 del cached_speech_train
-cached_speech_test = cache_dataset(librispeech_test_cache, LibrispeechDataset, per_index_cache)(
-    librispeech_clean_test, text_transform, mfcc_norm,
-    list(filter(lambda x: "test" in x, alignment_dirs)))
+cached_speech_test = cache_dataset(
+    librispeech_test_cache, LibrispeechDataset, per_index_cache,
+    remove_attrs_before_pickle = ["dataset"])(
+        librispeech_clean_test, text_transform, mfcc_norm,
+        list(filter(lambda x: "test" in x, alignment_dirs)
+))
 del cached_speech_test

@@ -402,15 +402,16 @@ class XtoText(pl.LightningModule):
 
                 stt.append(target_text)
                 stp.append(pred_text)
-                # when using supTcon, sometimes target_int is a list..?
-                # it should be a tensor, so this is a mystery
+                # if Loss is NaN somehow target_int becomes a list
+                # perhaps ok for us to crash here,
+                # but it should be a tensor, so this is a mystery
                 # TODO: resolve and remove this hack
-                if type(target_int) is list:
-                    logging.warning(f"target_int is list: {target_int=}. {target_text=}")
-                    target_int = np.array(target_int)
-                if type(pred_int) is list:
-                    logging.warning(f"target_int is list: {target_int=}. {target_text=}")
-                    target_int = np.array(target_int)
+                # if type(target_int) is list:
+                #     logging.warning(f"target_int is list: {target_int=}. {target_text=}")
+                #     target_int = np.array(target_int)
+                # if type(pred_int) is list:
+                #     logging.warning(f"target_int is list: {target_int=}. {target_text=}")
+                #     target_int = np.array(target_int)
 
                 sit.append(target_int.numpy())
                 sip.append(pred_int.cpu().numpy())
