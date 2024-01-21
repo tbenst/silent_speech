@@ -10,4 +10,4 @@
 
 . activate magneto
 cd /home/users/tbenst/code/silent_speech/notebooks/tyler
-python 2024-01-15_icml_models.py
+python 2024-01-15_icml_models.py "$@"

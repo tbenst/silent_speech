@@ -7,7 +7,7 @@
 import os, subprocess
 
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
-# os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
@@ -96,7 +96,8 @@ torch.set_float32_matmul_precision("high")
 # torch.set_float32_matmul_precision("medium" | "high")
 ##
 
-run_id = "GAD-739"
+# run_id = "GAD-739"
+run_id = "GAD-740"
 nep_key = os.environ["NEPTUNE_API_TOKEN"]
 neptune_kwargs = {
     "project": "neuro/Gaddy",
@@ -186,14 +187,14 @@ test_dl = torch.utils.data.DataLoader(
 model, config = load_model(ckpt_path, config)
 
 # predictions = get_emg_pred(model, val_dl)
-##
+
 if config.togglePhones:
     default_lexicon_file = os.path.join(lm_directory, "cmudict.txt")
 else:
     default_lexicon_file = os.path.join(
         lm_directory, "lexicon_graphemes_noApostrophe.txt"
     )
-
+##
 topK = get_top_k(model,
     val_dl,
     # test_dl,
@@ -208,5 +209,24 @@ topK = get_top_k(model,
     cpus=8,
     lexicon_file=default_lexicon_file,
     lm_file=lm_file)
-calc_wer(topK['predictions'], topK['sentences'], model.text_transform)
+wer = calc_wer(topK['predictions'], topK['sentences'], model.text_transform)
+print(f"Validation WER: {wer * 100:.2f}%")
+##
+topK = get_top_k(model,
+    test_dl,
+    k=100,
+    # k=1,
+    # beam_size=150,
+    beam_size=5000,
+    togglePhones=config.togglePhones,
+    use_lm=True,
+    beam_threshold=100,
+    lm_weight=2,
+    cpus=8,
+    lexicon_file=default_lexicon_file,
+    lm_file=lm_file)
+wer = calc_wer(topK['predictions'], topK['sentences'], model.text_transform)
+print(f"Test WER: {wer * 100:.2f}%")
+
+
 ##
