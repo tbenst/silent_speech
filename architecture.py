@@ -1179,6 +1179,7 @@ class MONA(GaddyBase):
         cfg: MONAConfig,
         text_transform: TextTransform,
         profiler=None,
+        # TODO: better if the no* and sessions are in cfg for easier loading
         no_emg=False,
         no_audio=False,
         sessions: List[str] = None,
