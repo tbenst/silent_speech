@@ -162,9 +162,7 @@ if ON_SHERLOCK:
     sessions_dir = "/oak/stanford/projects/babelfish/magneto/"
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["SCRATCH"]
-    librispeech_scratch_directory = os.path.join(
-        os.environ["LOCAL_SCRATCH"], "librispeech"
-    )
+    librispeech_directory = "/oak/stanford/projects/babelfish/magneto/librispeech"
     # scratch_directory = os.environ["LOCAL_SCRATCH"]
     # gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
     gaddy_dir = os.path.join(scratch_directory, "GaddyPaper")
@@ -197,7 +195,10 @@ lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 
 if ON_SHERLOCK:
-    lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
+    lm_directory = ensure_folder_on_scratch(lm_directory,
+        os.environ["LOCAL_SCRATCH"])
+    librispeech_directory = ensure_folder_on_scratch(librispeech_directory,
+        os.environ["LOCAL_SCRATCH"])
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
@@ -393,13 +394,13 @@ if rank == 0:
 
 # must run 2023-07-17_cache_dataset_with_attrs_.py first
 librispeech_train_cache = os.path.join(
-    librispeech_scratch_directory, "2024-01-20_librispeech_train_phoneme_cache"
+    librispeech_directory, "2024-01-20_librispeech_train_phoneme_cache"
 )
 librispeech_val_cache = os.path.join(
-    librispeech_scratch_directory, "2024-01-20_librispeech_val_phoneme_cache"
+    librispeech_directory, "2024-01-20_librispeech_val_phoneme_cache"
 )
 librispeech_test_cache = os.path.join(
-    librispeech_scratch_directory, "2024-01-20_librispeech_test_phoneme_cache"
+    librispeech_directory, "2024-01-20_librispeech_test_phoneme_cache"
 )
 
 speech_val = cache_dataset(
