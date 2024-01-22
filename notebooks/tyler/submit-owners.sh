@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -p henderj,owners
+#SBATCH -p owners
 #SBATCH --job-name=interactive
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
