@@ -337,7 +337,7 @@ class XtoText(pl.LightningModule):
         parallel_emg_idx = ret["parallel_emg_idx"]
         target_ints = ret["y_emg"]
         batch_text = ret["text_emg"]
-        
+
         # logging.debug(f"{silent_emg_idx=}, {parallel_emg_idx=}, {emg_bz=}")
         assert (
             len(silent_emg_idx) + len(parallel_emg_idx) == emg_bz
@@ -471,7 +471,7 @@ class XtoText(pl.LightningModule):
             else:
                 print("WARN: got target length of zero during validation.")
             if len(p) == 0:
-                print("WARN: got prediction length of zero during validation.")
+                logging.debug("WARN: got prediction length of zero during validation.")
         # logging.warning(f"on_validation_epoch_end: calc wer")
         wer = jiwer.wer(nonzero_text_target, nonzero_text_pred)
         # print(f"{nonzero_text_target=}, {nonzero_text_pred=}")
@@ -803,7 +803,7 @@ class Model(GaddyBase):
             else:
                 print("WARN: got target length of zero during validation.")
             if len(p) == 0:
-                print("WARN: got prediction length of zero during validation.")
+                logging.debug("WARN: got prediction length of zero during validation.")
         logging.warning(f"on_validation_epoch_end: calc wer")
         wer = jiwer.wer(step_text_target, step_text_pred)
         self.step_text_target.clear()
@@ -1392,8 +1392,22 @@ class MONA(GaddyBase):
         sessions = batch["sessions"] if "sessions" in batch else None
         emg_tup, neural_tup, audio_tup, idxs = split_batch_into_emg_neural_audio(batch)
         emg, length_emg, emg_phonemes, y_length_emg, y_emg, text_emg = emg_tup
-        neural, length_neural, neural_phonemes, y_length_neural, y_neural, text_neural = neural_tup
-        audio, length_audio, audio_phonemes, y_length_audio, y_audio, text_audio = audio_tup
+        (
+            neural,
+            length_neural,
+            neural_phonemes,
+            y_length_neural,
+            y_neural,
+            text_neural,
+        ) = neural_tup
+        (
+            audio,
+            length_audio,
+            audio_phonemes,
+            y_length_audio,
+            y_audio,
+            text_audio,
+        ) = audio_tup
         (
             paired_emg_idx,
             paired_audio_idx,
@@ -1567,12 +1581,12 @@ class MONA(GaddyBase):
             use_crossCon = self.use_crossCon
         if use_dtw is None:
             use_dtw = self.use_dtw
-            
+
         # we assume every emg example is either silent,
         # paired (simultaneous with audio), or parallel
-        assert len(emg_pred) == len(silent_emg_idx) \
-            + len(paired_emg_idx) + len(parallel_emg_idx), \
-            f"{len(emg_pred)=}, {len(silent_emg_idx)=}, {len(paired_emg_idx)=}, {len(parallel_emg_idx)=}"
+        assert len(emg_pred) == len(silent_emg_idx) + len(paired_emg_idx) + len(
+            parallel_emg_idx
+        ), f"{len(emg_pred)=}, {len(silent_emg_idx)=}, {len(paired_emg_idx)=}, {len(parallel_emg_idx)=}"
 
         if emg_pred is not None:
             length_emg = [
@@ -1628,10 +1642,12 @@ class MONA(GaddyBase):
             if use_crossCon or use_supCon:
                 # save on compute & avoid val crashes by only computing alignment on train
 
-                emg_to_concat = [emg_z[i] for i in paired_emg_idx] + \
-                    [emg_z[i] for i in parallel_emg_idx]
-                audio_to_concat = [audio_z[i] for i in paired_audio_idx] + \
-                    [audio_z[i] for i in parallel_audio_idx]
+                emg_to_concat = [emg_z[i] for i in paired_emg_idx] + [
+                    emg_z[i] for i in parallel_emg_idx
+                ]
+                audio_to_concat = [audio_z[i] for i in paired_audio_idx] + [
+                    audio_z[i] for i in parallel_audio_idx
+                ]
 
                 if use_dtw:
                     alignment = align_from_distances(
@@ -1665,8 +1681,9 @@ class MONA(GaddyBase):
 
             ###### Supervised NCE #######
             if use_supCon:
-                emg_phonemes_to_concat = [emg_phonemes[i] for i in paired_emg_idx] + \
-                    [emg_phonemes[i] for i in parallel_emg_idx]
+                emg_phonemes_to_concat = [emg_phonemes[i] for i in paired_emg_idx] + [
+                    emg_phonemes[i] for i in parallel_emg_idx
+                ]
                 if self.use_dtw:
                     emg_phonemes_to_concat.append(aligned_a_phonemes)
                 matched_phonemes = torch.concatenate(emg_phonemes_to_concat)
