@@ -370,7 +370,7 @@ class XtoText(pl.LightningModule):
         assert len(set(lens)) == 1, f"all lengths should be equal {lens=}"
 
         for i, (target_text, pred_text, target_int, pred_int, is_s) in enumerate(
-            zip(target_texts, pred_texts, pred_ints, target_ints, is_silent)
+            zip(target_texts, pred_texts, target_ints, pred_ints, is_silent)
         ):
             if len(target_text) > 0:
                 if is_s:
@@ -402,16 +402,18 @@ class XtoText(pl.LightningModule):
 
                 stt.append(target_text)
                 stp.append(pred_text)
-                # if Loss is NaN somehow target_int becomes a list
-                # perhaps ok for us to crash here,
-                # but it should be a tensor, so this is a mystery
-                # TODO: resolve and remove this hack
+                # # if Loss is NaN somehow target_int becomes a list
+                # # perhaps ok for us to crash here,
+                # # but it should be a tensor, so this is a mystery
+                # # TODO: resolve and remove this hack
                 # if type(target_int) is list:
-                #     logging.warning(f"target_int is list: {target_int=}. {target_text=}")
-                #     target_int = np.array(target_int)
+                #     logging.warning(
+                #         f"target_int is list: {target_int=}. {target_text=}"
+                #     )
+                #     target_int = torch.tensor(target_int)
                 # if type(pred_int) is list:
-                #     logging.warning(f"target_int is list: {target_int=}. {target_text=}")
-                #     target_int = np.array(target_int)
+                #     logging.warning(f"pred_int is list: {pred_int=}. {pred_text=}")
+                #     pred_int = torch.tensor(pred_int)
 
                 sit.append(target_int.numpy())
                 sip.append(pred_int.cpu().numpy())
