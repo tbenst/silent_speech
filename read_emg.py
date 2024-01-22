@@ -923,13 +923,17 @@ def make_normalizers(normalizers_file):
     with open(normalizers_file, "wb") as f:
         pickle.dump((mfcc_norm, emg_norm), f)
 
-
 def ensure_folder_on_scratch(src, dst):
     "Check if folder exists on scratch, otherwise copy. Return new path."
     assert os.path.isdir(src)
     split_path = src.split(os.sep)
     name = split_path[-1] if split_path[-1] != "" else split_path[-2]
     out = os.path.join(dst, name)
-    if not os.path.isdir(out):
-        shutil.copytree(src, out)
+    try:
+        if not os.path.isdir(out):
+            shutil.copytree(src, out)
+    except FileExistsError:
+        # If the directory was created between the check and the copy attempt,
+        # ignore the error. this resolves the potential race condition.
+        pass
     return out
