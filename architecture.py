@@ -402,18 +402,6 @@ class XtoText(pl.LightningModule):
 
                 stt.append(target_text)
                 stp.append(pred_text)
-                # # if Loss is NaN somehow target_int becomes a list
-                # # perhaps ok for us to crash here,
-                # # but it should be a tensor, so this is a mystery
-                # # TODO: resolve and remove this hack
-                # if type(target_int) is list:
-                #     logging.warning(
-                #         f"target_int is list: {target_int=}. {target_text=}"
-                #     )
-                #     target_int = torch.tensor(target_int)
-                # if type(pred_int) is list:
-                #     logging.warning(f"pred_int is list: {pred_int=}. {pred_text=}")
-                #     pred_int = torch.tensor(pred_int)
 
                 sit.append(target_int.numpy())
                 sip.append(pred_int.cpu().numpy())
