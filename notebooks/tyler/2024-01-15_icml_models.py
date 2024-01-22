@@ -195,10 +195,10 @@ lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 
 if ON_SHERLOCK:
-    lm_directory = ensure_folder_on_scratch(lm_directory,
-        os.environ["LOCAL_SCRATCH"])
-    librispeech_directory = ensure_folder_on_scratch(librispeech_directory,
-        os.environ["LOCAL_SCRATCH"])
+    lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["LOCAL_SCRATCH"])
+    librispeech_directory = ensure_folder_on_scratch(
+        librispeech_directory, os.environ["LOCAL_SCRATCH"]
+    )
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
@@ -228,6 +228,7 @@ use_dtw = True
 use_crossCon = True
 use_supCon = True
 audio_lambda = 1.0
+weight_decay = 0.1
 latent_affine = True
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
 batch_class_proportions = np.array([0.08, 0.42, 0.5])
@@ -255,6 +256,7 @@ def update_configs(
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
+    weight_decay_cli: float = typer.Option(weight_decay, "--weight-decay"),
     latent_affine_cli: bool = typer.Option(
         latent_affine, "--latent-affine/--no-latent-affine"
     ),
@@ -264,7 +266,7 @@ def update_configs(
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supCon
-    global audio_lambda, latent_affine
+    global audio_lambda, latent_affine, weight_decay
 
     # devices = devices_cli
     # try:
@@ -289,6 +291,7 @@ def update_configs(
     seqlen = seqlen_cli
     audio_lambda = audio_lambda_cli
     latent_affine = latent_affine_cli
+    weight_decay = weight_decay_cli
     print("Updated configurations using command-line arguments.")
 
 
@@ -475,7 +478,7 @@ config = MONAConfig(
     # d_inner=8,
     # d_model=8,
     fixed_length=True,
-    weight_decay=0.1,
+    weight_decay=weight_decay,
     latent_affine=latent_affine,
 )
 
