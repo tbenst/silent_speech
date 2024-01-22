@@ -226,6 +226,7 @@ use_dtw = True
 use_crossCon = True
 use_supCon = True
 audio_lambda = 1.0
+latent_affine = True
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
 batch_class_proportions = np.array([0.08, 0.42, 0.5])
 # batch_class_proportions = np.array([0.16, 0.42, 0.42])
@@ -252,13 +253,16 @@ def update_configs(
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
+    latent_affine_cli: bool = typer.Option(
+        latent_affine, "--latent-affine/--no-latent-affine"
+    ),
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supCon
-    global audio_lambda
+    global audio_lambda, latent_affine
 
     # devices = devices_cli
     # try:
@@ -282,6 +286,7 @@ def update_configs(
     max_len = max_len_cli
     seqlen = seqlen_cli
     audio_lambda = audio_lambda_cli
+    latent_affine = latent_affine_cli
     print("Updated configurations using command-line arguments.")
 
 
@@ -469,7 +474,7 @@ config = MONAConfig(
     # d_model=8,
     fixed_length=True,
     weight_decay=0.1,
-    latent_affine=False,
+    latent_affine=latent_affine,
 )
 
 model = MONA(config, text_transform, no_neural=True)
