@@ -403,7 +403,7 @@ class XtoText(pl.LightningModule):
                 stt.append(target_text)
                 stp.append(pred_text)
 
-                sit.append(target_int.numpy())
+                sit.append(target_int.cpu().numpy())
                 sip.append(pred_int.cpu().numpy())
 
         self.maybe_log(
