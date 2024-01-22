@@ -404,7 +404,7 @@ class XtoText(pl.LightningModule):
                 stp.append(pred_text)
 
                 sit.append(target_int.cpu().numpy())
-                sip.append(pred_int.cpu().numpy())
+                sip.append(pred_int)
 
         self.maybe_log(
             f"{task}/loss",
@@ -467,9 +467,13 @@ class XtoText(pl.LightningModule):
         # print(f"{nonzero_text_target=}, {nonzero_text_pred=}")
         # print(f"WER: {wer}")
         # print(f"{nonzero_int_target=}, {nonzero_int_pred=}")
-        cer = token_error_rate(
-            nonzero_int_target, nonzero_int_pred, self.text_transform
-        )
+        try:
+            # CER not fully debugged yet
+            cer = token_error_rate(
+                nonzero_int_target, nonzero_int_pred, self.text_transform
+            )
+        except:
+            cer = None
         text_target.clear()
         text_pred.clear()
         int_target.clear()

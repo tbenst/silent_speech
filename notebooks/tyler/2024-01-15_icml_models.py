@@ -201,6 +201,7 @@ if ON_SHERLOCK:
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 assert gpu_ram > 70, "needs A100 80GB"
+##
 # base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
 base_bz = 24 * 4
