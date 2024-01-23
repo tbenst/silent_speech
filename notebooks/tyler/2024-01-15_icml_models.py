@@ -15,7 +15,8 @@ import os, subprocess
 # os.environ["CUDA_VISIBLE_DEVICES"] = ""
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
-ON_sh03_11n03 = hostname.stdout[:10] == b"sh03-11n03"  # henderj A100 80GB
+# ON_sh03_11n03 = hostname.stdout[:10] == b"sh03-11n03"  # henderj A100 80GB
+ON_sh03_11n03 = hostname.stdout[:10] == b"no-match"
 
 import pytorch_lightning as pl, pickle
 from pytorch_lightning.plugins.environments import SLURMEnvironment
@@ -128,7 +129,8 @@ if DEBUG:
     log_neptune = False
     n_epochs = 2
     # precision = "32"
-    precision = "16-mixed"
+    # precision = "16-mixed"
+    precision = "bf16-mixed"
     num_sanity_val_steps = 2
     grad_accum = 1
     logger_level = logging.DEBUG
@@ -138,8 +140,8 @@ else:
     NUM_GPUS = 1
     grad_accum = 2  # might need if run on 1 GPU
     # grad_accum = 1
-    precision = "16-mixed"
-    # precision = "bf16-mixed"
+    # precision = "16-mixed"
+    precision = "bf16-mixed"
     limit_train_batches = None
     limit_val_batches = None
     log_neptune = True
@@ -327,8 +329,15 @@ else:
 
 # lookup most recent ckpt_path if not specified
 if run_id != "" and ckpt_path == "":
-    od = nep_get(run, "output_directory")
-    ckpt_path, latest_epoch = get_last_ckpt(od)
+    output_directory = nep_get(run, "output_directory")
+    ckpt_path, latest_epoch = get_last_ckpt(output_directory)
+elif ckpt_path != "":
+    raise NotImplementedError("TODO: implement output_directory for ckpt_path")
+elif ON_SHERLOCK:
+    # TODO: should we just use the scratch directory over LOCAL_SCRATCH?
+    output_directory = os.path.join(os.environ["SCRATCH"], f"{isotime}_gaddy")
+else:
+    output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 
 
 # needed for using CachedDataset
@@ -354,11 +363,6 @@ else:
 
 devices = NUM_GPUS
 
-if ON_SHERLOCK:
-    # TODO: should we just use the scratch directory over LOCAL_SCRATCH?
-    output_directory = os.path.join(os.environ["SCRATCH"], f"{isotime}_gaddy")
-else:
-    output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 
 logging.basicConfig(
     handlers=[logging.StreamHandler()],
@@ -427,33 +431,33 @@ if rank == 0:
 
 # must run 2023-07-17_cache_dataset_with_attrs_.py first
 librispeech_train_cache = os.path.join(
-    librispeech_directory, "2024-01-20_librispeech_train_phoneme_cache"
+    librispeech_directory, "2024-01-23_librispeech_noleak_train_phoneme_cache"
 )
 librispeech_val_cache = os.path.join(
-    librispeech_directory, "2024-01-20_librispeech_val_phoneme_cache"
+    librispeech_directory, "2024-01-23_librispeech_noleak_val_phoneme_cache"
 )
 librispeech_test_cache = os.path.join(
-    librispeech_directory, "2024-01-20_librispeech_test_phoneme_cache"
+    librispeech_directory, "2024-01-23_librispeech_noleak_test_phoneme_cache"
 )
 
 speech_val = cache_dataset(
     librispeech_val_cache,
     LibrispeechDataset,
     per_index_cache,
-    remove_attrs_before_pickle=["dataset"],
+    remove_attrs_before_save=["dataset"],
 )()
 speech_train = cache_dataset(
     librispeech_train_cache,
     LibrispeechDataset,
     per_index_cache,
-    remove_attrs_before_pickle=["dataset"],
+    remove_attrs_before_save=["dataset"],
 )()
 speech_train.len = 281185  # TODO: recompute cache and remove this hack
 speech_test = cache_dataset(
     librispeech_test_cache,
     LibrispeechDataset,
     per_index_cache,
-    remove_attrs_before_pickle=["dataset"],
+    remove_attrs_before_save=["dataset"],
 )()
 
 datamodule = EMGAndSpeechModule(
@@ -555,7 +559,7 @@ if log_neptune:
             api_key=nep_key, **neptune_kwargs, log_model_checkpoints=False
         )
         # TODO: get run_id from neptune_logger
-        run_id = neptune_logger.experiment.run.fetch()["sys"]["id"]
+        run_id = neptune_logger.experiment.fetch()["sys"]["id"]
         neptune_logger.log_hyperparams(vars(config))
         neptune_logger.experiment["isotime"] = isotime
         neptune_logger.experiment["hostname"] = hostname.stdout.decode().strip()
