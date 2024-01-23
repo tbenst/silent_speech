@@ -165,3 +165,11 @@ https://montreal-forced-aligner.readthedocs.io/en/latest/first_steps/index.html#
 > mfa validate --single_speaker -j 32 /data/data/T12_data/synthetic_audio/TTS english_us_arpa english_us_arpa
 # ensure no OOV (I had to manually correct a transcript due to a `{`)
 > mfa adapt --single_speaker -j 32 --output_directory /data/data/T12_data/synthetic_audio/TTS /data/data/T12_data/synthetic_audio/TTS english_us_arpa english_us_arpa /data/data/T12_data/synthetic_audio/adapted_bark_english_us_arpa
+
+### misc
+
+Fast transfer of cache on sherlock to local NVME
+```
+cd $MAG/librispeech
+find . -type f | parallel -j 10 rsync -avPR {} $LOCAL_SCRATCH/librispeech/
+```

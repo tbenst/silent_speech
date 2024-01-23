@@ -7,6 +7,8 @@ from torchaudio.models.decoder import ctc_decoder
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 import jiwer
+import neptune.new as neptune
+from pytorch_lightning.loggers import NeptuneLogger
 
 
 def sentence_to_fn(sentence, directory, ext=".wav"):
@@ -177,6 +179,18 @@ def calc_wer(predictions, targets, text_transform):
     return jiwer.wer(targets, predictions)
 
 
+def get_neptune_run(run_id, mode="read-only", **neptune_kwargs):
+    return NeptuneLogger(
+        run=neptune.init_run(
+            with_id=run_id,
+            api_token=os.environ["NEPTUNE_API_TOKEN"],
+            mode=mode,
+            **neptune_kwargs,
+        ),
+        log_model_checkpoints=False,
+    )
+
+
 def get_best_ckpts(directory, n=1):
     # get all files ending in .ckpt in subdirectories of directory
     ckpt_paths = []
@@ -190,6 +204,34 @@ def get_best_ckpts(directory, n=1):
                 metrics.append(float(r.findall(file)[0]))
     perm = np.argsort(metrics)
     return [ckpt_paths[i] for i in perm[:n]]
+
+
+def get_last_ckpt(directory):
+    """Get the most recent checkpoint for e.g. resuming a run."""
+    ckpt_paths = []
+    epochs = []
+
+    # Regular expression to extract the epoch number from the directory name
+    r = re.compile(r"epoch=(\d+)-")
+
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".ckpt"):
+                dir_name = os.path.basename(root)
+                match = r.search(dir_name)
+                if match:
+                    epoch = int(match.group(1))
+                    epochs.append(epoch)
+                    ckpt_paths.append(os.path.join(root, file))
+                else:
+                    epochs.append(-1)  # In case the pattern doesn't match
+
+    # Find the index of the checkpoint with the highest epoch number
+    if epochs:  # Ensure list is not empty
+        max_epoch_idx = np.argmax(epochs)
+        return ckpt_paths[max_epoch_idx], max_epoch_idx
+    else:
+        return None
 
 
 def nep_get(logger, key):

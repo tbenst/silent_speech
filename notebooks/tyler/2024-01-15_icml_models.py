@@ -15,6 +15,7 @@ import os, subprocess
 # os.environ["CUDA_VISIBLE_DEVICES"] = ""
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+ON_sh03_11n03 = hostname.stdout[:10] == b"sh03-11n03"  # henderj A100 80GB
 
 import pytorch_lightning as pl, pickle
 from pytorch_lightning.plugins.environments import SLURMEnvironment
@@ -90,12 +91,10 @@ from contrastive import (
     supervised_contrastive_loss,
 )
 import glob, scipy
-from helpers import load_npz_to_memory
-
+from helpers import load_npz_to_memory, get_last_ckpt, get_neptune_run, nep_get
+##
 DEBUG = False
 # DEBUG = True
-RESUME = False
-# RESUME = True
 
 # TODO:
 # # check if a SLURM re-queue
@@ -107,16 +106,11 @@ RESUME = False
 torch.set_float32_matmul_precision("high")
 # torch.set_float32_matmul_precision("medium")  # bfloat16
 # torch.set_float32_matmul_precision("medium" | "high")
-
-if RESUME:
-    # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
-    # to think about: can we do this automatically on gaia/sherlock if OOM..? (maybe we don't care / can do manually)
-    # INFO: when resuming logging to Neptune, we might repeat some steps,
-    # e.g. if epoch 29 was lowest WER, but we resume at epoch 31, we will
-    # log epoch 30 & 31 twice. mainly an issue for publication plots
-    # ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
-    ckpt_path = "/scratch/2023-08-03T21:30:03.418151_gaddy/SpeechOrEMGToText-epoch=15-val/wer=0.547.ckpt"
-    run_id = "GAD-493"
+run_id = ""
+ckpt_path = ""
+# ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
+# ckpt_path = "/scratch/2023-08-03T21:30:03.418151_gaddy/SpeechOrEMGToText-epoch=15-val/wer=0.547.ckpt"
+# run_id = "GAD-493"
 
 per_index_cache = True  # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
@@ -168,7 +162,7 @@ if ON_SHERLOCK:
     sessions_dir = "/oak/stanford/projects/babelfish/magneto/"
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["SCRATCH"]
-    librispeech_directory = "/oak/stanford/projects/babelfish/magneto/librispeech"
+    librispeech_directory = "/oak/stanford/projects/babelfish/magneto/librispeech/cache"
     # scratch_directory = os.environ["LOCAL_SCRATCH"]
     # gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
     gaddy_dir = os.path.join(scratch_directory, "GaddyPaper")
@@ -200,10 +194,17 @@ data_dir = os.path.join(gaddy_dir, "processed_data/")
 lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
 
-if ON_SHERLOCK:
+if ON_sh03_11n03:
     lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["LOCAL_SCRATCH"])
     librispeech_directory = ensure_folder_on_scratch(
         librispeech_directory, os.environ["LOCAL_SCRATCH"]
+    )
+elif ON_SHERLOCK:
+    # avoid race condition for owners nodes if 2 jobs on same node
+    # also less load time since interruptable
+    lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["SCRATCH"])
+    librispeech_directory = ensure_folder_on_scratch(
+        librispeech_directory, os.environ["SCRATCH"]
     )
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
@@ -244,7 +245,7 @@ frac_semg /= 2
 frac_vocal /= 2
 # TODO: should sweep librispeech ratios...
 batch_class_proportions = np.array([frac_semg, frac_vocal, 0.5])
-
+latest_epoch = -1
 
 @app.command()
 def update_configs(
@@ -253,7 +254,6 @@ def update_configs(
     learning_rate_cli: float = typer.Option(3e-4, "--learning-rate"),
     debug_cli: bool = typer.Option(False, "--debug/--no-debug"),
     phonemes_cli: bool = typer.Option(False, "--phonemes/--no-phonemes"),
-    resume_cli: bool = typer.Option(RESUME, "--resume/--no-resume"),
     use_dtw_cli: bool = typer.Option(use_dtw, "--dtw/--no-dtw"),
     use_crossCon_cli: bool = typer.Option(use_crossCon, "--crossCon/--no-crossCon"),
     use_supCon_cli: bool = typer.Option(use_supCon, "--supCon/--no-supCon"),
@@ -264,6 +264,8 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
+    run_id_cli: str = typer.Option("", "--run-id"),
+    ckpt_path_cli: str = typer.Option(ckpt_path, "--ckpt-path"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
     weight_decay_cli: float = typer.Option(weight_decay, "--weight-decay"),
     latent_affine_cli: bool = typer.Option(
@@ -272,10 +274,10 @@ def update_configs(
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
-    global constant_offset_sd, white_noise_sd, DEBUG, RESUME, grad_accum
+    global constant_offset_sd, white_noise_sd, DEBUG, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supCon
-    global audio_lambda, latent_affine, weight_decay
+    global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
 
     # devices = devices_cli
     # try:
@@ -290,7 +292,7 @@ def update_configs(
     constant_offset_sd = constant_offset_sd_cli
     white_noise_sd = white_noise_sd_cli
     DEBUG = debug_cli
-    RESUME = resume_cli
+    run_id = run_id_cli
     grad_accum = grad_accum_cli
     precision = precision_cli
     logger_level = getattr(logging, logger_level_cli.upper())
@@ -301,7 +303,22 @@ def update_configs(
     audio_lambda = audio_lambda_cli
     latent_affine = latent_affine_cli
     weight_decay = weight_decay_cli
+    ckpt_path = ckpt_path_cli
+    
     print("Updated configurations using command-line arguments.")
+
+if run_id != "":
+    run = get_neptune_run(run_id, project="neuro/Gaddy")
+    RESUME = True
+    hparams = nep_get(run, "training/hyperparams")
+else:
+    RESUME = False
+
+
+# lookup most recennt ckpt_path if not specified
+if run_id != "" and ckpt_path == "":
+    od = nep_get(run_id, "output_directory")
+    ckpt_path, latest_epoch = get_last_ckpt(od)
 
 
 if __name__ == "__main__" and not in_notebook():
@@ -458,38 +475,43 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 # assert steps_per_epoch > 100, "too few steps per epoch"
 # assert steps_per_epoch < 1000, "too many steps per epoch"
 ##
-text_transform = TextTransform(togglePhones=togglePhones)
+
 os.makedirs(output_directory, exist_ok=True)
 
+if RESUME:
+    config = MONAConfig(**hparams)
+else:
+    config = MONAConfig(
+        steps_per_epoch=steps_per_epoch,
+        lm_directory=lm_directory,
+        num_outs=num_outs,
+        precision=precision,
+        gradient_accumulation_steps=grad_accum,
+        learning_rate=learning_rate,
+        audio_lambda=audio_lambda,
+        # neural_input_features=datamodule.train.n_features,
+        neural_input_features=1,
+        seqlen=seqlen,
+        max_len=max_len,
+        batch_size=base_bz,
+        white_noise_sd=white_noise_sd,
+        constant_offset_sd=constant_offset_sd,
+        num_train_epochs=n_epochs,
+        togglePhones=togglePhones,
+        use_dtw=use_dtw,
+        use_crossCon=use_crossCon,
+        use_supCon=use_supCon,
+        batch_class_proportions=batch_class_proportions,
+        # d_inner=8,
+        # d_model=8,
+        fixed_length=True,
+        weight_decay=weight_decay,
+        latent_affine=latent_affine,
+    )
+    
+text_transform = TextTransform(togglePhones=config.togglePhones)
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1  # +1 for CTC blank token ( i think? )
-config = MONAConfig(
-    steps_per_epoch=steps_per_epoch,
-    lm_directory=lm_directory,
-    num_outs=num_outs,
-    precision=precision,
-    gradient_accumulation_steps=grad_accum,
-    learning_rate=learning_rate,
-    audio_lambda=audio_lambda,
-    # neural_input_features=datamodule.train.n_features,
-    neural_input_features=1,
-    seqlen=seqlen,
-    max_len=max_len,
-    batch_size=base_bz,
-    white_noise_sd=white_noise_sd,
-    constant_offset_sd=constant_offset_sd,
-    num_train_epochs=n_epochs,
-    togglePhones=togglePhones,
-    use_dtw=use_dtw,
-    use_crossCon=use_crossCon,
-    use_supCon=use_supCon,
-    batch_class_proportions=batch_class_proportions,
-    # d_inner=8,
-    # d_model=8,
-    fixed_length=True,
-    weight_decay=weight_decay,
-    latent_affine=latent_affine,
-)
 
 model = MONA(config, text_transform, no_neural=True)
 
@@ -514,6 +536,7 @@ if log_neptune:
         ],
     }
     if RESUME:
+        print(f"==== RESUMING RUN FROM EPOCH {latest_epoch} ====")
         neptune_logger = NeptuneLogger(
             run=neptune.init_run(
                 with_id=run_id,
@@ -595,11 +618,11 @@ else:
     trainer.fit(model, datamodule=datamodule)
 
 if log_neptune:
-    ckpt_path = os.path.join(
+    final_ckpt_path = os.path.join(
         output_directory, f"finished-training_epoch={model.current_epoch}.ckpt"
     )
-    trainer.save_checkpoint(ckpt_path)
-    print(f"saved checkpoint to {ckpt_path}")
+    trainer.save_checkpoint(final_ckpt_path)
+    print(f"saved checkpoint to {final_ckpt_path}")
 
 ##
 exit(0)
