@@ -9,7 +9,7 @@ import sys, os, jiwer
 import pytorch_lightning as pl, torchmetrics
 from torchaudio.models.decoder import ctc_decoder
 from torchaudio.functional import edit_distance
-from s4 import S4
+# from s4 import S4
 from data_utils import TextTransform, token_error_rate
 from magneto.models.hyena import HyenaOperator
 from flash_attn.modules.block import Block

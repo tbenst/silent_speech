@@ -162,7 +162,7 @@ if ON_SHERLOCK:
     sessions_dir = "/oak/stanford/projects/babelfish/magneto/"
     # TODO: bechmark SCRATCH vs LOCAL_SCRATCH ...?
     scratch_directory = os.environ["SCRATCH"]
-    librispeech_directory = "/oak/stanford/projects/babelfish/magneto/librispeech/cache"
+    librispeech_directory = "/oak/stanford/projects/babelfish/magneto/librispeech-cache"
     # scratch_directory = os.environ["LOCAL_SCRATCH"]
     # gaddy_dir = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/"
     gaddy_dir = os.path.join(scratch_directory, "GaddyPaper")
