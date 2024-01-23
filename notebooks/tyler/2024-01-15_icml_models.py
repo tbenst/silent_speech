@@ -92,6 +92,7 @@ from contrastive import (
 )
 import glob, scipy
 from helpers import load_npz_to_memory, get_last_ckpt, get_neptune_run, nep_get
+
 ##
 DEBUG = False
 # DEBUG = True
@@ -247,6 +248,7 @@ frac_vocal /= 2
 batch_class_proportions = np.array([frac_semg, frac_vocal, 0.5])
 latest_epoch = -1
 
+
 @app.command()
 def update_configs(
     constant_offset_sd_cli: float = typer.Option(0, "--constant-offset-sd"),
@@ -304,8 +306,9 @@ def update_configs(
     latent_affine = latent_affine_cli
     weight_decay = weight_decay_cli
     ckpt_path = ckpt_path_cli
-    
+
     print("Updated configurations using command-line arguments.")
+
 
 if run_id != "":
     run = get_neptune_run(run_id, project="neuro/Gaddy")
@@ -452,7 +455,6 @@ speech_test = cache_dataset(
     remove_attrs_before_pickle=["dataset"],
 )()
 
-
 datamodule = EMGAndSpeechModule(
     emg_datamodule.train,
     emg_datamodule.val,
@@ -508,7 +510,7 @@ else:
         weight_decay=weight_decay,
         latent_affine=latent_affine,
     )
-    
+
 text_transform = TextTransform(togglePhones=config.togglePhones)
 n_chars = len(text_transform.chars)
 num_outs = n_chars + 1  # +1 for CTC blank token ( i think? )

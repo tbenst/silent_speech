@@ -487,7 +487,10 @@ def cache_dataset(cache_path, Dataset=None, per_index_cache=False,
         # load cached instance & return closure
         def wrapper(*args, **kwargs):
             with open(instance_path, "rb") as f:
-                return pickle.load(f)
+                instance = pickle.load(f)
+                # in case cache has been moved
+                instance.cache_path = cache_path
+                return instance
 
         # for type stability, we return a Callable
         return wrapper
