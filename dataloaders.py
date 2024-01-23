@@ -1036,7 +1036,8 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             return len(iter(self))
 
 
-@persist_to_file(f"/lscratch/tbenst/2024-01-20c_emg_speech_dset_lengths.pkl")
+# @persist_to_file(f"/lscratch/tbenst/2024-01-20c_emg_speech_dset_lengths.pkl")
+@persist_to_file(f"/scratch/tbenst/2024-01-20c_emg_speech_dset_lengths.pkl")
 def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
 
