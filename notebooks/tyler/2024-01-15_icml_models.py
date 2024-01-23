@@ -482,7 +482,13 @@ os.makedirs(output_directory, exist_ok=True)
 
 if RESUME:
     config = MONAConfig(**hparams)
+    text_transform = TextTransform(togglePhones=config.togglePhones)
+    n_chars = len(text_transform.chars)
+    num_outs = n_chars + 1  # +1 for CTC blank token ( i think? )
 else:
+    text_transform = TextTransform(togglePhones=togglePhones)
+    n_chars = len(text_transform.chars)
+    num_outs = n_chars + 1  # +1 for CTC blank token ( i think? )
     config = MONAConfig(
         steps_per_epoch=steps_per_epoch,
         lm_directory=lm_directory,
@@ -510,10 +516,6 @@ else:
         weight_decay=weight_decay,
         latent_affine=latent_affine,
     )
-
-text_transform = TextTransform(togglePhones=config.togglePhones)
-n_chars = len(text_transform.chars)
-num_outs = n_chars + 1  # +1 for CTC blank token ( i think? )
 
 model = MONA(config, text_transform, no_neural=True)
 
