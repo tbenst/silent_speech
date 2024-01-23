@@ -17,9 +17,10 @@ hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
 import pytorch_lightning as pl, pickle
+from pytorch_lightning.plugins.environments import SLURMEnvironment
 import sys, warnings
 import numpy as np
-import logging
+import logging, signal
 import torchmetrics
 import random, typer
 from tqdm.auto import tqdm
@@ -95,6 +96,11 @@ DEBUG = False
 # DEBUG = True
 RESUME = False
 # RESUME = True
+
+# TODO:
+# # check if a SLURM re-queue
+# neptune_logger.experiment["SLURM_JOB_ID"] = os.environ["SLURM_JOB_ID"]
+
 
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
 # not sure if makes a difference since we use fp16
@@ -572,6 +578,8 @@ trainer = pl.Trainer(
     num_sanity_val_steps=0,
     # https://lightning.ai/docs/pytorch/stable/debug/debugging_intermediate.html#detect-autograd-anomalies
     # detect_anomaly=True # slooooow
+    # don't requeue jobs on SLURM if killed (e.g. on owners partition)
+    plugins=[SLURMEnvironment(auto_requeue=False)],
 )
 ##
 logging.info("about to fit")
