@@ -266,7 +266,7 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
-    run_id_cli: str = typer.Option("", "--run-id"),
+    run_id_cli: str = typer.Option(run_id, "--run-id"),
     ckpt_path_cli: str = typer.Option(ckpt_path, "--ckpt-path"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
     weight_decay_cli: float = typer.Option(weight_decay, "--weight-decay"),
@@ -310,7 +310,14 @@ def update_configs(
     print("Updated configurations using command-line arguments.")
 
 
+if __name__ == "__main__" and not in_notebook():
+    try:
+        app()
+    except SystemExit as e:
+        pass
+
 if run_id != "":
+    print(f"==== RESUMING RUN FROM EPOCH {latest_epoch} ====")
     run = get_neptune_run(run_id, project="neuro/Gaddy")
     RESUME = True
     hparams = nep_get(run, "training/hyperparams")
@@ -323,12 +330,6 @@ if run_id != "" and ckpt_path == "":
     od = nep_get(run_id, "output_directory")
     ckpt_path, latest_epoch = get_last_ckpt(od)
 
-
-if __name__ == "__main__" and not in_notebook():
-    try:
-        app()
-    except SystemExit as e:
-        pass
 
 # needed for using CachedDataset
 emg_datamodule = EMGDataModule(
