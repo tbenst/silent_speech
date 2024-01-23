@@ -317,7 +317,7 @@ if __name__ == "__main__" and not in_notebook():
         pass
 
 if run_id != "":
-    print(f"==== RESUMING RUN FROM EPOCH {latest_epoch} ====")
+    print("momentarily opening run in read-only mode to get hyperparams")
     run = get_neptune_run(run_id, project="neuro/Gaddy")
     RESUME = True
     hparams = nep_get(run, "training/hyperparams")
@@ -325,9 +325,9 @@ else:
     RESUME = False
 
 
-# lookup most recennt ckpt_path if not specified
+# lookup most recent ckpt_path if not specified
 if run_id != "" and ckpt_path == "":
-    od = nep_get(run_id, "output_directory")
+    od = nep_get(run, "output_directory")
     ckpt_path, latest_epoch = get_last_ckpt(od)
 
 
