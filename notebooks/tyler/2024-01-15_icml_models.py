@@ -237,10 +237,13 @@ audio_lambda = 1.0
 weight_decay = 0.1
 latent_affine = True
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
-batch_class_proportions = np.array([0.08, 0.42, 0.5])
-# batch_class_proportions = np.array([0.16, 0.42, 0.42])
-# batch_class_proportions = np.array([0.24, 0.34, 0.42])
-# batch_class_proportions = np.array([0.30, 0.60, 0.10])  # CUDA illegal memory access??
+# by utterance count, not by time
+frac_semg = 1588 / (5477 + 1588)
+frac_vocal = 1 - frac_semg
+frac_semg /= 2
+frac_vocal /= 2
+# TODO: should sweep librispeech ratios...
+batch_class_proportions = np.array([frac_semg, frac_vocal, 0.5])
 
 
 @app.command()
