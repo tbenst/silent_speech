@@ -6,6 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=60G
 #SBATCH --constraint=GPU_MEM:80GB
+#SBATCH --signal=B:SIGUSR1@90
 
 . activate magneto
 cd /home/users/tbenst/code/silent_speech/notebooks/tyler

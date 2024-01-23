@@ -8,7 +8,8 @@ from functools import partial
 from joblib import Memory
 from typing import List, Tuple
 from collections import defaultdict
-from joblib import Parallel, delayed
+from joblib import delayed
+from functional import ParallelTqdm
 
 
 def persist_to_file(file_name):
@@ -44,6 +45,7 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         text_transform: a TextTransform object that converts text to integers
         mfcc_norm: an MFCCNormalizer object that normalizes MFCCs
         alignment_dirs: Folders with TextGrid alignments
+        skip_chapter_ids: Set of chapter ids to skip (raise error)
 
     Can download alignments from e.g. https://zenodo.org/record/2619474
 
@@ -52,7 +54,9 @@ class LibrispeechDataset(torch.utils.data.Dataset):
     This breaks portability for a pickled class. terrible design.
     """
 
-    def __init__(self, dataset, text_transform, mfcc_norm, alignment_dirs):
+    def __init__(
+        self, dataset, text_transform, mfcc_norm, alignment_dirs, skip_chapter_ids=set()
+    ):
         super().__init__()
         self.dataset = dataset
         self.text_transform = text_transform
@@ -60,6 +64,7 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         self.alignment_dirs = alignment_dirs
         # we will delete the dataset when caching so save length
         self.length = len(dataset)
+        self.skip_chapter_ids = skip_chapter_ids
 
     def __len__(self):
         return self.length
@@ -84,6 +89,10 @@ class LibrispeechDataset(torch.utils.data.Dataset):
         item = self.dataset[index]
         audio = item["audio"]["array"]
         text = item["text"]
+        if item["chapter_id"] in self.skip_chapter_ids:
+            raise ValueError(
+                f"Skipping index {index} based on chapter id {item['chapter_id']}"
+            )
 
         audio = librosa.resample(audio, orig_sr=16000, target_sr=22050)
         audio = np.clip(
@@ -452,13 +461,15 @@ def split_batch_into_emg_neural_audio(batch):
     return emg_tup, neural_tup, audio_tup, idxs
 
 
-def cache_dataset(cache_path, Dataset=None, per_index_cache=False,
-                  remove_attrs_before_pickle=None):
+def cache_dataset(
+    cache_path, Dataset=None, per_index_cache=False, remove_attrs_before_save=None,
+    joblib_backend="threading"
+):
     """Class factory to modify Dataset to cache getitem to disk. Returns a Callable.
 
     This allows for retaining attributes & methods of the original Dataset class.
-    
-    `remove_attrs_before_pickle=["dataset"]` is useful to unbreak huggingface's
+
+    `remove_attrs_before_save=["dataset"]` is useful to unbreak huggingface's
     terrible design of classes depending on transient cache.
 
     Usage:
@@ -505,6 +516,8 @@ def cache_dataset(cache_path, Dataset=None, per_index_cache=False,
             Otherwise, cache the whole dataset.
             """
             super().__init__(*args, **kwargs)
+            self._about_to_save = False
+            self._joblib_backend = joblib_backend
 
             cached_attrs = [
                 "cache_path",
@@ -534,14 +547,15 @@ def cache_dataset(cache_path, Dataset=None, per_index_cache=False,
                 self.populate_cache()
 
             # save instance to file
+            self._about_to_save = True
             with open(instance_path, "wb") as f:
                 pickle.dump(self, f)
-        
+                
         def __getstate__(self):
             "Customize what gets pickled to avoid messy attributes."
             state = self.__dict__.copy()
-            if remove_attrs_before_pickle:
-                for attr in remove_attrs_before_pickle:
+            if self._about_to_save and remove_attrs_before_save:
+                for attr in remove_attrs_before_save:
                     if attr in state:
                         del state[attr]
             return state
@@ -565,34 +579,55 @@ def cache_dataset(cache_path, Dataset=None, per_index_cache=False,
                     print(e)
                     print(f"Failed to cache index {i}, skipping.")
 
+        def cache_single_index(self, i):
+            try:
+                data = super().__getitem__(i)
+                idx_path = os.path.join(self.cache_path, f"{i}.pkl")
+                with open(idx_path, "wb") as f:
+                    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                return i  # Return the index on success
+            except Exception as e:
+                print(e)
+                print(f"Failed to cache index {i}, skipping.")
+                return None  # Return None on failure
+
         def cache_each_index_to_disk(self):
-            self.approximate_memory_usage()
-            save_idx = 0
-            for i in tqdm(range(self.len), desc="Caching each index", total=self.len):
-                # Librispeech is missing some aligned phonemes, so we need to skip those
-                # this does mean the cache will be smaller than the dataset, and some
-                # indices may not match up
-                try:
-                    data = super().__getitem__(i)
-                    idx_path = os.path.join(self.cache_path, f"{save_idx}.pkl")
-                    with open(idx_path, "wb") as f:
-                        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-                    save_idx += 1
-                except Exception as e:
-                    print(e)
-                    print(f"Failed to cache index {i}, skipping.")
-                    self.len -= 1
 
-        def __len__(self):
-            return self.len
+            # Use joblib to parallelize caching
+            results = ParallelTqdm(n_jobs=-1, backend=self._joblib_backend,
+                                   total_tasks=self.len)(
+                delayed(self.cache_single_index)(i) for i in range(self.len)
+            )
 
-        def __getitem__(self, index):
-            if self.per_index_cache:
-                idx_path = os.path.join(self.cache_path, f"{index}.pkl")
-                with open(idx_path, "rb") as f:
-                    return pickle.load(f)
-            else:
-                return self.cache[index]
+            # Filter out None and rebuild the index mapping
+            successful_indices = [i for i in results if i is not None]
+            self.index_mapping = {
+                new_idx: original_idx
+                for new_idx, original_idx in enumerate(successful_indices)
+            }
+            self.len = len(
+                successful_indices
+            )  # Update the length based on successful caching
+
+            # Save the index mapping
+            mapping_path = os.path.join(self.cache_path, "index_mapping.pkl")
+            with open(mapping_path, "wb") as f:
+                pickle.dump(self.index_mapping, f)
+
+            def __len__(self):
+                return self.len
+
+            def __getitem__(self, index):
+                if self.per_index_cache:
+                    # Use the index mapping to find the correct file
+                    original_idx = self.index_mapping.get(index, None)
+                    if original_idx is None:
+                        raise IndexError(f"Index {index} not found in cached dataset.")
+                    idx_path = os.path.join(self.cache_path, f"{original_idx}.pkl")
+                    with open(idx_path, "rb") as f:
+                        return pickle.load(f)
+                else:
+                    return self.cache[index]
 
     return CachedDataset
 
@@ -1040,7 +1075,9 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
 
 
 # @persist_to_file(f"/lscratch/tbenst/2024-01-20c_emg_speech_dset_lengths.pkl")
-@persist_to_file(os.path.join(os.environ["SCRATCH"], "2024-01-20c_emg_speech_dset_lengths.pkl"))
+@persist_to_file(
+    os.path.join(os.environ["SCRATCH"], "2024-01-20c_emg_speech_dset_lengths.pkl")
+)
 def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
 
@@ -2044,7 +2081,7 @@ class DistributedBatchSampler(torch.utils.data.Sampler):
             return len(list(self.iter_batches(rank)))
 
         # Calculate batch lengths in parallel
-        results = Parallel(n_jobs=-1)(
+        results = ParallelTqdm(n_jobs=-1)(
             delayed(batch_length)(epoch, rank)
             for epoch in range(num_epochs)
             for rank in range(self.num_replicas)

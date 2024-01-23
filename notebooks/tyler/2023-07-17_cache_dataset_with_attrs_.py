@@ -45,17 +45,17 @@ else:
     gaddy_dir = "/scratch/GaddyPaper/"
 
 librispeech_train_cache = os.path.join(
-    scratch_directory, "librispeech", "2024-01-20_librispeech_train_phoneme_cache"
+    scratch_directory, "librispeech-cache", "2024-01-23_librispeech_noleak_train_phoneme_cache"
 )
 librispeech_val_cache = os.path.join(
-    scratch_directory, "librispeech", "2024-01-20_librispeech_val_phoneme_cache"
+    scratch_directory, "librispeech-cache", "2024-01-23_librispeech_noleak_val_phoneme_cache"
 )
-# librispeech_val_cache = os.path.join(scratch_directory, "librispeech",
+# librispeech_val_cache = os.path.join(scratch_directory, "librispeech-cache",
 #   "librispeech_val_phoneme_cache.pkl")
 librispeech_test_cache = os.path.join(
-    scratch_directory, "librispeech", "2024-01-20_librispeech_test_phoneme_cache"
+    scratch_directory, "librispeech-cache", "2024-01-23_librispeech_noleak_test_phoneme_cache"
 )
-alignment_dir = os.path.join(scratch_directory, "librispeech", "librispeech-alignments")
+alignment_dir = os.path.join(scratch_directory, "librispeech-alignments")
 
 ##
 alignment_dirs = [os.path.join(alignment_dir, d) for d in os.listdir(alignment_dir)]
@@ -64,35 +64,46 @@ cached_speech_val = cache_dataset(
     librispeech_val_cache,
     LibrispeechDataset,
     per_index_cache,
-    remove_attrs_before_pickle=["dataset"],
+    remove_attrs_before_save=["dataset"],
+    # resolve https://github.com/guyhwilson/silent_speech/issues/5
+    # other has leak for War of the Worlds
 )(
     librispeech_clean_val,
     text_transform,
     mfcc_norm,
     list(filter(lambda x: "dev" in x, alignment_dirs)),
+    skip_chapter_ids={
+        127182, 127183, 127193, 127195, 128861, 141081, 141082, 141083, 141084
+    }
 )
 del cached_speech_val
 cached_speech_train = cache_dataset(
     librispeech_train_cache,
     LibrispeechDataset,
     per_index_cache,
-    remove_attrs_before_pickle=["dataset"],
+    remove_attrs_before_save=["dataset"],
 )(
     librispeech_train,
     text_transform,
     mfcc_norm,
     list(filter(lambda x: "train" in x, alignment_dirs)),
+    skip_chapter_ids={
+        127182, 127183, 127193, 127195, 128861, 141081, 141082, 141083, 141084
+    }
 )
 del cached_speech_train
 cached_speech_test = cache_dataset(
     librispeech_test_cache,
     LibrispeechDataset,
     per_index_cache,
-    remove_attrs_before_pickle=["dataset"],
+    remove_attrs_before_save=["dataset"],
 )(
     librispeech_clean_test,
     text_transform,
     mfcc_norm,
     list(filter(lambda x: "test" in x, alignment_dirs)),
+    skip_chapter_ids={
+        127182, 127183, 127193, 127195, 128861, 141081, 141082, 141083, 141084
+    }
 )
 del cached_speech_test

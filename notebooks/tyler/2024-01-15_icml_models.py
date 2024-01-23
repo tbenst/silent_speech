@@ -554,6 +554,8 @@ if log_neptune:
         neptune_logger = NeptuneLogger(
             api_key=nep_key, **neptune_kwargs, log_model_checkpoints=False
         )
+        # TODO: get run_id from neptune_logger
+        run_id = neptune_logger.experiment.run.fetch()["sys"]["id"]
         neptune_logger.log_hyperparams(vars(config))
         neptune_logger.experiment["isotime"] = isotime
         neptune_logger.experiment["hostname"] = hostname.stdout.decode().strip()
@@ -612,6 +614,31 @@ trainer = pl.Trainer(
     # don't requeue jobs on SLURM if killed (e.g. on owners partition)
     plugins=[SLURMEnvironment(auto_requeue=False)],
 )
+
+
+def resubmit_job(sig, frame):
+    """
+    Function to resubmit the job with the same run_id
+    """
+    global run_id
+    if run_id:
+        print(f"Got SIGUSR1. Resubmitting job with run_id: {run_id}")
+        subprocess.run(
+            [
+                "sbatch",
+                "/home/users/tbenst/code/silent_speech/notebooks/tyler/2024-01-15_icml_models.py",
+                "--run-id",
+                run_id,
+            ]
+        )
+    else:
+        print("No run_id provided, cannot resubmit job.")
+
+
+if "SLURM_JOB_ID" in os.environ:
+    print("Job running under SLURM, setting up signal handler for SIGUSR1.")
+    signal.signal(signal.SIGUSR1, resubmit_job)
+
 ##
 logging.info("about to fit")
 print(f"Sanity check: {len(datamodule.train)} training samples")

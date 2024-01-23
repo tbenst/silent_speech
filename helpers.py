@@ -10,7 +10,6 @@ import jiwer
 import neptune.new as neptune
 from pytorch_lightning.loggers import NeptuneLogger
 
-
 def sentence_to_fn(sentence, directory, ext=".wav"):
     fn = re.sub(r"[^\w\s]", "", sentence)  # remove punctuation
     fn = fn.lower().replace(" ", "_")  # lowercase with underscores
@@ -236,3 +235,4 @@ def get_last_ckpt(directory):
 
 def nep_get(logger, key):
     return logger.experiment.get_attribute(key).fetch()
+
