@@ -323,8 +323,8 @@ class XtoText(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx, task="val"):
         ret = self.forward(batch, fixed_length=False)
-        # supCon will fail for silent-only data
-        c = self.calc_loss(**ret, use_supCon=False, use_crossCon=False, use_dtw=False)
+        # supTcon will fail for silent-only data
+        c = self.calc_loss(**ret, use_supTcon=False, use_crossCon=False, use_dtw=False)
         warn("only using EMG data for validation")
         pred = ret["emg_pred"]
         loss = c["loss"]
@@ -1157,7 +1157,7 @@ class MONAConfig(XtoTextConfig):
     togglePhones: bool = False
     use_dtw: bool = True
     use_crossCon: bool = True
-    use_supCon: bool = True
+    use_supTcon: bool = True
     batch_class_proportions: np.ndarray = np.array([0.16, 0.42, 0.42])
     latent_affine: bool = False  # so emg&audio latent are both unit norm
 
@@ -1293,7 +1293,7 @@ class MONA(GaddyBase):
         self.fixed_length = cfg.fixed_length
         self.use_dtw = cfg.use_dtw
         self.use_crossCon = cfg.use_crossCon
-        self.use_supCon = cfg.use_supCon
+        self.use_supTcon = cfg.use_supTcon
         self.warmup_steps = cfg.warmup_steps
         # self.supervised_contrastive_loss = SupConLoss(temperature=0.1)
 
@@ -1564,14 +1564,14 @@ class MONA(GaddyBase):
         emg_bz,
         neural_bz,
         audio_bz,
-        use_supCon=None,
+        use_supTcon=None,
         use_crossCon=None,
         use_dtw=None,
         **kwargs,
     ):
         # print(f"{torch.concatenate(emg_z).shape=}, {torch.concatenate(audio_z).shape=}, {torch.concatenate(emg_phonemes).shape=}, {torch.concatenate(audio_phonemes).shape=}")
-        if use_supCon is None:
-            use_supCon = self.use_supCon
+        if use_supTcon is None:
+            use_supTcon = self.use_supTcon
         if use_crossCon is None:
             use_crossCon = self.use_crossCon
         if use_dtw is None:
@@ -1634,7 +1634,7 @@ class MONA(GaddyBase):
                 # print(f"cdist: {costs.dtype}")
                 # print(f"cos dissim: {costs.dtype}")
 
-            if use_crossCon or use_supCon:
+            if use_crossCon or use_supTcon:
                 # save on compute & avoid val crashes by only computing alignment on train
 
                 emg_to_concat = [emg_z[i] for i in paired_emg_idx] + [
@@ -1675,7 +1675,7 @@ class MONA(GaddyBase):
                 emg_audio_contrastive_loss = 0.0
 
             ###### Supervised NCE #######
-            if use_supCon:
+            if use_supTcon:
                 emg_phonemes_to_concat = [emg_phonemes[i] for i in paired_emg_idx] + [
                     emg_phonemes[i] for i in parallel_emg_idx
                 ]

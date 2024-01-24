@@ -3,7 +3,7 @@
 # 2023-07-25_dtw_speech_silent_emg.py : best sEMG results
 # 2023-08-24_brain_to_text_comp_split.py : most recent brain-to-text results, uses MONA name
 # to run:
-# CUDA_VISIBLE_DEVICES=0 taskset -c 0-7 python 2024-01-15_icml_models.py --no-dtw --no-supCon
+# CUDA_VISIBLE_DEVICES=0 taskset -c 0-7 python 2024-01-15_icml_models.py --no-dtw --no-supTcon
 2
 ##
 # %load_ext autoreload
@@ -107,9 +107,9 @@ DEBUG = False
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
 # not sure if makes a difference when we use fp16 / bf16
 # use TF32 cores on A100 (19-bit)
-torch.set_float32_matmul_precision("high") # highest (32-bit) by default
-torch.backends.cuda.matmul.allow_tf32 = True # false by default
-torch.backends.cudnn.allow_tf32 = True # should be True by default
+torch.set_float32_matmul_precision("high")  # highest (32-bit) by default
+torch.backends.cuda.matmul.allow_tf32 = True  # false by default
+torch.backends.cudnn.allow_tf32 = True  # should be True by default
 run_id = ""
 ckpt_path = ""
 # ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
@@ -215,7 +215,7 @@ elif ON_SHERLOCK:
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 if not gpu_ram > 70:
-    warn("expecting A100 80GB, may OOM with supCon")
+    warn("expecting A100 80GB, may OOM with supTcon")
 ##
 # base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
@@ -223,7 +223,7 @@ base_bz = 24 * 4
 val_bz = 2  # terrible memory usage even at 8, I'm not sure why so bad...
 # gaddy used max_len = 128000, we double because of LibriSpeech
 # TODO: try 512000 and grad_accum=1 (prob OOM but might be faster!)
-# also almost def won't work for supCon + dtw
+# also almost def won't work for supTcon + dtw
 # max_len = 48000 # from best perf with 4 x V100
 max_len = 128000  #
 # max_len = 64000
@@ -240,7 +240,7 @@ white_noise_sd = 0
 constant_offset_sd = 0
 use_dtw = True
 use_crossCon = True
-use_supCon = True
+use_supTcon = True
 audio_lambda = 1.0
 weight_decay = 0.1
 latent_affine = True
@@ -264,7 +264,7 @@ def update_configs(
     phonemes_cli: bool = typer.Option(False, "--phonemes/--no-phonemes"),
     use_dtw_cli: bool = typer.Option(use_dtw, "--dtw/--no-dtw"),
     use_crossCon_cli: bool = typer.Option(use_crossCon, "--crossCon/--no-crossCon"),
-    use_supCon_cli: bool = typer.Option(use_supCon, "--supCon/--no-supCon"),
+    use_supTcon_cli: bool = typer.Option(use_supTcon, "--supTcon/--no-supTcon"),
     grad_accum_cli: int = typer.Option(grad_accum, "--grad-accum"),
     precision_cli: str = typer.Option(precision, "--precision"),
     logger_level_cli: str = typer.Option("WARNING", "--logger-level"),
@@ -284,7 +284,7 @@ def update_configs(
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, grad_accum
     global precision, logger_level, base_bz, val_bz, max_len, seqlen
-    global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supCon
+    global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supTcon
     global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
 
     # devices = devices_cli
@@ -294,7 +294,7 @@ def update_configs(
     #     pass
     use_dtw = use_dtw_cli
     use_crossCon = use_crossCon_cli
-    use_supCon = use_supCon_cli
+    use_supTcon = use_supTcon_cli
     togglePhones = phonemes_cli
     learning_rate = learning_rate_cli
     constant_offset_sd = constant_offset_sd_cli
@@ -516,7 +516,7 @@ else:
         togglePhones=togglePhones,
         use_dtw=use_dtw,
         use_crossCon=use_crossCon,
-        use_supCon=use_supCon,
+        use_supTcon=use_supTcon,
         batch_class_proportions=batch_class_proportions,
         # d_inner=8,
         # d_model=8,
@@ -616,7 +616,6 @@ trainer = pl.Trainer(
     num_sanity_val_steps=0,
     # https://lightning.ai/docs/pytorch/stable/debug/debugging_intermediate.html#detect-autograd-anomalies
     # detect_anomaly=True # slooooow
-    
     # don't requeue jobs on SLURM if killed (e.g. on owners partition)
     # plugins=[SLURMEnvironment(auto_requeue=False)],
     # actually, let's not use this since it's not clear if it works with neptune

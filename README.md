@@ -15,6 +15,17 @@ Force-aligned phonemes from the Montreal Forced Aligner can be downloaded from <
 By default, this data is expected to be in a subdirectory `text_alignments`.
 Note that there will not be an exception if the directory is not found, but logged phoneme prediction accuracies reporting 100% is a sign that the directory has not been loaded correctly.
 
+## ICML runs
+```
+sbatch ~/nks/submit.sh --precision 32
+sbatch ~/nks/submit.sh --precision 32 --no-dtw
+sbatch ~/nks/submit.sh --precision 32 --no-dtw --no-supTcon
+sbatch ~/nks/submit.sh --precision 32 --no-dtw --no-crossCon
+sbatch ~/nks/submit-owners.sh --precision 32 --no-dtw --no-crossCon --no-supTcon
+sbatch ~/nks/submit-owners.sh --precision 32 --no-dtw --no-crossCon --no-supTcon --audio-lambda 0.0
+
+```
+
 ## Environment Setup
 
 ### alternate setup
