@@ -1163,7 +1163,7 @@ class MONAConfig(XtoTextConfig):
 
     def __post_init__(self):
         if self.warmup_steps is None:
-            self.warmup_steps = 500 // self.gradient_accumulation_steps
+            self.warmup_steps = 1000 // self.gradient_accumulation_steps
 
 
 class MONA(GaddyBase):
@@ -1294,7 +1294,7 @@ class MONA(GaddyBase):
         self.use_dtw = cfg.use_dtw
         self.use_crossCon = cfg.use_crossCon
         self.use_supCon = cfg.use_supCon
-
+        self.warmup_steps = cfg.warmup_steps
         # self.supervised_contrastive_loss = SupConLoss(temperature=0.1)
 
     def emg_encoder(self, x):
@@ -1826,7 +1826,6 @@ class MONA(GaddyBase):
         )
 
         # Warmup steps and epochs
-        warmup_steps = 1000
         milestone_epochs = [125, 150, 175]
 
         # Total number of steps for training
@@ -1834,8 +1833,8 @@ class MONA(GaddyBase):
 
         # Define the lambda function for learning rate schedule
         lr_lambda = (
-            lambda step: min(1.0, step / warmup_steps)
-            if step < warmup_steps
+            lambda step: min(1.0, step / self.warmup_steps)
+            if step < self.warmup_steps
             else 0.5
             ** len(
                 [
