@@ -16,7 +16,7 @@ script_path="~/nks/submit-owners.sh"
 submit_job () {
     for ((i=1; i<=num_submissions; i++))
     do
-        echo sbatch $@
+        ssbatch $@
     done
 }
 
