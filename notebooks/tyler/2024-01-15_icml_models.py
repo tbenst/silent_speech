@@ -92,6 +92,7 @@ from contrastive import (
     supervised_contrastive_loss,
 )
 import glob, scipy
+from warnings import warn
 from helpers import load_npz_to_memory, get_last_ckpt, get_neptune_run, nep_get
 
 ##
@@ -211,7 +212,8 @@ elif ON_SHERLOCK:
     )
 
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-assert gpu_ram > 70, "needs A100 80GB"
+if not gpu_ram > 70:
+    warn("expecting A100 80GB, may OOM with supCon")
 ##
 # base_bz was 24 per GPU when run on 4 GPUs
 # of classes in each batch. and maybe overrepresents silent EMG
@@ -452,7 +454,6 @@ speech_train = cache_dataset(
     per_index_cache,
     remove_attrs_before_save=["dataset"],
 )()
-speech_train.len = 281185  # TODO: recompute cache and remove this hack
 speech_test = cache_dataset(
     librispeech_test_cache,
     LibrispeechDataset,

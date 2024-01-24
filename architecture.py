@@ -27,6 +27,7 @@ from contrastive import (
 from typing import Tuple
 from pytorch_lightning.loggers import NeptuneLogger
 from align import align_from_distances
+from torch.optim.lr_scheduler import LambdaLR
 
 from collections import defaultdict
 from warnings import warn
@@ -1820,49 +1821,32 @@ class MONA(GaddyBase):
     #     self.log_dict(norms)
 
     def configure_optimizers(self):
-        initial_lr = self.target_lr / self.learning_rate_warmup
-
-        # for FSDP
         optimizer = torch.optim.AdamW(
-            self.trainer.model.parameters(),
-            lr=initial_lr,
-            weight_decay=self.weight_decay,
+            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer,
-            milestones=[
-                125 * self.steps_per_epoch,
-                150 * self.steps_per_epoch,
-                175 * self.steps_per_epoch,
-            ],
-            gamma=0.5,
+        # Warmup steps and epochs
+        warmup_steps = 1000
+        milestone_epochs = [125, 150, 175]
+
+        # Total number of steps for training
+        total_steps = self.trainer.estimated_stepping_batches
+
+        # Define the lambda function for learning rate schedule
+        lr_lambda = (
+            lambda step: min(1.0, step / warmup_steps)
+            if step < warmup_steps
+            else 0.5
+            ** len(
+                [
+                    m
+                    for m in milestone_epochs
+                    if m * total_steps // self.trainer.max_epochs <= step
+                ]
+            )
         )
-        lr_scheduler = {"scheduler": scheduler, "interval": "step"}
 
-        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler}
+        # Scheduler with linear warmup and decay at specified epochs
+        scheduler = LambdaLR(optimizer, lr_lambda)
 
-    def set_lr(self, new_lr):
-        optimizer = self.optimizers().optimizer
-        for param_group in optimizer.param_groups:
-            param_group["lr"] = new_lr
-
-    def lr_scheduler_step(self, scheduler, metric):
-        # warmup per Gaddy
-
-        # print(f"lr_scheduler_step: {self.global_step=}")
-        # optimizer = self.optimizers().optimizer
-        # for param_group in optimizer.param_groups:
-        #     print(f"lr: {param_group['lr']}")
-        if metric is None:
-            scheduler.step()
-        else:
-            scheduler.step(metric)
-
-        # TODO:  switch to a new (proper) scheduler that supports
-        # linear warmup and gamma decay
-
-        # linear warmup
-        if self.global_step <= self.learning_rate_warmup:
-            new_lr = self.global_step * self.target_lr / self.learning_rate_warmup
-            self.set_lr(new_lr)
+        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
