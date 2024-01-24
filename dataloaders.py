@@ -1075,9 +1075,8 @@ class DistributedSizeAwareStratifiedBatchSampler(DistributedStratifiedBatchSampl
             return len(iter(self))
 
 
-# @persist_to_file(f"/lscratch/tbenst/2024-01-20c_emg_speech_dset_lengths.pkl")
 @persist_to_file(
-    os.path.join(os.environ["SCRATCH"], "2024-01-20c_emg_speech_dset_lengths.pkl")
+    os.path.join(os.environ["SCRATCH"], "2024-01-24_emg_speech_dset_lengths.pkl")
 )
 def emg_speech_dset_lengths(dset: torch.utils.data.Dataset):
     """Calculate length of latent space for each example in dataset.
@@ -1852,6 +1851,7 @@ def pack_items(
     assert (
         type(classes[0]) is int or type(classes[0]) is np.int64
     ), f"{type(classes[0])=}"
+    assert len(lengths) == len(classes), f"{len(lengths)=}, must equal {len(classes)=}"
     items = []
     new_classes = []
     for i, l in enumerate(lengths):
