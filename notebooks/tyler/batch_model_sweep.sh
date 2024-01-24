@@ -9,8 +9,11 @@ else
     num_submissions=$1
 fi
 
+# Get the directory of the script itself
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
 # Define the script to be submitted
-script_path="~/nks/submit-owners.sh"
+script_path="$script_dir/submit-owners.sh"
 
 # Function to submit a job N times
 submit_job () {
