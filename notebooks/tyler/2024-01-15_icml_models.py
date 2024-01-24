@@ -130,6 +130,7 @@ if DEBUG:
     # limit_val_batches = None
     log_neptune = False
     n_epochs = 2
+    # n_epochs = 200
     # precision = "32"
     # precision = "16-mixed"
     precision = "bf16-mixed"
@@ -529,10 +530,7 @@ model = MONA(config, text_transform, no_neural=True)
 ##
 logging.info("made model")
 
-callbacks = [
-    # starting at epoch 0, accumulate this many batches of gradients
-    GradientAccumulationScheduler(scheduling={0: config.gradient_accumulation_steps})
-]
+callbacks = []
 
 if log_neptune:
     # need to store credentials in your shell env
@@ -597,6 +595,7 @@ trainer = pl.Trainer(
     max_epochs=config.num_train_epochs,
     devices=devices,
     accelerator="gpu",
+    accumulate_grad_batches=config.gradient_accumulation_steps,
     # accelerator="cpu",
     gradient_clip_val=1,  # was 0.5 for best 26.x% run, gaddy used 10, llama 2 uses 1.0
     logger=neptune_logger,
@@ -617,8 +616,13 @@ trainer = pl.Trainer(
     num_sanity_val_steps=0,
     # https://lightning.ai/docs/pytorch/stable/debug/debugging_intermediate.html#detect-autograd-anomalies
     # detect_anomaly=True # slooooow
+    
     # don't requeue jobs on SLURM if killed (e.g. on owners partition)
-    plugins=[SLURMEnvironment(auto_requeue=False)],
+    # plugins=[SLURMEnvironment(auto_requeue=False)],
+    # actually, let's not use this since it's not clear if it works with neptune
+    # instead, we'll use a signal handler to resubmit the job
+    # so we will submit job with name "interactive" to bypass
+    # pytorch lightning SLURM
 )
 
 

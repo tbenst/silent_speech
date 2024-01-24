@@ -4,6 +4,7 @@ import pytorch_lightning as pl
 from transformers import get_constant_schedule_with_warmup
 from torch.optim.lr_scheduler import MultiStepLR, ChainedScheduler, LambdaLR
 from pytorch_lightning.loggers import NeptuneLogger
+from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
 
 
 class DummyModel(pl.LightningModule):
@@ -73,11 +74,14 @@ neptune_logger = NeptuneLogger(
 trainer = pl.Trainer(
     max_epochs=200,
     logger=neptune_logger,
+    accumulate_grad_batches=2, # lr schedule is right
     callbacks=[
-        # pl.callbacks.LearningRateMonitor(logging_interval="step")
-        pl.callbacks.LearningRateMonitor(logging_interval="epoch")
+        # GradientAccumulationScheduler(scheduling={0: 2}), # lr schedule is wrong
+        pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
     ],
 )
+print(trainer.estimated_stepping_batches)
+
 trainer.fit(model)
 neptune_logger.finalize("success")
 neptune_logger.experiment.stop()
