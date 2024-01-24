@@ -462,8 +462,11 @@ def split_batch_into_emg_neural_audio(batch):
 
 
 def cache_dataset(
-    cache_path, Dataset=None, per_index_cache=False, remove_attrs_before_save=None,
-    joblib_backend="threading"
+    cache_path,
+    Dataset=None,
+    per_index_cache=False,
+    remove_attrs_before_save=None,
+    joblib_backend="threading",
 ):
     """Class factory to modify Dataset to cache getitem to disk. Returns a Callable.
 
@@ -550,7 +553,7 @@ def cache_dataset(
             self._about_to_save = True
             with open(instance_path, "wb") as f:
                 pickle.dump(self, f)
-                
+
         def __getstate__(self):
             "Customize what gets pickled to avoid messy attributes."
             state = self.__dict__.copy()
@@ -592,12 +595,10 @@ def cache_dataset(
                 return None  # Return None on failure
 
         def cache_each_index_to_disk(self):
-
             # Use joblib to parallelize caching
-            results = ParallelTqdm(n_jobs=-1, backend=self._joblib_backend,
-                                   total_tasks=self.len)(
-                delayed(self.cache_single_index)(i) for i in range(self.len)
-            )
+            results = ParallelTqdm(
+                n_jobs=-1, backend=self._joblib_backend, total_tasks=self.len
+            )(delayed(self.cache_single_index)(i) for i in range(self.len))
 
             # Filter out None and rebuild the index mapping
             successful_indices = [i for i in results if i is not None]
@@ -614,20 +615,20 @@ def cache_dataset(
             with open(mapping_path, "wb") as f:
                 pickle.dump(self.index_mapping, f)
 
-            def __len__(self):
-                return self.len
+        def __len__(self):
+            return self.len
 
-            def __getitem__(self, index):
-                if self.per_index_cache:
-                    # Use the index mapping to find the correct file
-                    original_idx = self.index_mapping.get(index, None)
-                    if original_idx is None:
-                        raise IndexError(f"Index {index} not found in cached dataset.")
-                    idx_path = os.path.join(self.cache_path, f"{original_idx}.pkl")
-                    with open(idx_path, "rb") as f:
-                        return pickle.load(f)
-                else:
-                    return self.cache[index]
+        def __getitem__(self, index):
+            if self.per_index_cache:
+                # Use the index mapping to find the correct file
+                original_idx = self.index_mapping.get(index, None)
+                if original_idx is None:
+                    raise IndexError(f"Index {index} not found in cached dataset.")
+                idx_path = os.path.join(self.cache_path, f"{original_idx}.pkl")
+                with open(idx_path, "rb") as f:
+                    return pickle.load(f)
+            else:
+                return self.cache[index]
 
     return CachedDataset
 
@@ -2081,7 +2082,8 @@ class DistributedBatchSampler(torch.utils.data.Sampler):
             return len(list(self.iter_batches(rank)))
 
         # Calculate batch lengths in parallel
-        results = ParallelTqdm(n_jobs=-1)(
+        results = ParallelTqdm(n_jobs=-1,
+                               total_tasks=num_epochs * self.num_replicas)(
             delayed(batch_length)(epoch, rank)
             for epoch in range(num_epochs)
             for rank in range(self.num_replicas)
