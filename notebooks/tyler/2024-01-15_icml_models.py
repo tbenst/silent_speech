@@ -105,10 +105,11 @@ DEBUG = False
 
 
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
-# not sure if makes a difference since we use fp16
-torch.set_float32_matmul_precision("high")
-# torch.set_float32_matmul_precision("medium")  # bfloat16
-# torch.set_float32_matmul_precision("medium" | "high")
+# not sure if makes a difference when we use fp16 / bf16
+# use TF32 cores on A100 (19-bit)
+torch.set_float32_matmul_precision("high") # highest (32-bit) by default
+torch.backends.cuda.matmul.allow_tf32 = True # false by default
+torch.backends.cudnn.allow_tf32 = True # should be True by default
 run_id = ""
 ckpt_path = ""
 # ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
