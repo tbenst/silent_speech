@@ -171,5 +171,6 @@ https://montreal-forced-aligner.readthedocs.io/en/latest/first_steps/index.html#
 Fast transfer of cache on sherlock to local NVME
 ```
 cd $MAG/librispeech
-find . -type f | parallel -j 10 rsync -avPR {} $LOCAL_SCRATCH/librispeech/
+find . -type f | parallel -j 16 rsync -avPR {} $LOCAL_SCRATCH/librispeech/
 ```
+find . -type f | parallel -j 16 rsync -avPR {} $SCRATCH/librispeech/
