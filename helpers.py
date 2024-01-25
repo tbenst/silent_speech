@@ -10,6 +10,7 @@ import jiwer
 import neptune.new as neptune
 from pytorch_lightning.loggers import NeptuneLogger
 
+
 def sentence_to_fn(sentence, directory, ext=".wav"):
     fn = re.sub(r"[^\w\s]", "", sentence)  # remove punctuation
     fn = fn.lower().replace(" ", "_")  # lowercase with underscores
@@ -222,17 +223,15 @@ def get_last_ckpt(directory):
                     epoch = int(match.group(1))
                     epochs.append(epoch)
                     ckpt_paths.append(os.path.join(root, file))
-                else:
-                    epochs.append(-1)  # In case the pattern doesn't match
 
     # Find the index of the checkpoint with the highest epoch number
     if epochs:  # Ensure list is not empty
         max_epoch_idx = np.argmax(epochs)
+        print(f"Found checkpoint {max_epoch_idx=}, {ckpt_paths=}, {epochs=}")
         return ckpt_paths[max_epoch_idx], max_epoch_idx
     else:
-        return None
+        raise ValueError("No checkpoints found in directory.")
 
 
 def nep_get(logger, key):
     return logger.experiment.get_attribute(key).fetch()
-

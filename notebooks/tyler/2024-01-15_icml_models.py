@@ -322,26 +322,33 @@ if __name__ == "__main__" and not in_notebook():
     except SystemExit as e:
         pass
 
+if ckpt_path != "":
+    raise NotImplementedError("TODO: implement output_directory for ckpt_path")
+
+if run_id != "":
+    MANUAL_RESUME = True
+else:
+    MANUAL_RESUME = False
+    output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
+
+SLURM_REQUEUE = False
+if not MANUAL_RESUME and ON_SHERLOCK:
+    # output_directory = os.path.join(os.environ["SCRATCH"], f"{isotime}_gaddy")
+    # see if this fixes pytorch lightning SLURM auto-resume
+    output_directory = os.path.join(os.environ["SCRATCH"], os.environ["SLURM_JOB_ID"])
+    if os.path.exists(output_directory):
+        SLURM_REQUEUE = True
+        run_id_file = os.path.join(output_directory, "run_id.txt")
+        with open(run_id_file, "r") as file:
+            run_id = file.read().strip()
+        print(f"SLURM requeue detected, resuming run_id={run_id}")
+
 if run_id != "":
     print("momentarily opening run in read-only mode to get hyperparams")
     run = get_neptune_run(run_id, project="neuro/Gaddy")
-    RESUME = True
     hparams = nep_get(run, "training/hyperparams")
-else:
-    RESUME = False
-
-
-# lookup most recent ckpt_path if not specified
-if run_id != "" and ckpt_path == "":
     output_directory = nep_get(run, "output_directory")
     ckpt_path, latest_epoch = get_last_ckpt(output_directory)
-elif ckpt_path != "":
-    raise NotImplementedError("TODO: implement output_directory for ckpt_path")
-elif ON_SHERLOCK:
-    # TODO: should we just use the scratch directory over LOCAL_SCRATCH?
-    output_directory = os.path.join(os.environ["SCRATCH"], f"{isotime}_gaddy")
-else:
-    output_directory = os.path.join(scratch_directory, f"{isotime}_gaddy")
 
 
 # needed for using CachedDataset
@@ -488,7 +495,7 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 
 os.makedirs(output_directory, exist_ok=True)
 
-if RESUME:
+if MANUAL_RESUME or SLURM_REQUEUE:
     config = MONAConfig(**hparams)
     text_transform = TextTransform(togglePhones=config.togglePhones)
     n_chars = len(text_transform.chars)
@@ -544,7 +551,7 @@ if log_neptune:
             f"fp{config.precision}",
         ],
     }
-    if RESUME:
+    if MANUAL_RESUME or SLURM_REQUEUE:
         print(f"==== RESUMING RUN FROM EPOCH {latest_epoch} ====")
         neptune_logger = NeptuneLogger(
             run=neptune.init_run(
@@ -566,6 +573,11 @@ if log_neptune:
         neptune_logger.experiment["output_directory"] = output_directory
         if "SLURM_JOB_ID" in os.environ:
             neptune_logger.experiment["SLURM_JOB_ID"] = os.environ["SLURM_JOB_ID"]
+
+    # save run_id for SLURM requeue
+    run_id_file = os.path.join(output_directory, "run_id.txt")
+    with open(run_id_file, "w") as file:
+        file.write(run_id)
 
     # checkpoint_callback = ModelCheckpoint(
     #     monitor="val/emg_ctc_loss",
@@ -624,36 +636,36 @@ trainer = pl.Trainer(
     # pytorch lightning SLURM
 )
 
+# commented out to use pytorch lightning SLURM auto-resume instead
+# def resubmit_job(sig, frame):
+#     """
+#     Function to resubmit the job with the same run_id
+#     """
+#     global run_id
+#     if run_id:
+#         print(f"Got SIGUSR1. Resubmitting job with run_id: {run_id}")
+#         subprocess.run(
+#             [
+#                 "sbatch",
+#                 "/home/users/tbenst/code/silent_speech/notebooks/tyler/2024-01-15_icml_models.py",
+#                 "--run-id",
+#                 run_id,
+#             ]
+#         )
+#     else:
+#         print("No run_id provided, cannot resubmit job.")
 
-def resubmit_job(sig, frame):
-    """
-    Function to resubmit the job with the same run_id
-    """
-    global run_id
-    if run_id:
-        print(f"Got SIGUSR1. Resubmitting job with run_id: {run_id}")
-        subprocess.run(
-            [
-                "sbatch",
-                "/home/users/tbenst/code/silent_speech/notebooks/tyler/2024-01-15_icml_models.py",
-                "--run-id",
-                run_id,
-            ]
-        )
-    else:
-        print("No run_id provided, cannot resubmit job.")
 
-
-if "SLURM_JOB_ID" in os.environ:
-    print("Job running under SLURM, setting up signal handler for SIGUSR1.")
-    signal.signal(signal.SIGUSR1, resubmit_job)
+# if "SLURM_JOB_ID" in os.environ:
+#     print("Job running under SLURM, setting up signal handler for SIGUSR1.")
+#     signal.signal(signal.SIGUSR1, resubmit_job)
 
 ##
 logging.info("about to fit")
 print(f"Sanity check: {len(datamodule.train)} training samples")
 print(f"Sanity check: {len(datamodule.train_dataloader())} training batches")
 # epoch of 242 if only train...
-if RESUME:
+if MANUAL_RESUME or SLURM_REQUEUE:
     trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
 else:
     trainer.fit(model, datamodule=datamodule)
