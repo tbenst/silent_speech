@@ -227,7 +227,7 @@ def get_last_ckpt(directory):
     # Find the index of the checkpoint with the highest epoch number
     if epochs:  # Ensure list is not empty
         max_epoch_idx = np.argmax(epochs)
-        return ckpt_paths[max_epoch_idx], max_epoch_idx
+        return ckpt_paths[max_epoch_idx], epochs[max_epoch_idx]
     else:
         raise ValueError("No checkpoints found in directory.")
 
