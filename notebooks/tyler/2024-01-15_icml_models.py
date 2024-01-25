@@ -272,6 +272,7 @@ def update_configs(
     val_bz_cli: int = typer.Option(val_bz, "--val-bz"),
     max_len_cli: int = typer.Option(max_len, "--max-len"),
     seqlen_cli: int = typer.Option(seqlen, "--seqlen"),
+    n_epochs_cli: int = typer.Option(n_epochs, "--n-epochs"),
     run_id_cli: str = typer.Option(run_id, "--run-id"),
     ckpt_path_cli: str = typer.Option(ckpt_path, "--ckpt-path"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
@@ -283,7 +284,7 @@ def update_configs(
 ):
     """Update configurations with command-line values."""
     global constant_offset_sd, white_noise_sd, DEBUG, grad_accum
-    global precision, logger_level, base_bz, val_bz, max_len, seqlen
+    global precision, logger_level, base_bz, val_bz, max_len, seqlen, n_epochs
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supTcon
     global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
 
@@ -312,6 +313,7 @@ def update_configs(
     latent_affine = latent_affine_cli
     weight_decay = weight_decay_cli
     ckpt_path = ckpt_path_cli
+    n_epochs = n_epochs_cli
 
     print("Updated configurations using command-line arguments.")
 

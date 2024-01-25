@@ -203,6 +203,8 @@ class XtoText(pl.LightningModule):
             except:
                 # not all datamodules have a TrainBatchSampler, or a set_epoch method
                 pass
+            
+        # print(f"==== DEBUG: {self.lr_schedulers().state_dict()=} ====")
 
     def training_step(self, batch, batch_idx):
         c = self.calc_loss(**self.forward(batch))
@@ -1830,6 +1832,7 @@ class MONA(GaddyBase):
 
         # Total number of steps for training
         total_steps = self.trainer.estimated_stepping_batches
+        # print(f"DEBUG: {total_steps=}")
 
         # Define the lambda function for learning rate schedule
         lr_lambda = (
