@@ -108,7 +108,7 @@ DEBUG = False
 # not sure if makes a difference when we use fp16 / bf16
 # use TF32 cores on A100 (19-bit)
 torch.set_float32_matmul_precision("high")  # highest (32-bit) by default
-torch.backends.cuda.matmul.allow_tf32 = True  # false by default
+
 torch.backends.cudnn.allow_tf32 = True  # should be True by default
 run_id = ""
 ckpt_path = ""
@@ -253,6 +253,7 @@ frac_vocal /= 2
 # TODO: should sweep librispeech ratios...
 batch_class_proportions = np.array([frac_semg, frac_vocal, 0.5])
 latest_epoch = -1
+matmul_tf32 = True
 
 
 @app.command()
@@ -277,13 +278,14 @@ def update_configs(
     ckpt_path_cli: str = typer.Option(ckpt_path, "--ckpt-path"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
     weight_decay_cli: float = typer.Option(weight_decay, "--weight-decay"),
+    matmul_tf32_cli: bool = typer.Option(matmul_tf32, "--matmul-tf32/--no-matmul-tf32"),
     latent_affine_cli: bool = typer.Option(
         latent_affine, "--latent-affine/--no-latent-affine"
     ),
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
-    global constant_offset_sd, white_noise_sd, DEBUG, grad_accum
+    global constant_offset_sd, white_noise_sd, DEBUG, grad_accum, matmul_tf32
     global precision, logger_level, base_bz, val_bz, max_len, seqlen, n_epochs
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supTcon
     global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
@@ -314,9 +316,12 @@ def update_configs(
     weight_decay = weight_decay_cli
     ckpt_path = ckpt_path_cli
     n_epochs = n_epochs_cli
+    matmul_tf32 = matmul_tf32_cli
 
     print("Updated configurations using command-line arguments.")
 
+
+torch.backends.cuda.matmul.allow_tf32 = matmul_tf32  # false by default
 
 if __name__ == "__main__" and not in_notebook():
     try:
