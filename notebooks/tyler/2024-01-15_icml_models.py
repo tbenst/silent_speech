@@ -354,6 +354,8 @@ if run_id != "":
     print("momentarily opening run in read-only mode to get hyperparams")
     run = get_neptune_run(run_id, project="neuro/Gaddy")
     hparams = nep_get(run, "training/hyperparams")
+    print("Ignoring any command line flags and using hparams: ", hparams)
+    max_len = hparams["max_len"]
     output_directory = nep_get(run, "output_directory")
     ckpt_path, latest_epoch = get_last_ckpt(output_directory)
 
