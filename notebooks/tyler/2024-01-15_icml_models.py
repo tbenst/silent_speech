@@ -356,6 +356,7 @@ if run_id != "":
     hparams = nep_get(run, "training/hyperparams")
     print("Ignoring any command line flags and using hparams: ", hparams)
     max_len = hparams["max_len"]
+    togglePhones = hparams["togglePhones"]
     output_directory = nep_get(run, "output_directory")
     ckpt_path, latest_epoch = get_last_ckpt(output_directory)
 
