@@ -554,6 +554,13 @@ logging.info("made model")
 
 callbacks = []
 
+if emg_lambda > 0:
+    monitor = "val/silent_emg_wer"
+    save_top_k = 10
+else:
+    monitor = None # save most recent epochs
+    save_top_k = 1
+
 if log_neptune:
     # need to store credentials in your shell env
     nep_key = os.environ["NEPTUNE_API_TOKEN"]
@@ -602,10 +609,11 @@ if log_neptune:
     #     filename=model.__class__.__name__ + "-{epoch:02d}-{val/emg_ctc_loss:.3f}",
     # )
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/silent_emg_wer",
+        monitor=monitor,
         mode="min",
         dirpath=output_directory,
-        save_top_k=10,  # TODO: try averaging weights afterwards to see if improve WER..?
+        save_top_k=save_top_k,  # TODO: try averaging weights afterwards to see if improve WER..?
+        save_last=True,
         filename=model.__class__.__name__ + "-{epoch:02d}-{val/silent_emg_wer:.3f}",
     )
     callbacks.extend(
