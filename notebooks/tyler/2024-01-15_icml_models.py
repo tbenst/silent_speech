@@ -242,6 +242,7 @@ use_dtw = True
 use_crossCon = True
 use_supTcon = True
 audio_lambda = 1.0
+emg_lambda = 1.0
 weight_decay = 0.1
 latent_affine = True
 # Gaddy is 16% silent EMG, 84% vocalized EMG, and we use LibriSpeech for the rest
@@ -277,6 +278,7 @@ def update_configs(
     run_id_cli: str = typer.Option(run_id, "--run-id"),
     ckpt_path_cli: str = typer.Option(ckpt_path, "--ckpt-path"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
+    emg_lambda_cli: float = typer.Option(emg_lambda, "--emg-lambda"),
     weight_decay_cli: float = typer.Option(weight_decay, "--weight-decay"),
     matmul_tf32_cli: bool = typer.Option(matmul_tf32, "--matmul-tf32/--no-matmul-tf32"),
     latent_affine_cli: bool = typer.Option(
@@ -289,6 +291,7 @@ def update_configs(
     global precision, logger_level, base_bz, val_bz, max_len, seqlen, n_epochs
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supTcon
     global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
+    global emg_lambda
 
     # devices = devices_cli
     # try:
@@ -312,6 +315,7 @@ def update_configs(
     max_len = max_len_cli
     seqlen = seqlen_cli
     audio_lambda = audio_lambda_cli
+    emg_lambda = emg_lambda_cli
     latent_affine = latent_affine_cli
     weight_decay = weight_decay_cli
     ckpt_path = ckpt_path_cli
@@ -522,6 +526,7 @@ else:
         gradient_accumulation_steps=grad_accum,
         learning_rate=learning_rate,
         audio_lambda=audio_lambda,
+        emg_lambda=emg_lambda,
         # neural_input_features=datamodule.train.n_features,
         neural_input_features=1,
         seqlen=seqlen,
