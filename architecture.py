@@ -1141,6 +1141,7 @@ class MONAConfig(XtoTextConfig):
 
     cross_nce_lambda: float = 1.0  # how much to weight the latent loss
     audio_lambda: float = 1.0  # how much to weight the audio->text loss
+    emg_lambda: float = 1.0  # how much to weight the emg->text loss
     neural_lambda: float = 1.0  # how much to weight the neural->text loss
     sup_nce_lambda: float = 0.1
 
@@ -1287,6 +1288,7 @@ class MONA(GaddyBase):
         self._init_ctc_decoder()
         self.cross_nce_lambda = cfg.cross_nce_lambda
         self.audio_lambda = cfg.audio_lambda
+        self.emg_lambda = cfg.emg_lambda
         self.neural_lambda = cfg.neural_lambda
         self.steps_per_epoch = cfg.steps_per_epoch
 
@@ -1731,7 +1733,7 @@ class MONA(GaddyBase):
             f"sup_nce_loss: {sup_nce_loss}"
         )
         loss = (
-            emg_ctc_loss
+            self.emg_lambda * emg_ctc_loss
             + self.neural_lambda * neural_ctc_loss
             + self.audio_lambda * audio_ctc_loss
             + self.cross_nce_lambda * emg_audio_contrastive_loss
