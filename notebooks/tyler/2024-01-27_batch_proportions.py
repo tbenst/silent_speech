@@ -25,8 +25,8 @@ N_v = 5477
 ##
 
 # two-class case (no librispeech)
-class2_f_s = 1588 / (5477 + 1588)
-class2_f_v = 5477 / (5477 + 1588)
+class2_f_s = 1588 / (5477 + 1588)  # 0.22476999292285915
+class2_f_v = 5477 / (5477 + 1588)  # 0.7752300070771408
 f_v_ratio = class2_f_v / class2_f_s
 f_v_ratio  # ~3.45
 ##

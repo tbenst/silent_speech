@@ -93,8 +93,13 @@ from contrastive import (
 )
 import glob, scipy
 from warnings import warn
-from helpers import load_npz_to_memory, get_last_ckpt, get_neptune_run, \
-    nep_get, string_to_np_array
+from helpers import (
+    load_npz_to_memory,
+    get_last_ckpt,
+    get_neptune_run,
+    nep_get,
+    string_to_np_array,
+)
 
 ##
 DEBUG = False
@@ -296,7 +301,7 @@ def update_configs(
     global precision, logger_level, base_bz, val_bz, max_len, seqlen, n_epochs
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supTcon
     global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
-    global emg_lambda, frac_semg, frac_vocal, frac_librispeech
+    global emg_lambda, frac_semg, frac_vocal, frac_librispeech, batch_class_proportions
 
     # devices = devices_cli
     # try:
@@ -326,9 +331,15 @@ def update_configs(
     ckpt_path = ckpt_path_cli
     n_epochs = n_epochs_cli
     matmul_tf32 = matmul_tf32_cli
-    
-    if frac_semg != frac_semg_cli or frac_vocal != frac_vocal_cli or frac_librispeech != frac_librispeech_cli:
-        batch_class_proportions = np.array([frac_semg_cli, frac_vocal_cli, frac_librispeech_cli])
+
+    if (
+        frac_semg != frac_semg_cli
+        or frac_vocal != frac_vocal_cli
+        or frac_librispeech != frac_librispeech_cli
+    ):
+        batch_class_proportions = np.array(
+            [frac_semg_cli, frac_vocal_cli, frac_librispeech_cli]
+        )
         print(f"batch_class_proportions: {batch_class_proportions}")
 
     print("Updated configurations using command-line arguments.")
@@ -568,7 +579,7 @@ if emg_lambda > 0:
     monitor = "val/silent_emg_wer"
     save_top_k = 10
 else:
-    monitor = None # save most recent epochs
+    monitor = None  # save most recent epochs
     save_top_k = 1
 
 if log_neptune:
