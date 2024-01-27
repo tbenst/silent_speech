@@ -174,32 +174,34 @@ def load_dataloaders(max_len=128000, togglePhones=False):
     return val_dl, test_dl
 ##
 run_ids = [
-#### crossCon + supTcon + DTW
-823, 816, 822, 844, 839,
-# 887,
-#### crossCon + supTcon
-815, 831,
-# 840,
-867, 825, 908,
-#### crossCon
-835, 841, 818, 868,
-# 850, 936,
-#### supTcon
-# GAD: 890, 891, 904, 896, 905, 897,
-#### supTcon + DTW
-# 907, 906, 921, 920, 922,
-#### EMG + Audio
-871, 848, 861, 881,
-# 837, 827, 926,
-#### EMG
-# GAD: 863, 832, 819, 852, 888, 893,
-#### EMG - TAKE 2
-909, 911,
-# 925, 910,
-912, 
-#### Audio
-# 931, 933, 929, 930, 932,
+    #### crossCon + supTcon + DTW ####
+    823, 816, 822, 844, 839,
+    # 887,
+    #### crossCon + supTcon ####
+    815, 831,
+    # 840, 908,
+    867, 825,
+    #### crossCon ####
+    835, 841, 818, 868,
+    # 850, 936,
+    #### supTcon ####
+    # GAD: 890, 891, 904, 896, 905, 897,
+    #### supTcon + DTW ####
+    # 907, 906, 921, 920, 922,
+    #### EMG + Audio ####
+    871, 848, 861, 881,
+    # 837, 827, 926,
+    #### EMG ####
+    888, 893,
+    # GAD: 863, 832, 819, 852, 
+    #### EMG - TAKE 2 ####
+    909, 911,
+    # 925, 910,
+    912, 
+    #### Audio ####
+    # 931, 933, 929, 930, 932,
 ]
+run_ids = [f"GAD-{ri}" for ri in run_ids]
 
 max_len = None
 togglePhones = None
@@ -224,3 +226,5 @@ for ri in run_ids:
         pickle.dump(predictions, f)
     print("done with run", ri)
 print("finished!")
+
+##
