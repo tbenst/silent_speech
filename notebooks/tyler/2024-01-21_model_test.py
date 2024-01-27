@@ -194,7 +194,7 @@ test_dl = torch.utils.data.DataLoader(
     batch_size=val_bz,
 )
 ##
-model, config = load_model(ckpt_path, config)
+model = load_model(ckpt_path, config)
 
 # predictions = get_emg_pred(model, val_dl)
 
