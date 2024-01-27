@@ -150,7 +150,7 @@ def main(
         lm_weight: float = typer.Option(2., help='language model weight'),
         beam_threshold: int = typer.Option(75, help='prune beam search if more than this away from best score'),
         use_lm: bool = typer.Option(True, help='whether to use a language model'),
-        cpus: int = typer.Option(32, help='Number of CPUs to use for beam search'),
+        cpus: int = typer.Option(8, help='Number of CPUs to use for beam search'),
 ):
     assert ON_SHERLOCK
     run = get_neptune_run(run_id, project="neuro/Gaddy")
