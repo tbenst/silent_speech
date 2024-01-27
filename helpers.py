@@ -31,7 +31,7 @@ def load_model(ckpt_path, config):
     model.load_state_dict(checkpoint["state_dict"])
     model.cuda()
     model.eval()
-    return model, config
+    return model
 
 
 def get_emg_pred(model, dataloader):
