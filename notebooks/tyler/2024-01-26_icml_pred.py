@@ -128,7 +128,7 @@ def load_model_from_id(run_id, choose="best"):
     config = MONAConfig(**hparams)
     
     model = load_model(ckpt_path, config)
-    return model, config
+    return model, config, output_directory
 
 def load_dataloaders(max_len=128000, togglePhones=False):
 
@@ -174,13 +174,37 @@ def load_dataloaders(max_len=128000, togglePhones=False):
     return val_dl, test_dl
 ##
 run_ids = [
-    "GAD-871"
+#### crossCon + supTcon + DTW
+823, 816, 822, 844, 839,
+# 887,
+#### crossCon + supTcon
+815, 831,
+# 840,
+867, 825, 908,
+#### crossCon
+835, 841, 818, 868,
+# 850, 936,
+#### supTcon
+# GAD: 890, 891, 904, 896, 905, 897,
+#### supTcon + DTW
+# 907, 906, 921, 920, 922,
+#### EMG + Audio
+871, 848, 861, 881,
+# 837, 827, 926,
+#### EMG
+# GAD: 863, 832, 819, 852, 888, 893,
+#### EMG - TAKE 2
+909, 911,
+# 925, 910,
+912, 
+#### Audio
+# 931, 933, 929, 930, 932,
 ]
 
 max_len = None
 togglePhones = None
 for ri in run_ids:
-    model, config = load_model_from_id(ri)
+    model, config, output_directory = load_model_from_id(ri)
     if max_len != config.max_len or togglePhones != config.togglePhones:
         val_dl, test_dl = load_dataloaders(max_len=config.max_len, togglePhones=config.togglePhones)
         max_len = config.max_len
@@ -189,6 +213,14 @@ for ri in run_ids:
     emg_test_pred = get_emg_pred(model, test_dl)
     audio_val_pred = get_audio_pred(model, val_dl)
     audio_test_pred = get_audio_pred(model, test_dl)
+    predictions = {
+    "emg_val_pred": emg_val_pred,
+    "emg_test_pred": emg_test_pred,
+    "audio_val_pred": audio_val_pred,
+    "audio_test_pred": audio_test_pred,
+}
+    path = os.path.join(output_directory, "2024-01-26_predictions.pkl")
+    with open(path, "wb") as f:
+        pickle.dump(predictions, f)
     print("done with run", ri)
 print("finished!")
-##
