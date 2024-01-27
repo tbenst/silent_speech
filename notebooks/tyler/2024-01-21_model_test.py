@@ -86,7 +86,7 @@ from contrastive import (
 )
 import glob, scipy
 from helpers import load_npz_to_memory, calc_wer, load_model, get_top_k, \
-    get_best_ckpts, nep_get, get_emg_pred, get_audio_pred
+    get_best_ckpts, nep_get, get_emg_pred, get_audio_pred, get_last_ckpt
 
 
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
@@ -97,7 +97,8 @@ torch.backends.cuda.matmul.allow_tf32 = True
 
 # run_id = "GAD-739"
 # run_id = "GAD-762" # best ckpts missing??
-run_id = "GAD-835"
+# run_id = "GAD-835"
+run_id = "GAD-929"
 nep_key = os.environ["NEPTUNE_API_TOKEN"]
 neptune_kwargs = {
     "project": "neuro/Gaddy",
@@ -114,11 +115,13 @@ neptune_logger = NeptuneLogger(
 ##
 output_directory = nep_get(neptune_logger, "output_directory")
 hparams = nep_get(neptune_logger, "training/hyperparams")
-ckpt_paths, wers = get_best_ckpts(output_directory, n=1)
+# ckpt_paths, wers = get_best_ckpts(output_directory, n=1)
+ckpt_paths = get_last_ckpt(output_directory)
 ckpt_path = ckpt_paths[0]
-wer = wers[0]
+# wer = wers[0]
+wer = 1.0
 min_wer = nep_get(neptune_logger, "training/val/wer").value.min()
-assert np.isclose(wer, min_wer, atol=1e-3), f"wer {wer} != min_wer {min_wer}"
+# assert np.isclose(wer, min_wer, atol=1e-3), f"wer {wer} != min_wer {min_wer}"
 print("found checkpoint with WER", wer)
 max_len = hparams["max_len"]
 togglePhones = hparams["togglePhones"]

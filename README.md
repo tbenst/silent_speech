@@ -15,8 +15,13 @@ Force-aligned phonemes from the Montreal Forced Aligner can be downloaded from <
 By default, this data is expected to be in a subdirectory `text_alignments`.
 Note that there will not be an exception if the directory is not found, but logged phoneme prediction accuracies reporting 100% is a sign that the directory has not been loaded correctly.
 
-## ICML runs
-See `notebooks/tyler/batch_model_sweep.sh`
+## ICML paper reproduction
+For each model:
+1) run `2024-01-15_icml_models.py`
+2) TODO write `2024-01-26_icml_pred.py`
+3) TODO write `2024-01-26_icml_pred.py`
+2) `2024-01-21_model_test.py`
+- Use  `notebooks/tyler/batch_model_sweep.sh`
 
 ## Environment Setup
 
