@@ -87,7 +87,8 @@ from contrastive import (
 )
 import glob, scipy
 from helpers import load_npz_to_memory, calc_wer, load_model, get_top_k, \
-    get_best_ckpts, nep_get, get_emg_pred, get_audio_pred, get_last_ckpt
+    get_best_ckpts, nep_get, get_emg_pred, get_audio_pred, get_last_ckpt, \
+    load_model_from_id
 
 
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
@@ -95,41 +96,6 @@ from helpers import load_npz_to_memory, calc_wer, load_model, get_top_k, \
 torch.set_float32_matmul_precision("high")
 torch.backends.cuda.matmul.allow_tf32 = True
 ##
-def load_model_from_id(run_id, choose="best"):
-    assert choose in ["best", "last"]
-    
-    neptune_logger = NeptuneLogger(
-        run=neptune.init_run(
-            with_id=run_id,
-            api_token=os.environ["NEPTUNE_API_TOKEN"],
-            mode='read-only',
-            project="neuro/Gaddy",
-        ),
-        log_model_checkpoints=False,
-    )
-    output_directory = nep_get(neptune_logger, "output_directory")
-    hparams = nep_get(neptune_logger, "training/hyperparams")
-    if choose == "best":
-        ckpt_paths, wers = get_best_ckpts(output_directory, n=1)
-        wer = wers[0]
-        ckpt_path = ckpt_paths[0]
-        min_wer = nep_get(neptune_logger, "training/val/wer").value.min()
-        assert np.isclose(wer, min_wer, atol=1e-3), f"wer {wer} != min_wer {min_wer}"
-        print("found checkpoint with WER", wer)
-    elif choose == "last":
-        ckpt_path, epoch = get_last_ckpt(output_directory)
-        assert epoch == hparams["max_epochs"], f"epoch {epoch} != max_epochs {hparams['max_epochs']}"
-        print("found checkpoint with epoch", epoch)
-    togglePhones = hparams["togglePhones"]
-    assert togglePhones == False, "not implemented"
-    if "use_supCon" in hparams:
-        hparams["use_supTcon"] = hparams["use_supCon"]
-        del hparams["use_supCon"]
-    config = MONAConfig(**hparams)
-    
-    model = load_model(ckpt_path, config)
-    return model, config, output_directory
-
 def load_dataloaders(max_len=128000, togglePhones=False):
 
     assert ON_SHERLOCK
@@ -137,8 +103,6 @@ def load_dataloaders(max_len=128000, togglePhones=False):
     gaddy_dir = os.path.join(scratch_directory, "GaddyPaper")
     # t12_npz_path = os.path.join(scratch_directory, "2023-08-21_T12_dataset.npz")
     # T12_dir = os.path.join(scratch_directory, "T12_data_v4")
-    lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
-    lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["LOCAL_SCRATCH"])
 
     data_dir = os.path.join(gaddy_dir, "processed_data/")
     normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
@@ -216,11 +180,11 @@ for ri in run_ids:
     audio_val_pred = get_audio_pred(model, val_dl)
     audio_test_pred = get_audio_pred(model, test_dl)
     predictions = {
-    "emg_val_pred": emg_val_pred,
-    "emg_test_pred": emg_test_pred,
-    "audio_val_pred": audio_val_pred,
-    "audio_test_pred": audio_test_pred,
-}
+        "emg_val_pred": emg_val_pred,
+        "emg_test_pred": emg_test_pred,
+        "audio_val_pred": audio_val_pred,
+        "audio_test_pred": audio_test_pred,
+    }
     path = os.path.join(output_directory, "2024-01-26_predictions.pkl")
     with open(path, "wb") as f:
         pickle.dump(predictions, f)

@@ -107,6 +107,10 @@ def run_beam_search(
             all_trl_top_k.append(np.array(trl_top_k))
             all_trl_beam_scores.append(np.array(trl_beam_scores))
             all_sentences.append(target_sentence)
+        else:
+            all_trl_top_k.append(np.array([]))
+            all_trl_beam_scores.append(np.array([]))
+            all_sentences.append(target_sentence)
 
     return all_trl_top_k, all_trl_beam_scores, all_sentences
 
@@ -124,7 +128,6 @@ def get_top_k(
     lexicon_file: str = None,
     lm_file: str = None,
 ):
-
     # Define the function to be used with concurrent.futures
     func = partial(
         run_beam_search,
@@ -253,3 +256,41 @@ def nep_get(logger, key):
         return val_promise.fetch_values()
     else:
         raise NotImplementedError("don't know how to fetch values")
+
+
+def load_model_from_id(run_id, choose="best"):
+    assert choose in ["best", "last"]
+
+    neptune_logger = NeptuneLogger(
+        run=neptune.init_run(
+            with_id=run_id,
+            api_token=os.environ["NEPTUNE_API_TOKEN"],
+            mode="read-only",
+            project="neuro/Gaddy",
+        ),
+        log_model_checkpoints=False,
+    )
+    output_directory = nep_get(neptune_logger, "output_directory")
+    hparams = nep_get(neptune_logger, "training/hyperparams")
+    if choose == "best":
+        ckpt_paths, wers = get_best_ckpts(output_directory, n=1)
+        wer = wers[0]
+        ckpt_path = ckpt_paths[0]
+        min_wer = nep_get(neptune_logger, "training/val/wer").value.min()
+        assert np.isclose(wer, min_wer, atol=1e-3), f"wer {wer} != min_wer {min_wer}"
+        print("found checkpoint with WER", wer)
+    elif choose == "last":
+        ckpt_path, epoch = get_last_ckpt(output_directory)
+        assert (
+            epoch == hparams["max_epochs"]
+        ), f"epoch {epoch} != max_epochs {hparams['max_epochs']}"
+        print("found checkpoint with epoch", epoch)
+    togglePhones = hparams["togglePhones"]
+    assert togglePhones == False, "not implemented"
+    if "use_supCon" in hparams:
+        hparams["use_supTcon"] = hparams["use_supCon"]
+        del hparams["use_supCon"]
+    config = MONAConfig(**hparams)
+
+    model = load_model(ckpt_path, config)
+    return model, config, output_directory

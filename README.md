@@ -17,11 +17,11 @@ Note that there will not be an exception if the directory is not found, but logg
 
 ## ICML paper reproduction
 For each model:
-1) run `2024-01-15_icml_models.py`
-2) TODO write `2024-01-26_icml_pred.py`
-3) TODO write `2024-01-26_icml_pred.py`
+1) run `notebooks/tyler/batch_model_sweep.sh` (`2024-01-15_icml_models.py`)
+2) run `2024-01-26_icml_pred.py`
+3) TODO write `2024-01-26_icml_beams.py`
 2) `2024-01-21_model_test.py`
-- Use  `notebooks/tyler/batch_model_sweep.sh`
+- Use  ``
 
 ## Environment Setup
 

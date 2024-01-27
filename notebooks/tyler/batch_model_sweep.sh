@@ -3,8 +3,8 @@
 # Check for the number of submissions argument
 if [ $# -eq 0 ]
 then
-    echo "No arguments supplied. Defaulting to 4 submissions."
-    num_submissions=4
+    echo "No arguments supplied. Defaulting to 5 submissions."
+    num_submissions=5
 else
     num_submissions=$1
 fi
@@ -27,8 +27,10 @@ submit_job () {
 submit_job $script_path --precision 32
 submit_job $script_path --precision 32 --no-dtw
 submit_job $script_path --precision 32 --no-dtw --no-supTcon
-submit_job $script_path --precision 32 --no-dtw --no-crossCon
+submit_job $script_path --precision 32 --no-dtw --no-crossCon --grad-accum 4
+submit_job $script_path --precision 32 --no-crossCon --grad-accum 4
 submit_job $script_path --precision 32 --no-dtw --no-crossCon --no-supTcon
-submit_job $script_path --precision 32 --no-dtw --no-crossCon --no-supTcon --audio-lambda 0.0 --max-len 256000
+submit_job $script_path --precision 32 --no-dtw --no-crossCon --no-supTcon --audio-lambda 0.0 --grad-accum 4
+submit_job $script_path --precision 32 --no-dtw --no-crossCon --no-supTcon --emg-lambda 0.0
 
 echo "All jobs submitted."
