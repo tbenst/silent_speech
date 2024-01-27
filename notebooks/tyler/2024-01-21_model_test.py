@@ -7,7 +7,7 @@
 import os, subprocess
 
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 hostname = subprocess.run("hostname", capture_output=True)
 ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
@@ -86,18 +86,18 @@ from contrastive import (
 )
 import glob, scipy
 from helpers import load_npz_to_memory, calc_wer, load_model, get_top_k, \
-    get_best_ckpts, nep_get
+    get_best_ckpts, nep_get, get_emg_pred, get_audio_pred
 
 
 # https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
 # not sure if makes a difference since we use fp16
 torch.set_float32_matmul_precision("high")
-# torch.set_float32_matmul_precision("medium")  # bfloat16
-# torch.set_float32_matmul_precision("medium" | "high")
+torch.backends.cuda.matmul.allow_tf32 = True
 ##
 
 # run_id = "GAD-739"
-run_id = "GAD-740"
+# run_id = "GAD-762" # best ckpts missing??
+run_id = "GAD-835"
 nep_key = os.environ["NEPTUNE_API_TOKEN"]
 neptune_kwargs = {
     "project": "neuro/Gaddy",
@@ -114,10 +114,17 @@ neptune_logger = NeptuneLogger(
 ##
 output_directory = nep_get(neptune_logger, "output_directory")
 hparams = nep_get(neptune_logger, "training/hyperparams")
-ckpt_path = get_best_ckpts(output_directory, n=1)[0]
+ckpt_paths, wers = get_best_ckpts(output_directory, n=1)
+ckpt_path = ckpt_paths[0]
+wer = wers[0]
+min_wer = nep_get(neptune_logger, "training/val/wer").value.min()
+assert np.isclose(wer, min_wer, atol=1e-3), f"wer {wer} != min_wer {min_wer}"
+print("found checkpoint with WER", wer)
 max_len = hparams["max_len"]
 togglePhones = hparams["togglePhones"]
-
+if "use_supCon" in hparams:
+    hparams["use_supTcon"] = hparams["use_supCon"]
+    del hparams["use_supCon"]
 config = MONAConfig(**hparams)
 
 ##
@@ -195,8 +202,9 @@ else:
         lm_directory, "lexicon_graphemes_noApostrophe.txt"
     )
 ##
-topK = get_top_k(model,
-    val_dl,
+predictions = get_emg_pred(model, val_dl)
+topK = get_top_k(predictions,
+    model.text_transform,
     # test_dl,
     # k=100,
     k=1,
@@ -210,7 +218,36 @@ topK = get_top_k(model,
     lexicon_file=default_lexicon_file,
     lm_file=lm_file)
 wer = calc_wer(topK['predictions'], topK['sentences'], model.text_transform)
-print(f"Validation WER: {wer * 100:.2f}%")
+print(f"EMG Validation WER: {wer * 100:.2f}%")
+##
+audio_val_pred = get_audio_pred(model, val_dl)
+audio_val_topK = get_top_k(audio_val_pred,
+    model.text_transform,
+    # test_dl,
+    # k=100,
+    k=1,
+    beam_size=150,
+    # beam_size=500,
+    togglePhones=config.togglePhones,
+    use_lm=True,
+    beam_threshold=100,
+    lm_weight=2,
+    cpus=8,
+    lexicon_file=default_lexicon_file,
+    lm_file=lm_file)
+wer = calc_wer(audio_val_topK['predictions'], audio_val_topK['sentences'], model.text_transform)
+print(f"Audio Validation WER: {wer * 100:.2f}%")
+
+##
+for batch in val_dl:
+    pass
+batch.keys()
+
+##
+predictions = get_audio_pred(model, dataloader)
+
+##
+raise ValueError("STOP HERE")
 ##
 topK = get_top_k(model,
     test_dl,

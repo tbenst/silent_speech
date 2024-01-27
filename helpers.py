@@ -45,6 +45,17 @@ def get_emg_pred(model, dataloader):
     return predictions
 
 
+def get_audio_pred(model, dataloader):
+    predictions = []
+    with torch.no_grad():
+        for batch in tqdm(dataloader):
+            X = nn.utils.rnn.pad_sequence(batch["audio_features"], batch_first=True)
+            X = X.cuda()
+            pred = model.audio_forward(X)[0].cpu()
+            predictions.append((batch, pred))
+    return predictions
+
+
 # Function to run the beam search
 def run_beam_search(
     batch_pred,
@@ -101,8 +112,8 @@ def run_beam_search(
 
 
 def get_top_k(
-    model,
-    dataloader,
+    predictions,
+    text_transform,
     k: int = 100,
     beam_size: int = 500,
     togglePhones: bool = False,
@@ -113,12 +124,11 @@ def get_top_k(
     lexicon_file: str = None,
     lm_file: str = None,
 ):
-    predictions = get_emg_pred(model, dataloader)
 
     # Define the function to be used with concurrent.futures
     func = partial(
         run_beam_search,
-        text_transform=model.text_transform,
+        text_transform=text_transform,
         k=k,
         lm_weight=lm_weight,
         beam_size=beam_size,
@@ -200,10 +210,13 @@ def get_best_ckpts(directory, n=1):
     for root, dirs, files in os.walk(directory):
         for file in files:
             if file.endswith(".ckpt"):
-                ckpt_paths.append(os.path.join(root, file))
-                metrics.append(float(r.findall(file)[0]))
+                try:
+                    metrics.append(float(r.findall(file)[0]))
+                    ckpt_paths.append(os.path.join(root, file))
+                except IndexError:
+                    pass
     perm = np.argsort(metrics)
-    return [ckpt_paths[i] for i in perm[:n]]
+    return [ckpt_paths[i] for i in perm[:n]], [metrics[i] for i in perm[:n]]
 
 
 def get_last_ckpt(directory):
@@ -233,4 +246,10 @@ def get_last_ckpt(directory):
 
 
 def nep_get(logger, key):
-    return logger.experiment.get_attribute(key).fetch()
+    val_promise = logger.experiment.get_attribute(key)
+    if hasattr(val_promise, "fetch"):
+        return val_promise.fetch()
+    elif hasattr(val_promise, "fetch_values"):
+        return val_promise.fetch_values()
+    else:
+        raise NotImplementedError("don't know how to fetch values")
