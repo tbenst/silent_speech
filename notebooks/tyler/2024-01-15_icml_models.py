@@ -93,7 +93,8 @@ from contrastive import (
 )
 import glob, scipy
 from warnings import warn
-from helpers import load_npz_to_memory, get_last_ckpt, get_neptune_run, nep_get
+from helpers import load_npz_to_memory, get_last_ckpt, get_neptune_run, \
+    nep_get, string_to_np_array
 
 ##
 DEBUG = False
@@ -251,8 +252,9 @@ frac_semg = 1588 / (5477 + 1588)
 frac_vocal = 1 - frac_semg
 frac_semg /= 2
 frac_vocal /= 2
+frac_librispeech = 0.5
 # TODO: should sweep librispeech ratios...
-batch_class_proportions = np.array([frac_semg, frac_vocal, 0.5])
+batch_class_proportions = np.array([frac_semg, frac_vocal, frac_librispeech])
 latest_epoch = -1
 matmul_tf32 = True
 
@@ -279,11 +281,16 @@ def update_configs(
     ckpt_path_cli: str = typer.Option(ckpt_path, "--ckpt-path"),
     audio_lambda_cli: float = typer.Option(audio_lambda, "--audio-lambda"),
     emg_lambda_cli: float = typer.Option(emg_lambda, "--emg-lambda"),
+    frac_semg_cli: float = typer.Option(frac_semg, "--frac-semg"),
+    frac_vocal_cli: float = typer.Option(frac_vocal, "--frac-vocal"),
+    frac_librispeech_cli: float = typer.Option(frac_librispeech, "--frac-librispeech"),
     weight_decay_cli: float = typer.Option(weight_decay, "--weight-decay"),
     matmul_tf32_cli: bool = typer.Option(matmul_tf32, "--matmul-tf32/--no-matmul-tf32"),
     latent_affine_cli: bool = typer.Option(
         latent_affine, "--latent-affine/--no-latent-affine"
     ),
+    frac_semg = frac_semg,
+    frac_se
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
@@ -291,7 +298,7 @@ def update_configs(
     global precision, logger_level, base_bz, val_bz, max_len, seqlen, n_epochs
     global learning_rate, devices, togglePhones, use_dtw, use_crossCon, use_supTcon
     global audio_lambda, latent_affine, weight_decay, run_id, ckpt_path, latest_epoch
-    global emg_lambda
+    global emg_lambda, frac_semg, frac_vocal, frac_librispeech
 
     # devices = devices_cli
     # try:
@@ -321,6 +328,10 @@ def update_configs(
     ckpt_path = ckpt_path_cli
     n_epochs = n_epochs_cli
     matmul_tf32 = matmul_tf32_cli
+    
+    if frac_semg != frac_semg_cli or frac_vocal != frac_vocal_cli or frac_librispeech != frac_librispeech_cli:
+        batch_class_proportions = np.array([frac_semg_cli, frac_vocal_cli, frac_librispeech_cli])
+        print(f"batch_class_proportions: {batch_class_proportions}")
 
     print("Updated configurations using command-line arguments.")
 
@@ -363,6 +374,7 @@ if run_id != "":
     togglePhones = hparams["togglePhones"]
     output_directory = nep_get(run, "output_directory")
     ckpt_path, latest_epoch = get_last_ckpt(output_directory)
+    batch_class_proportions = string_to_np_array(hparams["batch_class_proportions"])
 
 
 # needed for using CachedDataset

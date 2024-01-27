@@ -17,6 +17,20 @@ def sentence_to_fn(sentence, directory, ext=".wav"):
     return os.path.join(directory, fn + ext)
 
 
+def string_to_np_array(string):
+    """
+    Convert a string representation of a numpy array into an actual numpy array.
+    """
+    try:
+        # Remove square brackets and split the string by spaces
+        elements = string.strip("[]").split()
+        # Convert each element to float and create a numpy array
+        return np.array([float(element) for element in elements])
+    except Exception as e:
+        print(f"Error converting string to numpy array: {e}")
+        return None
+
+
 def load_npz_to_memory(npz_path, **kwargs):
     npz = np.load(npz_path, **kwargs)
     loaded_data = {k: npz[k] for k in npz}
