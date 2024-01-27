@@ -289,8 +289,6 @@ def update_configs(
     latent_affine_cli: bool = typer.Option(
         latent_affine, "--latent-affine/--no-latent-affine"
     ),
-    frac_semg = frac_semg,
-    frac_se
     # devices_cli: str = typer.Option(devices, "--devices"),
 ):
     """Update configurations with command-line values."""
