@@ -17,7 +17,7 @@ submit_script="$script_dir/submit_beam_search.sh"
 submit_jobs () {
     for number in "$@"
     do
-        echo sbatch "$submit_script" --run-id "GAD-$number"
+        sbatch "$submit_script" --run-id "GAD-$number"
     done
 }
 
