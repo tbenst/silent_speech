@@ -204,22 +204,29 @@ run_ids = [
     888, 893,
     # 944, 943, 942 # not yet finished
     # 863, 832, 819, 852, # issues with runs
-    #### Audio ####
-    933, 929, 930, 932,
-    # 945 # not yet finished
-    # 946, 946 # skip (extra runs)
-    
+
     ######## quest for the best ##########
     #### crossCon 256k ####
     
     #### crossCon no librispeech 256k ####
 ]
+audio_only_run_ids = [
+    933, 929, 930, 932
+    # 945 # not yet finished
+    # 946, 947 # skip (extra runs)
+]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
-
+audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
+# run_ids = run_ids + audio_only_run_ids
+run_ids = audio_only_run_ids
 max_len = None
 togglePhones = None
 for ri in run_ids:
-    model, config, output_directory = load_model_from_id(ri)
+    if ri in audio_only_run_ids:
+        choose = "last"
+    else:
+        choose = "best"
+    model, config, output_directory = load_model_from_id(ri, choose=choose)
     if max_len != config.max_len or togglePhones != config.togglePhones:
         val_dl, test_dl, libri_val_dl, libri_test_dl = load_dataloaders(
             max_len=config.max_len, togglePhones=config.togglePhones)

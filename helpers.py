@@ -296,8 +296,8 @@ def load_model_from_id(run_id, choose="best"):
     elif choose == "last":
         ckpt_path, epoch = get_last_ckpt(output_directory)
         assert (
-            epoch == hparams["max_epochs"]
-        ), f"epoch {epoch} != max_epochs {hparams['max_epochs']}"
+            epoch == hparams["num_train_epochs"] - 1
+        ), f"epoch {epoch} != num_train_epochs - 1{hparams['num_train_epochs'] -1}"
         print("found checkpoint with epoch", epoch)
     togglePhones = hparams["togglePhones"]
     assert togglePhones == False, "not implemented"
