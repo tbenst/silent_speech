@@ -216,14 +216,18 @@ run_ids = [
     # 970, 971 # not yet done
 ]
 audio_only_run_ids = [
-    932, 933,
-    # 945, 946, 947 # TODO
-    # 929, 930 # missing last epoch
+    932, 933, 946, 947, 932
+    # 929, 930, 945 # missing last epoch
 ]
-run_ids = [960, 961, 962, 963, 964, 944, 943, 942, 965, 967, 968, 969]
+# only run a subset
+# audio_only_run_ids = [932]
+# run_ids = [960, 961, 962, 963, 964, 944, 943, 942, 965, 967, 968, 969]
+
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
+# run both
 # run_ids = run_ids + audio_only_run_ids
+# run audio only
 # run_ids = audio_only_run_ids
 
 max_len = None
