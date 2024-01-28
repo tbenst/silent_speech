@@ -198,24 +198,29 @@ run_ids = [
     871, 848, 861, 881, 926,
     # 837, 827 # drop per selection criteria
     #### EMG + Audio (no librispeech ####
-    # 960, 961, 962, 963, 964 # not yet finished
+    960, 961, 962, 963, 964,
     #### EMG ####
-    888, 893,
-    # 944, 943, 942 # not yet finished
+    888, 893, 944, 943, 942,
     # 863, 832, 819, 852, # issues with runs
+
+    #### EMG (no librispeech ####
+    965, 967, 968, 969,
+    # 966 # not yet done
 
     ######## quest for the best ##########
     #### crossCon 256k ####
     937, 938, 939, 940, 941,
     
     #### crossCon no librispeech 256k ####
+    972, 973, 974,
+    # 970, 971 # not yet done
 ]
 audio_only_run_ids = [
     932, 933,
-    # 945, 946, 947 # not yet done
+    # 945, 946, 947 # TODO
     # 929, 930 # missing last epoch
 ]
-run_ids = [920]
+run_ids = [960, 961, 962, 963, 964, 944, 943, 942, 965, 967, 968, 969]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
 # run_ids = run_ids + audio_only_run_ids
