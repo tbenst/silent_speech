@@ -17,9 +17,15 @@ submit_script="$script_dir/submit_beam_search.sh"
 submit_jobs () {
     for number in "$@"
     do
-        sbatch "$submit_script" --run-id "GAD-$number"
+        # submit fast job first
         sbatch "$submit_script" --beam-size 150 --k 100 --run-id "GAD-$number"
     done
+    for number in "$@"
+    do
+        # submit slow job second
+        sbatch "$submit_script" --run-id "GAD-$number"
+    done
+
 }
 
 # Call the function with all the passed numbers

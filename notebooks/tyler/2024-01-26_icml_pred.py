@@ -221,7 +221,7 @@ audio_only_run_ids = [
 ]
 # only run a subset
 # audio_only_run_ids = [932]
-# run_ids = [960, 961, 962, 963, 964, 944, 943, 942, 965, 967, 968, 969]
+run_ids = [972, 973, 974]
 
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
