@@ -297,7 +297,7 @@ def load_model_from_id(run_id, choose="best"):
         ckpt_path, epoch = get_last_ckpt(output_directory)
         assert (
             epoch == hparams["num_train_epochs"] - 1
-        ), f"epoch {epoch} != num_train_epochs - 1{hparams['num_train_epochs'] -1}"
+        ), f"epoch {epoch} != {hparams['num_train_epochs'] -1}"
         print("found checkpoint with epoch", epoch)
     togglePhones = hparams["togglePhones"]
     assert togglePhones == False, "not implemented"

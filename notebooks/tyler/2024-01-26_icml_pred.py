@@ -207,18 +207,21 @@ run_ids = [
 
     ######## quest for the best ##########
     #### crossCon 256k ####
+    937, 938, 939, 940, 941,
     
     #### crossCon no librispeech 256k ####
 ]
 audio_only_run_ids = [
-    933, 929, 930, 932
-    # 945 # not yet finished
-    # 946, 947 # skip (extra runs)
+    932, 933,
+    # 945, 946, 947 # not yet done
+    # 929, 930 # missing last epoch
 ]
+# run_ids = [937, 938, 939, 940, 941]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
 # run_ids = run_ids + audio_only_run_ids
-run_ids = audio_only_run_ids
+# run_ids = audio_only_run_ids
+
 max_len = None
 togglePhones = None
 for ri in run_ids:

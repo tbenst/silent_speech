@@ -87,38 +87,59 @@ from contrastive import (
     supervised_contrastive_loss,
 )
 import glob, scipy
-from helpers import load_npz_to_memory, calc_wer, load_model, get_top_k, \
-    load_model_from_id, get_neptune_run, nep_get, run_beam_search
+from helpers import (
+    load_npz_to_memory,
+    calc_wer,
+    load_model,
+    get_top_k,
+    load_model_from_id,
+    get_neptune_run,
+    nep_get,
+    run_beam_search,
+)
 from functional import ParallelTqdm
 from joblib import delayed
+
 
 def flatten(l):
     return [item for sublist in l for item in sublist]
 
-def getTopK(
-        predictions, text_transform, lm_directory,
-        k: int = 100,
-        beam_size: int = 500,
-        togglePhones: bool = False,
-        use_lm: bool = True,
-        beam_threshold: int = 100,
-        lm_weight: float = 2,
-        cpus: int = 8,
-        lexicon_file: str = None,
-        lm_file: str = None):
 
+def getTopK(
+    predictions,
+    text_transform,
+    lm_directory,
+    k: int = 100,
+    beam_size: int = 500,
+    togglePhones: bool = False,
+    use_lm: bool = True,
+    beam_threshold: int = 100,
+    lm_weight: float = 2,
+    cpus: int = 8,
+    lexicon_file: str = None,
+    lm_file: str = None,
+):
     # Define the function to be used with concurrent.futures
-    func = partial(run_beam_search, text_transform=text_transform,
-                   k=k, lm_weight=lm_weight, beam_size=beam_size,
-                   beam_threshold=beam_threshold, use_lm=use_lm, togglePhones=togglePhones,
-                   lexicon_file=lexicon_file, lm_file=lm_file)
+    func = partial(
+        run_beam_search,
+        text_transform=text_transform,
+        k=k,
+        lm_weight=lm_weight,
+        beam_size=beam_size,
+        beam_threshold=beam_threshold,
+        use_lm=use_lm,
+        togglePhones=togglePhones,
+        lexicon_file=lexicon_file,
+        lm_file=lm_file,
+    )
 
     # If cpus=0, run without multiprocessing
     if cpus == 0:
         beam_results = [func(pred) for pred in tqdm(predictions)]
     else:
-        beam_results = ParallelTqdm(n_jobs=cpus,total_tasks=len(predictions))(
-            delayed(func)(pred) for pred in predictions)
+        beam_results = ParallelTqdm(n_jobs=cpus, total_tasks=len(predictions))(
+            delayed(func)(pred) for pred in predictions
+        )
 
     # flatten batched tuples of (all_trl_top_k, all_trl_beam_scores, all_sentences)
     # Separate and flatten the results
@@ -130,83 +151,125 @@ def getTopK(
 
     # Collecting results
     topk_dict = {
-        'k': k,
-        'beam_size': beam_size,
-        'beam_threshold': beam_threshold,
-        'sentences': np.array(all_sentences),
-        'predictions': np.array(all_trl_top_k, dtype=object), # ragged array
-        'beam_scores': np.array(all_trl_beam_scores, dtype=object),
+        "k": k,
+        "beam_size": beam_size,
+        "beam_threshold": beam_threshold,
+        "sentences": np.array(all_sentences),
+        "predictions": np.array(all_trl_top_k, dtype=object),  # ragged array
+        "beam_scores": np.array(all_trl_beam_scores, dtype=object),
     }
 
     return topk_dict
+
+
 ##
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
+
 @app.command()
 def main(
-        run_id: str = typer.Option(..., help='run evaluation on given model run id'),
-        k: int = typer.Option(100, help='max beams to return'),
-        beam_size: int = typer.Option(5000, help='maximum number of beams to search'),
-        lm_weight: float = typer.Option(2., help='language model weight'),
-        beam_threshold: int = typer.Option(75, help='prune beam search if more than this away from best score'),
-        use_lm: bool = typer.Option(True, help='whether to use a language model'),
-        cpus: int = typer.Option(8, help='Number of CPUs to use for beam search'),
+    run_id: str = typer.Option(..., help="run evaluation on given model run id"),
+    k: int = typer.Option(100, help="max beams to return"),
+    beam_size: int = typer.Option(5000, help="maximum number of beams to search"),
+    lm_weight: float = typer.Option(2.0, help="language model weight"),
+    beam_threshold: int = typer.Option(
+        75, help="prune beam search if more than this away from best score"
+    ),
+    use_lm: bool = typer.Option(True, help="whether to use a language model"),
+    cpus: int = typer.Option(8, help="Number of CPUs to use for beam search"),
 ):
     assert ON_SHERLOCK
     run = get_neptune_run(run_id, project="neuro/Gaddy")
     output_directory = nep_get(run, "output_directory")
     hparams = nep_get(run, "training/hyperparams")
     togglePhones = hparams["togglePhones"]
-    text_transform = TextTransform(togglePhones = togglePhones)
+    text_transform = TextTransform(togglePhones=togglePhones)
 
     lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
     lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["LOCAL_SCRATCH"])
 
     if togglePhones:
-        lexicon_file = os.path.join(lm_directory, 'cmudict.txt')
+        lexicon_file = os.path.join(lm_directory, "cmudict.txt")
     else:
-        lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
-        
+        lexicon_file = os.path.join(lm_directory, "lexicon_graphemes_noApostrophe.txt")
+
     lm_file = os.path.join(lm_directory, "lm.binary")
     assert os.path.exists(lm_file)
     assert os.path.exists(lexicon_file)
 
-    path = os.path.join(output_directory, "2024-01-26_predictions.pkl")
+    path = os.path.join(output_directory, "2024-01-27_predictions.pkl")
     with open(path, "rb") as f:
         predictions = pickle.load(f)
     emg_val_pred = predictions["emg_val_pred"]
     emg_test_pred = predictions["emg_test_pred"]
     audio_val_pred = predictions["audio_val_pred"]
     audio_test_pred = predictions["audio_test_pred"]
+    librispeech_val_pred = predictions["librispeech_val_pred"]
+    librispeech_test_pred = predictions["librispeech_test_pred"]
+
 
     N_emg_val = sum([len(x[1]) for x in emg_val_pred])
     N_emg_test = sum([len(x[1]) for x in emg_test_pred])
     N_audio_val = sum([len(x[1]) for x in audio_val_pred])
     N_audio_test = sum([len(x[1]) for x in audio_test_pred])
-    N = N_emg_val + N_emg_test + N_audio_val + N_audio_test
+    N_librispeech_val = sum([len(x[1]) for x in librispeech_val_pred])
+    N_librispeech_test = sum([len(x[1]) for x in librispeech_test_pred])
+    N = (
+        N_emg_val
+        + N_emg_test
+        + N_audio_val
+        + N_audio_test
+        + N_librispeech_val
+        + N_librispeech_test
+    )
 
-    all_pred = emg_val_pred + emg_test_pred + audio_val_pred + audio_test_pred
-    dataset = ["emg_val"] * N_emg_val + ["emg_test"] * N_emg_test + \
-            ["audio_val"] * N_audio_val + ["audio_test"] * N_audio_test
-    topk_dict  = getTopK(all_pred, text_transform, lm_directory,
-        k=k, beam_size=beam_size, beam_threshold=beam_threshold, use_lm=use_lm,
+    all_pred = (
+        emg_val_pred
+        + emg_test_pred
+        + audio_val_pred
+        + audio_test_pred
+        + librispeech_val_pred
+        + librispeech_test_pred
+    )
+    dataset = (
+        ["emg_val"] * N_emg_val
+        + ["emg_test"] * N_emg_test
+        + ["audio_val"] * N_audio_val
+        + ["audio_test"] * N_audio_test
+        + ["librispeech_val"] * N_librispeech_val
+        + ["librispeech_test"] * N_librispeech_test
+    )
+
+    topk_dict = getTopK(
+        all_pred,
+        text_transform,
+        lm_directory,
+        k=k,
+        beam_size=beam_size,
+        beam_threshold=beam_threshold,
+        use_lm=use_lm,
         # cpus=cpus,
         cpus=8,
-        lexicon_file=lexicon_file, lm_file=lm_file, lm_weight=lm_weight) 
-    topk_dict['dataset'] = np.array(dataset)
-    save_fname = os.path.join(output_directory, 'topK_beams.npz')
+        lexicon_file=lexicon_file,
+        lm_file=lm_file,
+        lm_weight=lm_weight,
+    )
+    assert len(topk_dict["sentences"]) == len(dataset), f'{len(topk_dict["sentences"])=} != {len(dataset)=}'
+    topk_dict["dataset"] = np.array(dataset)
+    save_fname = os.path.join(output_directory, f"2024-01-27_top{k}_{beam_size}beams.npz")
     np.savez(save_fname, **topk_dict)
-    print(f'Predictions saved to:\n{save_fname}')
+    print(f"Predictions saved to:\n{save_fname}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app()
 ##
 exit(0)
 ##
-run_id = "GAD-823"
+run_id = "GAD-932"
 k = 3
 beam_size = 50
-lm_weight = 2.
+lm_weight = 2.0
 beam_threshold = 75
 use_lm = True
 cpus = 8
@@ -217,44 +280,80 @@ run = get_neptune_run(run_id, project="neuro/Gaddy")
 output_directory = nep_get(run, "output_directory")
 hparams = nep_get(run, "training/hyperparams")
 togglePhones = hparams["togglePhones"]
-text_transform = TextTransform(togglePhones = togglePhones)
+text_transform = TextTransform(togglePhones=togglePhones)
 
 lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
 lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["LOCAL_SCRATCH"])
 
 if togglePhones:
-    lexicon_file = os.path.join(lm_directory, 'cmudict.txt')
+    lexicon_file = os.path.join(lm_directory, "cmudict.txt")
 else:
-    lexicon_file = os.path.join(lm_directory, 'lexicon_graphemes_noApostrophe.txt')
-    
+    lexicon_file = os.path.join(lm_directory, "lexicon_graphemes_noApostrophe.txt")
+
 lm_file = os.path.join(lm_directory, "lm.binary")
 assert os.path.exists(lm_file)
 assert os.path.exists(lexicon_file)
 
-path = os.path.join(output_directory, "2024-01-26_predictions.pkl")
+path = os.path.join(output_directory, "2024-01-27_predictions.pkl")
 with open(path, "rb") as f:
     predictions = pickle.load(f)
 emg_val_pred = predictions["emg_val_pred"]
 emg_test_pred = predictions["emg_test_pred"]
 audio_val_pred = predictions["audio_val_pred"]
 audio_test_pred = predictions["audio_test_pred"]
+librispeech_val_pred = predictions["librispeech_val_pred"]
+librispeech_test_pred = predictions["librispeech_test_pred"]
+
 
 N_emg_val = sum([len(x[1]) for x in emg_val_pred])
 N_emg_test = sum([len(x[1]) for x in emg_test_pred])
 N_audio_val = sum([len(x[1]) for x in audio_val_pred])
 N_audio_test = sum([len(x[1]) for x in audio_test_pred])
-N = N_emg_val + N_emg_test + N_audio_val + N_audio_test
+N_librispeech_val = sum([len(x[1]) for x in librispeech_val_pred])
+N_librispeech_test = sum([len(x[1]) for x in librispeech_test_pred])
+N = (
+    N_emg_val
+    + N_emg_test
+    + N_audio_val
+    + N_audio_test
+    + N_librispeech_val
+    + N_librispeech_test
+)
 
-all_pred = emg_val_pred + emg_test_pred + audio_val_pred + audio_test_pred
-dataset = ["emg_val"] * N_emg_val + ["emg_test"] * N_emg_test + \
-        ["audio_val"] * N_audio_val + ["audio_test"] * N_audio_test
-topk_dict  = getTopK(all_pred, text_transform, lm_directory,
-    k=k, beam_size=beam_size, beam_threshold=beam_threshold, use_lm=use_lm,
+all_pred = (
+    emg_val_pred
+    + emg_test_pred
+    + audio_val_pred
+    + audio_test_pred
+    + librispeech_val_pred
+    + librispeech_test_pred
+)
+dataset = (
+    ["emg_val"] * N_emg_val
+    + ["emg_test"] * N_emg_test
+    + ["audio_val"] * N_audio_val
+    + ["audio_test"] * N_audio_test
+    + ["librispeech_val"] * N_librispeech_val
+    + ["librispeech_test"] * N_librispeech_test
+)
+
+topk_dict = getTopK(
+    all_pred,
+    text_transform,
+    lm_directory,
+    k=k,
+    beam_size=beam_size,
+    beam_threshold=beam_threshold,
+    use_lm=use_lm,
     # cpus=cpus,
     cpus=8,
-    lexicon_file=lexicon_file, lm_file=lm_file, lm_weight=lm_weight) 
-topk_dict['dataset'] = np.array(dataset)
-save_fname = os.path.join(output_directory, 'topK_beams.npz')
+    lexicon_file=lexicon_file,
+    lm_file=lm_file,
+    lm_weight=lm_weight,
+)
+assert len(topk_dict["sentences"]) == len(dataset), f'{len(topk_dict["sentences"])=} != {len(dataset)=}'
+topk_dict["dataset"] = np.array(dataset)
+save_fname = os.path.join(output_directory, "2024-01-24_topK_beams.npz")
 np.savez(save_fname, **topk_dict)
-print(f'Predictions saved to:\n{save_fname}')
+print(f"Predictions saved to:\n{save_fname}")
 ##
