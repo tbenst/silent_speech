@@ -18,6 +18,7 @@ submit_jobs () {
     for number in "$@"
     do
         sbatch "$submit_script" --run-id "GAD-$number"
+        sbatch "$submit_script" --beam-size 150 --k 100 --run-id "GAD-$number"
     done
 }
 

@@ -193,8 +193,7 @@ run_ids = [
     890, 891, 904, 905, 897,
     # 896 # skip
     #### supTcon + DTW ####
-    907, 906, 921, 922,
-    # 920 # not yet finished
+    907, 906, 921, 922, 920,
     #### EMG + Audio ####
     871, 848, 861, 881, 926,
     # 837, 827 # drop per selection criteria
@@ -216,7 +215,7 @@ audio_only_run_ids = [
     # 945, 946, 947 # not yet done
     # 929, 930 # missing last epoch
 ]
-# run_ids = [937, 938, 939, 940, 941]
+run_ids = [920]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
 # run_ids = run_ids + audio_only_run_ids
