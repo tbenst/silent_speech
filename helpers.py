@@ -48,11 +48,11 @@ def load_model(ckpt_path, config):
     return model
 
 
-def get_emg_pred(model, dataloader):
+def get_emg_pred(model, dataloader, key="raw_emg"):
     predictions = []
     with torch.no_grad():
         for batch in tqdm(dataloader):
-            X = nn.utils.rnn.pad_sequence(batch["raw_emg"], batch_first=True)
+            X = nn.utils.rnn.pad_sequence(batch[key], batch_first=True)
             X = X.cuda()
             pred = model.emg_forward(X)[0].cpu()
             predictions.append((batch, pred))

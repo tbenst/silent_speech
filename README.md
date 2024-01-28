@@ -16,12 +16,12 @@ By default, this data is expected to be in a subdirectory `text_alignments`.
 Note that there will not be an exception if the directory is not found, but logged phoneme prediction accuracies reporting 100% is a sign that the directory has not been loaded correctly.
 
 ## ICML paper reproduction
-For each model:
+First you will need to download the [Gaddy 2020 dataset](https://doi.org/10.5281/zenodo.4064408) Then, the following scripts can be modified and run in order on SLURM or a local machine. An individual model trains on one A100 for 24-48 hours depending on loss functions (supTcon increases train time by ~75%). The full model sweep as done in the paper trains 60 models.
+0) run `notebooks/tyler/2023-07-17_cache_dataset_with_attrs_.py`
 1) run `notebooks/tyler/batch_model_sweep.sh` (`2024-01-15_icml_models.py`)
-2) run `2024-01-26_icml_pred.py`
-3) TODO write `2024-01-26_icml_beams.py`
-2) `2024-01-21_model_test.py`
-- Use  ``
+2) run `notebooks/tyler/2024-01-26_icml_pred.py`
+3) run `notebooks/tyler/batch_beam_search.sh` (`2024-01-26_icml_beams.py`)
+4) run `notebooks/tyler/2024-01-28_icml_figures.py`
 
 ## Environment Setup
 

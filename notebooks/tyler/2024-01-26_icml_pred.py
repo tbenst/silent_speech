@@ -2,8 +2,8 @@
 # best checkpoint of each run
 
 ##
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 ##
 import os, subprocess
 
@@ -212,11 +212,10 @@ run_ids = [
     937, 938, 939, 940, 941,
     
     #### crossCon no librispeech 256k ####
-    972, 973, 974,
-    # 970, 971 # not yet done
+    972, 973, 974, 970, 971
 ]
 audio_only_run_ids = [
-    932, 933, 946, 947, 932
+    932, 933, 946, 947
     # 929, 930, 945 # missing last epoch
 ]
 # only run a subset
@@ -243,22 +242,26 @@ for ri in run_ids:
             max_len=config.max_len, togglePhones=config.togglePhones)
         max_len = config.max_len
         togglePhones = config.togglePhones
-    emg_val_pred = get_emg_pred(model, val_dl)
-    emg_test_pred = get_emg_pred(model, test_dl)
+    emg_vocal_val_pred = get_emg_pred(model, val_dl, "parallel_raw_emg")
+    emg_vocal_test_pred = get_emg_pred(model, test_dl, "parallel_raw_emg")
+    emg_silent_val_pred = get_emg_pred(model, val_dl)
+    emg_silent_test_pred = get_emg_pred(model, test_dl)
     audio_val_pred = get_audio_pred(model, val_dl)
     audio_test_pred = get_audio_pred(model, test_dl)
     libri_val_pred = get_audio_pred(model, libri_val_dl)
     libri_test_pred = get_audio_pred(model, libri_test_dl)
 
     predictions = {
-        "emg_val_pred": emg_val_pred,
-        "emg_test_pred": emg_test_pred,
+        "emg_silent_val_pred": emg_silent_val_pred,
+        "emg_silent_test_pred": emg_silent_test_pred,
+        "emg_vocal_val_pred": emg_vocal_val_pred,
+        "emg_vocal_test_pred": emg_vocal_test_pred,
         "audio_val_pred": audio_val_pred,
         "audio_test_pred": audio_test_pred,
         "librispeech_val_pred": libri_val_pred,
         "librispeech_test_pred": libri_test_pred,
     }
-    path = os.path.join(output_directory, "2024-01-27_predictions.pkl")
+    path = os.path.join(output_directory, "2024-01-28_predictions.pkl")
     with open(path, "wb") as f:
         pickle.dump(predictions, f)
     print("done with run", ri)
