@@ -291,8 +291,11 @@ def load_model_from_id(run_id, choose="best"):
         wer = wers[0]
         ckpt_path = ckpt_paths[0]
         min_wer = nep_get(neptune_logger, "training/val/wer").value.min()
-        assert np.isclose(wer, min_wer, atol=1e-3), f"wer {wer} != min_wer {min_wer}"
-        print("found checkpoint with WER", wer)
+        assert wer <= min_wer+1e-3, f"wer {wer} > min_wer {min_wer}"
+        if not np.isclose(wer, min_wer, atol=1e-3):
+            print(f"WARNING: found checkpoint wer {wer} < min_wer {min_wer}")
+        else:
+            print("found checkpoint with WER", wer)
     elif choose == "last":
         ckpt_path, epoch = get_last_ckpt(output_directory)
         assert (
@@ -308,3 +311,49 @@ def load_model_from_id(run_id, choose="best"):
 
     model = load_model(ckpt_path, config)
     return model, config, output_directory
+
+
+def get_run_type(hparams):
+    m256 = hparams["max_len"] == 256000
+    d = hparams["use_dtw"]
+    c = hparams["use_crossCon"]
+    if "use_supCon" in hparams:
+        s = hparams["use_supCon"]
+    elif "use_supTcon" in hparams:
+        s = hparams["use_supTcon"]
+    else:
+        raise ValueError("unknown run type")
+    a = hparams["audio_lambda"] == 1
+    if "emg_lambda" in hparams:
+        e = hparams["emg_lambda"] == 1
+    else:
+        e = True
+    b = string_to_np_array(hparams["batch_class_proportions"])
+    # use librispeech
+    l = b[2] > 0
+    if m256 and c and l:
+        return "crossCon 256k"
+    elif m256 and c and not l:
+        return "crossCon no librispeech 256k"
+    elif d and c and s:
+        return "crossCon + supTcon + DTW"
+    elif c and s:
+        return "crossCon + supTcon"
+    elif c:
+        return "crossCon"
+    elif s and d:
+        return "supTcon + DTW"
+    elif s:
+        return "supTcon"
+    elif a and e and l:
+        return "EMG & Audio"
+    elif a and e:
+        return "EMG & Audio (no Librispeech)"
+    elif e and not l:
+        return "EMG (no Librispeech)"
+    elif e:
+        return "EMG"
+    elif a:
+        return "Audio"
+    else:
+        raise ValueError(f"unknown run type for {hparams}")

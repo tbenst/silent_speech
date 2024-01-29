@@ -88,7 +88,7 @@ from contrastive import (
 import glob, scipy
 from helpers import load_npz_to_memory, calc_wer, load_model, get_top_k, \
     get_best_ckpts, nep_get, get_emg_pred, get_audio_pred, get_last_ckpt, \
-    load_model_from_id, get_neptune_run, string_to_np_array
+    load_model_from_id, get_neptune_run, string_to_np_array, get_run_type
 import pandas as pd
 from tqdm import tqdm
 import altair as alt
@@ -125,10 +125,10 @@ run_ids = [
     # 863, 832, 819, 852, # issues with runs
 
     #### EMG (no librispeech ####
-    965, 967, 968, 969, 966
+    965, 967, 968, 969, 966,
     
     #### Audio-only ####
-    932, 933, 946, 947, 945
+    932, 933, 946, 947, 945,
     # 929, 930, 945 
     # # missing last epoch
     # TODO: can use finished-training_epoch=200.ckpt
@@ -141,16 +141,15 @@ run_ids = [
     937, 938, 939, 940, 941,
     
     #### crossCon + DTW 256k ####
-    # 983, 984, 986, 987, 988
+    # 983, 984, 986, 987, 988,
     # TODO: process these five runs when done
     
     #### crossCon no librispeech 256k ####
-    972, 973, 974, 970, 971
+    972, 973, 974, 970, 971,
     
     #### crossCon balanced 256k ####
     957, 958, 989, 990, # TODO: process
     # 991 # TODO: process when done
-    
 ]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 topk_files = {}
@@ -169,51 +168,7 @@ for ri in run_ids:
         
 print(f"{len(run_ids)=}, {len(topk_files)=}, {len(run_hparams)=}")
 ##
-def get_run_type(hparams):
-    m256 = hparams["max_len"] == 256000
-    d = hparams["use_dtw"]
-    c = hparams["use_crossCon"]
-    if "use_supCon" in hparams:
-        s = hparams["use_supCon"]
-    elif "use_supTcon" in hparams:
-        s = hparams["use_supTcon"]
-    else:
-        raise ValueError("unknown run type")
-    a = hparams["audio_lambda"] == 1
-    if "emg_lambda" in hparams:
-        e = hparams["emg_lambda"] == 1
-    else:
-        e = True
-    b = string_to_np_array(hparams["batch_class_proportions"])
-    # use librispeech
-    l = b[2] > 0
-    if m256 and c and l:
-        return "crossCon 256k"
-    elif m256 and c and not l:
-        return "crossCon no librispeech 256k"
-    elif d and c and s:
-        return "crossCon + supTcon + DTW"
-    elif c and s:
-        return "crossCon + supTcon"
-    elif c:
-        return "crossCon"
-    elif s and d:
-        return "supTcon + DTW"
-    elif s:
-        return "supTcon"
-    elif a and e and l:
-        return "EMG & Audio"
-    elif a and e:
-        return "EMG & Audio (no Librispeech)"
-    elif e and not l:
-        return "EMG (no Librispeech)"
-    elif e:
-        return "EMG"
-    elif a:
-        return "Audio"
-    else:
-        raise ValueError(f"unknown run type for {hparams}")
-    
+   
 run_type = {}
 type_count = defaultdict(int)
 for ri, hparams in run_hparams.items():
@@ -337,7 +292,7 @@ def create_chart(task, df):
 
 # Concatenate charts vertically
 chart = alt.vconcat(*[create_chart(task, df_final_wer) for task in task_order])
-chart.save("../../plots/val-wer_5000beams.png")
+chart.save("../../plots/val-wer_5000beams.png", scale_factor=2.0)
 chart.save("../../plots/val-wer_5000beams.svg")
 chart
 ##
