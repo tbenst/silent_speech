@@ -575,7 +575,7 @@ logging.info("made model")
 
 callbacks = []
 
-if emg_lambda > 0:
+if config.emg_lambda > 0:
     monitor = "val/silent_emg_wer"
     save_top_k = 10
 else:

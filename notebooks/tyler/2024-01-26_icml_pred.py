@@ -204,8 +204,7 @@ run_ids = [
     # 863, 832, 819, 852, # issues with runs
 
     #### EMG (no librispeech ####
-    965, 967, 968, 969,
-    # 966 # not yet done
+    965, 967, 968, 969, 966
 
     ######## quest for the best ##########
     #### crossCon 256k ####
@@ -219,8 +218,8 @@ audio_only_run_ids = [
     # 929, 930, 945 # missing last epoch
 ]
 # only run a subset
-# audio_only_run_ids = [932]
-# run_ids = [972, 973, 974]
+audio_only_run_ids = [945]
+run_ids = [966]
 
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]

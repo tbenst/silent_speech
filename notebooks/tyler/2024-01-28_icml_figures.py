@@ -125,12 +125,10 @@ run_ids = [
     # 863, 832, 819, 852, # issues with runs
 
     #### EMG (no librispeech ####
-    965, 967, 968, 969,
-    # 966 # not yet done TODO
+    965, 967, 968, 969, 966
     
     #### Audio-only ####
-    932, 933, 946, 947,
-    # 945: training again.. TODO
+    932, 933, 946, 947, 945
     # 929, 930, 945 # missing last epoch
 
 
@@ -150,13 +148,14 @@ run_ids = [f"GAD-{ri}" for ri in run_ids]
 topk_files = {}
 run_type = {}
 run_hparams = {}
+num_beams = 150
+num_beams = 5000
 for ri in run_ids:
     run = get_neptune_run(ri, project="neuro/gaddy")
     output_directory = nep_get(run, "output_directory")
     run_hparams[ri] = nep_get(run, "training/hyperparams")
-    path = os.path.join(output_directory, "2024-01-28_top100_150beams.npz")
-    # path = os.path.join(output_directory, "2024-01-27_top100_150beams.npz")
-    # path = os.path.join(output_directory, "2024-01-27_top100_5000beams.npz")
+    # path = os.path.join(output_directory, f"2024-01-28_top100_{num_beams}beams.npz")
+    path = os.path.join(output_directory, f"2024-01-27_top100_{num_beams}beams.npz")
     if os.path.exists(path):
         topk_files[ri] = path
         
@@ -246,8 +245,8 @@ print(f"have {i} topK files, missing {len(run_ids) - i}")
 # TODO: add silent EMG after jobs finish
 np.unique(topk['dataset'])
 ##
-to_analyze = ['audio_val', 'emg_silent_val', 'emg_vocal_val', 'librispeech_val']
-# to_analyze = ['audio_val', 'emg_val', 'librispeech_val']
+# to_analyze = ['audio_val', 'emg_silent_val', 'emg_vocal_val', 'librispeech_val']
+to_analyze = ['audio_val', 'emg_val', 'librispeech_val']
 for ri, hparams in run_hparams.items():
     assert hparams["togglePhones"] == False
 text_transform = TextTransform(togglePhones=hparams['togglePhones'])
@@ -271,16 +270,15 @@ for ri, f in tqdm(topk_files.items()):
             "task": task,
             "wer": wer
         })
-df = pd.DataFrame.from_records(df_rows)
-df
+df_final_wer = pd.DataFrame.from_records(df_rows)
+df_final_wer
 ##
-df_filt = df.copy()
-row_to_remove = (df['run_type'] == "Audio") & (df['task'].isin(["emg_val"]))
-df_filt = df_filt[~row_to_remove]
-row_to_remove = (df['run_type'].isin(["EMG", "EMG (no Librispeech)"])) & (df['task'].isin(["audio_val", "librispeech_val"]))
-df_filt = df_filt[~row_to_remove]
-row_to_remove = (df['run_type'].isin(["EMG & Audio (no Librispeech)"])) & (df['task'].isin(["librispeech_val"]))
-df_filt = df_filt[~row_to_remove]
+row_to_remove = (df_final_wer['run_type'] == "Audio") & (df_final_wer['task'].isin(["emg_val"]))
+df_final_wer = df_final_wer[~row_to_remove]
+row_to_remove = (df_final_wer['run_type'].isin(["EMG", "EMG (no Librispeech)"])) & (df_final_wer['task'].isin(["audio_val", "librispeech_val"]))
+df_final_wer = df_final_wer[~row_to_remove]
+row_to_remove = (df_final_wer['run_type'].isin(["EMG & Audio (no Librispeech)"])) & (df_final_wer['task'].isin(["librispeech_val"]))
+df_final_wer = df_final_wer[~row_to_remove]
 
 
 ##
@@ -298,25 +296,60 @@ category_order = [
     'crossCon 256k', 
     'crossCon no librispeech 256k'
 ]
+task_order = [
+    'librispeech_val',
+    'audio_val', 
+    'emg_val', 
+]
 
-swarm_plot = alt.Chart(df_filt).mark_circle(size=20).encode(
-    x=alt.X('run_type:N', axis=alt.Axis(labelAngle=-45), sort=category_order),
-    y='wer:Q',
-    xOffset="jitter:Q",
-    color=alt.Color('run_type:N', legend=None),
-    tooltip=['run_id', 'run_type', 'task', 'wer']
-).transform_calculate(
-    # jitter="sqrt(-2*log(random()))*cos(2*PI*random())"
-    jitter='random()'
-).properties(
-    width=600,
-    height=200
-).facet(
-    row=alt.Row('task:N', title=None)
-).resolve_scale(
-    y='independent'
-)
-swarm_plot.save("../../plots/val-wer.svg")
-swarm_plot
+task_labels = {
+    "audio_val": "Gaddy Audio",
+    "librispeech_val": "Librispeech",
+    "emg_val": "Gaddy Silent EMG"
+}
+
+def create_chart(task, df):
+    df_task = df[df['task'] == task]
+    xlabel = "model" if task == "emg_val" else None
+    return alt.Chart(df_task).mark_circle(size=20).encode(
+        x=alt.X('run_type:N', axis=alt.Axis(labelAngle=-45),
+            sort=category_order, title=xlabel),
+        y=alt.Y('wer:Q', title='word error rate (WER)'),
+        xOffset="jitter:Q",
+        color=alt.Color('run_type:N', legend=None),
+        tooltip=['run_id', 'run_type', 'task', 'wer']
+    ).transform_calculate(
+        # jitter='random()'
+        jitter="sqrt(-2*log(random()))*cos(2*PI*random())"
+    ).properties(
+        width=600,
+        height=200,
+        title=task_labels[task],
+    )
+
+# Concatenate charts vertically
+chart = alt.vconcat(*[create_chart(task, df_final_wer) for task in task_order])
+chart.save("../../plots/val-wer_5000beams.png")
+chart.save("../../plots/val-wer_5000beams.svg")
+chart
+##
+wer_run_ids = [
+    871, 848, 861, 881, 926, # EMG & Audio
+    835, 841, 818, 868, 936, # crossCon
+    965, 966, 967, 968, 969 # EMG (no librispeech)
+]
+wer_run_ids = [f"GAD-{ri}" for ri in wer_run_ids]
+df_wer = []
+for run_id in wer_run_ids:
+    run = get_neptune_run(run_id, project="neuro/gaddy")
+    wer = nep_get(run, "training/val/wer").value
+    epoch = nep_get(run, "training/epoch").value
+    hparams = nep_get(run, "training/hyperparams")
+    df = wer.to_frame(name="wer")
+    df["run_id"] = run_id
+    df["type"] = run_type[run_id]
+    df_wer.append(df)
+df_wer = pd.concat(df_wer)
+df_wer
 
 ##
