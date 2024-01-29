@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH -p henderj,deissero,shauld
-#SBATCH --time=48:00:00
+#SBATCH --time=16:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=60G
+#SBATCH --mem=59G
 
 . activate magneto
 cd /home/users/tbenst/code/silent_speech/notebooks/tyler

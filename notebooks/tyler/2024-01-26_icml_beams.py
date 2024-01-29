@@ -197,26 +197,31 @@ def main(
     assert os.path.exists(lm_file)
     assert os.path.exists(lexicon_file)
 
-    path = os.path.join(output_directory, "2024-01-27_predictions.pkl")
+    path = os.path.join(output_directory, "2024-01-28_predictions.pkl")
     with open(path, "rb") as f:
         predictions = pickle.load(f)
-    emg_val_pred = predictions["emg_val_pred"]
-    emg_test_pred = predictions["emg_test_pred"]
+    emg_silent_val_pred = predictions["emg_silent_val_pred"]
+    emg_silent_test_pred = predictions["emg_silent_test_pred"]
+    emg_vocal_val_pred = predictions["emg_vocal_val_pred"]
+    emg_vocal_test_pred = predictions["emg_vocal_test_pred"]
     audio_val_pred = predictions["audio_val_pred"]
     audio_test_pred = predictions["audio_test_pred"]
     librispeech_val_pred = predictions["librispeech_val_pred"]
     librispeech_test_pred = predictions["librispeech_test_pred"]
 
-
-    N_emg_val = sum([len(x[1]) for x in emg_val_pred])
-    N_emg_test = sum([len(x[1]) for x in emg_test_pred])
+    N_silent_emg_val = sum([len(x[1]) for x in emg_silent_val_pred])
+    N_silent_emg_test = sum([len(x[1]) for x in emg_silent_test_pred])
+    N_vocal_emg_val = sum([len(x[1]) for x in emg_vocal_val_pred])
+    N_vocal_emg_test = sum([len(x[1]) for x in emg_vocal_test_pred])
     N_audio_val = sum([len(x[1]) for x in audio_val_pred])
     N_audio_test = sum([len(x[1]) for x in audio_test_pred])
     N_librispeech_val = sum([len(x[1]) for x in librispeech_val_pred])
     N_librispeech_test = sum([len(x[1]) for x in librispeech_test_pred])
     N = (
-        N_emg_val
-        + N_emg_test
+          N_silent_emg_val
+        + N_silent_emg_test
+        + N_vocal_emg_val
+        + N_vocal_emg_test
         + N_audio_val
         + N_audio_test
         + N_librispeech_val
@@ -224,16 +229,20 @@ def main(
     )
 
     all_pred = (
-        emg_val_pred
-        + emg_test_pred
+          emg_silent_val_pred
+        + emg_silent_test_pred
+        + emg_vocal_val_pred
+        + emg_vocal_test_pred
         + audio_val_pred
         + audio_test_pred
         + librispeech_val_pred
         + librispeech_test_pred
     )
     dataset = (
-        ["emg_val"] * N_emg_val
-        + ["emg_test"] * N_emg_test
+          ["emg_silent_val"] * N_silent_emg_val
+        + ["emg_silent_test"] * N_silent_emg_test
+        + ["emg_vocal_val"] * N_vocal_emg_val
+        + ["emg_vocal_test"] * N_vocal_emg_test
         + ["audio_val"] * N_audio_val
         + ["audio_test"] * N_audio_test
         + ["librispeech_val"] * N_librispeech_val
@@ -254,9 +263,13 @@ def main(
         lm_file=lm_file,
         lm_weight=lm_weight,
     )
-    assert len(topk_dict["sentences"]) == len(dataset), f'{len(topk_dict["sentences"])=} != {len(dataset)=}'
+    assert len(topk_dict["sentences"]) == len(
+        dataset
+    ), f'{len(topk_dict["sentences"])=} != {len(dataset)=}'
     topk_dict["dataset"] = np.array(dataset)
-    save_fname = os.path.join(output_directory, f"2024-01-27_top{k}_{beam_size}beams.npz")
+    save_fname = os.path.join(
+        output_directory, f"2024-01-28_top{k}_{beam_size}beams.npz"
+    )
     np.savez(save_fname, **topk_dict)
     print(f"Predictions saved to:\n{save_fname}")
 
@@ -294,7 +307,7 @@ lm_file = os.path.join(lm_directory, "lm.binary")
 assert os.path.exists(lm_file)
 assert os.path.exists(lexicon_file)
 
-path = os.path.join(output_directory, "2024-01-27_predictions.pkl")
+path = os.path.join(output_directory, "2024-01-28_predictions.pkl")
 with open(path, "rb") as f:
     predictions = pickle.load(f)
 emg_val_pred = predictions["emg_val_pred"]
@@ -351,7 +364,9 @@ topk_dict = getTopK(
     lm_file=lm_file,
     lm_weight=lm_weight,
 )
-assert len(topk_dict["sentences"]) == len(dataset), f'{len(topk_dict["sentences"])=} != {len(dataset)=}'
+assert len(topk_dict["sentences"]) == len(
+    dataset
+), f'{len(topk_dict["sentences"])=} != {len(dataset)=}'
 topk_dict["dataset"] = np.array(dataset)
 save_fname = os.path.join(output_directory, "2024-01-24_topK_beams.npz")
 np.savez(save_fname, **topk_dict)
