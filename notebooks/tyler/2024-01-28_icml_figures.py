@@ -129,7 +129,11 @@ run_ids = [
     
     #### Audio-only ####
     932, 933, 946, 947, 945
-    # 929, 930, 945 # missing last epoch
+    # 929, 930, 945 
+    # # missing last epoch
+    # TODO: can use finished-training_epoch=200.ckpt
+    # need to fall back to `finished-training_epoch=200.ckpt`
+    # (or default to) if choosing `last`
 
 
     ######## quest for the best ##########
@@ -138,10 +142,14 @@ run_ids = [
     
     #### crossCon + DTW 256k ####
     # 983, 984, 986, 987, 988
-    # TODO: add these five runs
+    # TODO: process these five runs when done
     
     #### crossCon no librispeech 256k ####
     972, 973, 974, 970, 971
+    
+    #### crossCon balanced 256k ####
+    957, 958, 989, 990, # TODO: process
+    # 991 # TODO: process when done
     
 ]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
@@ -336,20 +344,56 @@ chart
 wer_run_ids = [
     871, 848, 861, 881, 926, # EMG & Audio
     835, 841, 818, 868, 936, # crossCon
-    965, 966, 967, 968, 969 # EMG (no librispeech)
+    # 965, 967, 968, 969 # EMG (no librispeech)
+    888, 893, 944, 943, 942, # EMG
+    # 966 # TODO add when finished
 ]
 wer_run_ids = [f"GAD-{ri}" for ri in wer_run_ids]
 df_wer = []
 for run_id in wer_run_ids:
     run = get_neptune_run(run_id, project="neuro/gaddy")
     wer = nep_get(run, "training/val/wer").value
-    epoch = nep_get(run, "training/epoch").value
     hparams = nep_get(run, "training/hyperparams")
     df = wer.to_frame(name="wer")
+    df["epoch"] = df.index
     df["run_id"] = run_id
-    df["type"] = run_type[run_id]
+    df["model"] = run_type[run_id]
     df_wer.append(df)
 df_wer = pd.concat(df_wer)
 df_wer
+df_wer.loc[df_wer["model"] == "EMG (no Librispeech)", "model"] = "EMG" 
+df_wer = df_wer[df_wer['epoch'] <= 199]
+##
+mean_df = df_wer.groupby(['epoch', 'model']).median().reset_index()
+std_df = df_wer.groupby(['epoch', 'model']).std().reset_index()
 
+# Create a line chart for the mean
+mean_line = alt.Chart(mean_df).mark_line().encode(
+    x=alt.X('epoch:Q'),
+    y=alt.Y('wer:Q', title='word error rate'),
+    color=alt.Color('model:N'),
+    tooltip=['epoch', 'model', 'wer']
+).properties(
+    # title="Validation WER by Epoch"
+)
+
+# Create an area chart for the standard deviation
+std_area = alt.Chart(std_df).mark_area(opacity=0.3).encode(
+    x="epoch:Q",
+    y=alt.Y('wer:Q', title='WER Std Dev'),
+    y2=alt.Y2('wer:Q'),
+    color=alt.Color('type:N'),
+    tooltip=['epoch', 'type', 'wer']
+).properties(
+    # title=""
+)
+
+# Combine the charts
+combined_chart = mean_line
+# combined_chart = mean_line + std_area
+
+# Save and display the chart
+combined_chart.save(f"../../plots/mean-wer-by-epoch.png", scale_factor=2.0)
+combined_chart.save(f"../../plots/mean-wer-by-epoch.svg")
+combined_chart
 ##
