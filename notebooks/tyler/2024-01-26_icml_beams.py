@@ -186,7 +186,7 @@ def main(
     text_transform = TextTransform(togglePhones=togglePhones)
 
     lm_directory = "/oak/stanford/projects/babelfish/magneto/GaddyPaper/icml_lm/"
-    lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["LOCAL_SCRATCH"])
+    lm_directory = ensure_folder_on_scratch(lm_directory, os.environ["SCRATCH"])
 
     if togglePhones:
         lexicon_file = os.path.join(lm_directory, "cmudict.txt")

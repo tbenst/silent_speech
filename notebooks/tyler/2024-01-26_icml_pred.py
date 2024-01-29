@@ -211,15 +211,13 @@ run_ids = [
     937, 938, 939, 940, 941,
     
     #### crossCon + DTW 256k ####
-    984, 986, 987, 988,
-    # 983, # TODO: process when done
+    984, 986, 987, 988, 983,
     
     #### crossCon no librispeech 256k ####
     972, 973, 974, 970, 971,
     
     #### crossCon balanced 256k ####
-    957, 958, 989, 990,
-    # 991 # TODO: process when done
+    957, 958, 989, 990, 991,
 ]
 audio_only_run_ids = [
     932, 933, 946, 947
@@ -227,7 +225,7 @@ audio_only_run_ids = [
 ]
 # only run a subset
 audio_only_run_ids = [945]
-run_ids = [983]
+run_ids = [983, 991]
 
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]

@@ -141,15 +141,13 @@ run_ids = [
     937, 938, 939, 940, 941,
     
     #### crossCon + DTW 256k ####
-    # 983, 984, 986, 987, 988,
-    # TODO: process these five runs when done
+    983, 984, 986, 987, 988,
     
     #### crossCon no librispeech 256k ####
     972, 973, 974, 970, 971,
     
     #### crossCon balanced 256k ####
-    957, 958, 989, 990, # TODO: process
-    # 991 # TODO: process when done
+    957, 958, 989, 990, 991,
 ]
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 topk_files = {}
@@ -161,8 +159,8 @@ for ri in run_ids:
     run = get_neptune_run(ri, project="neuro/gaddy")
     output_directory = nep_get(run, "output_directory")
     run_hparams[ri] = nep_get(run, "training/hyperparams")
-    # path = os.path.join(output_directory, f"2024-01-28_top100_{num_beams}beams.npz")
-    path = os.path.join(output_directory, f"2024-01-27_top100_{num_beams}beams.npz")
+    path = os.path.join(output_directory, f"2024-01-28_top100_{num_beams}beams.npz")
+    # path = os.path.join(output_directory, f"2024-01-27_top100_{num_beams}beams.npz")
     if os.path.exists(path):
         topk_files[ri] = path
         
@@ -178,7 +176,7 @@ for ri, hparams in run_hparams.items():
     except Exception as e:
         print(f"{ri}: unknown")
         raise e
-assert len(type_count) == 12, f"{len(type_count)=}"
+assert len(type_count) == 14, f"{len(type_count)=}"
 
 missing_msg = False
 for t, c in type_count.items():

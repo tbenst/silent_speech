@@ -291,13 +291,17 @@ def load_model_from_id(run_id, choose="best"):
         wer = wers[0]
         ckpt_path = ckpt_paths[0]
         min_wer = nep_get(neptune_logger, "training/val/wer").value.min()
-        assert wer <= min_wer+1e-3, f"wer {wer} > min_wer {min_wer}"
+        assert wer <= min_wer + 1e-3, f"wer {wer} > min_wer {min_wer}"
         if not np.isclose(wer, min_wer, atol=1e-3):
             print(f"WARNING: found checkpoint wer {wer} < min_wer {min_wer}")
         else:
             print("found checkpoint with WER", wer)
     elif choose == "last":
-        ckpt_path, epoch = get_last_ckpt(output_directory)
+        ckpt_path = os.path.join(output_directory, "finished-training_epoch=200.ckpt")
+        if os.path.exists(ckpt_path):
+            epoch = 199
+        else:
+            ckpt_path, epoch = get_last_ckpt(output_directory)
         assert (
             epoch == hparams["num_train_epochs"] - 1
         ), f"epoch {epoch} != {hparams['num_train_epochs'] -1}"
@@ -329,12 +333,17 @@ def get_run_type(hparams):
     else:
         e = True
     b = string_to_np_array(hparams["batch_class_proportions"])
-    # use librispeech
-    l = b[2] > 0
-    if m256 and c and l:
+    l = b[2] > 0 # use librispeech
+    # balanced audio/emg sampling
+    bal = np.isclose(0.1835, b[0], atol=1e-3) and np.isclose(0.1835, b[2], atol=1e-3)
+    if m256 and c and l and bal:
+        return "crossCon (balanced) 256k"
+    elif m256 and c and d:
+        return "crossCon + DTW 256k"
+    elif m256 and c and l:
         return "crossCon 256k"
     elif m256 and c and not l:
-        return "crossCon no librispeech 256k"
+        return "crossCon (no Librispeech) 256k"
     elif d and c and s:
         return "crossCon + supTcon + DTW"
     elif c and s:
