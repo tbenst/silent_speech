@@ -4,6 +4,7 @@ import torch.nn as nn
 from data_utils import TextTransform
 from architecture import Model, S4Model, H3Model, ResBlock, MONAConfig, MONA
 from torchaudio.models.decoder import ctc_decoder
+import functools
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 import jiwer
@@ -206,6 +207,7 @@ def calc_wer(predictions, targets, text_transform):
     return jiwer.wer(targets, predictions)
 
 
+@functools.cache
 def get_neptune_run(run_id, mode="read-only", **neptune_kwargs):
     return NeptuneLogger(
         run=neptune.init_run(
@@ -333,7 +335,7 @@ def get_run_type(hparams):
     else:
         e = True
     b = string_to_np_array(hparams["batch_class_proportions"])
-    l = b[2] > 0 # use librispeech
+    l = b[2] > 0  # use librispeech
     # balanced audio/emg sampling
     bal = np.isclose(0.1835, b[0], atol=1e-3) and np.isclose(0.1835, b[2], atol=1e-3)
     if m256 and c and l and bal:

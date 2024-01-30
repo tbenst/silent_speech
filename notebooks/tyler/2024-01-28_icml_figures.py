@@ -124,8 +124,8 @@ run_ids = [
     888, 893, 944, 943, 942,
     # 863, 832, 819, 852, # issues with runs
 
-    #### EMG (no librispeech ####
-    965, 967, 968, 969, 966,
+    #### EMG (no librispeech) ####
+    965, 967, 968, 969, 966, # TODO: consider dropping
     
     #### Audio-only ####
     932, 933, 946, 947, 945,
@@ -203,11 +203,14 @@ for ri in run_ids:
         continue
 print(f"have {i} topK files, missing {len(run_ids) - i}")
 ##
-# TODO: add silent EMG after jobs finish
-np.unique(topk['dataset'])
-##
-# to_analyze = ['audio_val', 'emg_silent_val', 'emg_vocal_val', 'librispeech_val']
-to_analyze = ['audio_val', 'emg_val', 'librispeech_val']
+# order used for plotting order too
+to_analyze = [
+    'librispeech_val',
+    'audio_val',
+    'emg_vocal_val',
+    'emg_silent_val',
+]
+# to_analyze = ['audio_val', 'emg_val', 'librispeech_val']
 for ri, hparams in run_hparams.items():
     assert hparams["togglePhones"] == False
 text_transform = TextTransform(togglePhones=hparams['togglePhones'])
@@ -227,18 +230,23 @@ for ri, f in tqdm(topk_files.items()):
         wer = calc_wer(preds, labels, text_transform)
         df_rows.append({
             "run_id": ri,
-            "run_type": rt,
+            "model": rt,
             "task": task,
             "wer": wer
         })
 df_final_wer = pd.DataFrame.from_records(df_rows)
 df_final_wer
 ##
-row_to_remove = (df_final_wer['run_type'] == "Audio") & (df_final_wer['task'].isin(["emg_val"]))
+row_to_remove = (df_final_wer['model'] == "Audio") & \
+    (df_final_wer['task'].isin(["emg_vocal_val", "emg_silent_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
-row_to_remove = (df_final_wer['run_type'].isin(["EMG", "EMG (no Librispeech)"])) & (df_final_wer['task'].isin(["audio_val", "librispeech_val"]))
+row_to_remove = (df_final_wer['model'].isin(["EMG",
+                                                "EMG (no Librispeech)"])) & \
+    (df_final_wer['task'].isin(["audio_val", "librispeech_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
-row_to_remove = (df_final_wer['run_type'].isin(["EMG & Audio (no Librispeech)"])) & (df_final_wer['task'].isin(["librispeech_val"]))
+row_to_remove =(df_final_wer['model'].isin(["EMG & Audio (no Librispeech)",
+                                       'crossCon (no Librispeech) 256k'])) & \
+    (df_final_wer['task'].isin(["librispeech_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
 
 
@@ -254,31 +262,37 @@ category_order = [
     'crossCon', 
     'crossCon + supTcon', 
     'crossCon + supTcon + DTW', 
-    'crossCon 256k', 
-    'crossCon no librispeech 256k'
+    'crossCon + DTW 256k',
+    'crossCon 256k',
+    'crossCon (balanced) 256k',
+    'crossCon (no Librispeech) 256k'
 ]
-task_order = [
-    'librispeech_val',
-    'audio_val', 
-    'emg_val', 
-]
+
 
 task_labels = {
     "audio_val": "Gaddy Audio",
     "librispeech_val": "Librispeech",
-    "emg_val": "Gaddy Silent EMG"
+    "emg_silent_val": "Gaddy Silent EMG",
+    "emg_vocal_val": "Gaddy Vocal EMG"
 }
+
+# Calculate global min and max wer for consistent y-axis
+global_min_wer = 0.
+global_max_wer = 0.35
 
 def create_chart(task, df):
     df_task = df[df['task'] == task]
     xlabel = "model" if task == "emg_val" else None
     return alt.Chart(df_task).mark_circle(size=20).encode(
-        x=alt.X('run_type:N', axis=alt.Axis(labelAngle=-45),
-            sort=category_order, title=xlabel),
-        y=alt.Y('wer:Q', title='word error rate (WER)'),
+        x=alt.X('model:N', axis=alt.Axis(labelAngle=-45),
+            sort=category_order, title=xlabel,  scale=alt.Scale(domain=category_order)),
+        y=alt.Y('wer:Q', title='word error rate (%)',
+                scale=alt.Scale(domain=[global_min_wer, global_max_wer]),
+                axis=alt.Axis(format='%')),
         xOffset="jitter:Q",
-        color=alt.Color('run_type:N', legend=None),
-        tooltip=['run_id', 'run_type', 'task', 'wer']
+        color=alt.Color('model:N', scale = alt.Scale(scheme='category20'),
+                        legend=None),
+        tooltip=['run_id', 'model', 'task', 'wer']
     ).transform_calculate(
         # jitter='random()'
         jitter="sqrt(-2*log(random()))*cos(2*PI*random())"
@@ -289,9 +303,12 @@ def create_chart(task, df):
     )
 
 # Concatenate charts vertically
-chart = alt.vconcat(*[create_chart(task, df_final_wer) for task in task_order])
-chart.save("../../plots/val-wer_5000beams.png", scale_factor=2.0)
-chart.save("../../plots/val-wer_5000beams.svg")
+# audio_chart = alt.hconcat(*[create_chart(task, df_final_wer) for task in to_analyze[:2]])
+# emg_chart = alt.hconcat(*[create_chart(task, df_final_wer) for task in to_analyze[2:]])
+# chart = alt.vconcat(audio_chart, emg_chart)
+chart = alt.vconcat(*[create_chart(task, df_final_wer) for task in to_analyze])
+chart.save(f"../../plots/val-wer_{num_beams}beams.png", scale_factor=2.0)
+chart.save(f"../../plots/val-wer_{num_beams}beams.svg")
 chart
 ##
 wer_run_ids = [
