@@ -370,3 +370,11 @@ combined_chart.save(f"../../plots/mean-wer-by-epoch.png", scale_factor=2.0)
 combined_chart.save(f"../../plots/mean-wer-by-epoch.svg")
 combined_chart
 ##
+# LISA comparison:
+lisa_types = [
+    "Chain of Reasoning",
+    "Direct Answer (top 10)",
+    "Direct Answer (top 100)",
+    "Ensemble (10 x top 1)",
+    "Ensemble (10 x top 10)",
+]

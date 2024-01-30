@@ -58,14 +58,8 @@ def create_rescore_msg(predictions):
 
 @app.command()
 def main(
-    npz_file: str = typer.Argument(
-        ..., help="Path to the .npz file containing the predictions and scores"
-    ),
     sys_msg: str = typer.Option(None, help="System message to use as input (optional)"),
     n_jobs: int = typer.Option(3, help="Number of jobs for parallel processing"),
-    baseline: bool = typer.Option(
-        False, help="Calculate only the baseline WER"
-    ),  # Added this option
 ):
     # Load the .npz file
     npz = np.load(npz_file, allow_pickle=True)
@@ -185,11 +179,31 @@ baseline_wer = calc_wer(silent_best_predictions, silent_labels, text_transform)
 typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")
 ##
 # for each entry, stack the top pred for each run
-ensemble_silent_preds = []
-for i in range(len(silent_pred)):
-    ensemble_silent_preds.append(np.stack([p[i][0] for p in run_silent_preds.values()]))
-
+# ensemble_silent_preds = []
+# for i in range(len(silent_pred)):
+#     ensemble_silent_preds.append(np.stack([p[i][0] for p in run_silent_preds.values()]))
 ensemble_silent_labels = silent_labels
+
+ensemble_silent_preds = []
+vals = [[] for _ in range(len(silent_pred))]
+n_per_model = 10
+# stack top 10 preds for each run (14.55% WER on GPT-3; worse than top1 of ~12%)
+# for preds in run_silent_preds.values():
+#     for i,topk in enumerate(preds):
+#         vals[i].extend(topk[:n_per_model])
+
+# much better by ordering modelA top1, modelB top1, modelA top2, modelB top2, etc.
+# 12.35% on GPT-3.5. still worse than top1 of ~12%.
+# 13.12% on GPT-4
+for i in range(len(silent_pred)):
+    for n in range(n_per_model):
+        for preds in run_silent_preds.values():
+            try:
+                vals[i].append(preds[i][n])
+            except:
+                print(f"no prediction for {i} {n}")
+        
+ensemble_silent_preds = [np.stack(v) for v in vals]
 ensemble_silent_preds = np.array(ensemble_silent_preds)
 ##
 # try new API
@@ -257,7 +271,10 @@ without any introductory text.
 # 18.0% with GAD-984
 
 # first run:
-# 10-model ensemble: 10.47% with GPT-4; 12.27% with GPT-3.5 (ack leaked labels)
+# 10-model ensemble: 10.47% with GPT-4; 12.27% with GPT-3.5
+# (I prev worried there may have been a label leak here by accidentally passing
+# labels as beam scores, but I don't think so: GPT-4 is just more variable)
+# GPT-4 just has variable resuls)
 # second run:
 # 10-model ensemble: 14.07% with GPT-4; 11.93% with GPT-3.5
 # third run (seeded for hopefully better reproducibility):
@@ -301,14 +318,14 @@ print(sys_msg)
 #     rescore_msg = "\n".join([f"{s:.3f}\t{p}" for p, s in zip(predictions, scores)])
 #     return rescore_msg  
 
-# model = "gpt-4-0125-preview" # 21.85% took 4min
+model = "gpt-4-0125-preview" # 21.85% took 4min
 # model = "gpt-3.5-turbo-16k-0613" # 21.42 - 21.45%, took 2:10 - 2:37 with 3 jobs
-model = "gpt-3.5-turbo-1106" # 21.00% took 6:41 with 3 jobs (bad timeout..?)
+# model = "gpt-3.5-turbo-1106" # 21.00% took 6:41 with 3 jobs (bad timeout..?)
 # Call batch_completions
 lisa_predictions = batch_completions(ensemble_silent_preds, sys_msg,
 # lisa_predictions = batch_completions(silent_predictions[3:], silent_beam_scores[3:], sys_msg,
                                      model=model)
-##
+
 # def clean_transcripts(transcripts):
 #     ret = []
 #     for transcript in transcripts:
@@ -356,4 +373,46 @@ new_labels = np.delete(new_labels, 197)
 lisa_wer = calc_wer(clean_transcripts(new_preds), new_labels, text_transform)
 typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
 typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
+##
+# FINETUNING dataset
+import json
+
+dset = [(create_rescore_msg(p), l) for p,l in zip(silent_predictions[:100], silent_labels[:100])]
+
+# Convert to JSONL format
+jsonl_data = []
+for user_msg, assistant_msg in dset:
+    jsonl_data.append({
+        "messages": [
+            {"role": "system", "content": sys_msg},
+            {"role": "user", "content": user_msg},
+            {"role": "assistant", "content": assistant_msg}
+        ]
+    })
+
+# Save as a JSONL file
+jsonl_path = "../../fine_tuning_data/2024-01-28_icml_LISA.jsonl"
+with open(jsonl_path, 'w') as f:
+    for entry in jsonl_data:
+        json.dump(entry, f)
+        f.write('\n')
+
+jsonl_path
+##
+# upload finetuning data
+from openai import OpenAI
+sync_client = OpenAI()
+
+with open(jsonl_path, "rb") as f:
+    sync_client.files.create(
+    file=f,
+    purpose="fine-tune"
+    )
+##
+# start finetuning job
+sync_client.fine_tuning.jobs.create(
+    # check GUI to get file ID
+    training_file="file-PrSERDhfPXftRC50ZGfbln6Y", 
+    model="gpt-3.5-turbo-1106"
+)
 ##
