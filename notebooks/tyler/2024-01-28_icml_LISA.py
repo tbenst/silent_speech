@@ -53,7 +53,7 @@ def clean_transcripts(transcripts):
     return transcripts
 
 def create_rescore_msg(predictions):
-    rescore_msg = "\n".join([p for p in predictions[:25]])
+    rescore_msg = "\n".join([p for p in predictions])
     return rescore_msg 
 
 @app.command()
@@ -179,37 +179,37 @@ baseline_wer = calc_wer(silent_best_predictions, silent_labels, text_transform)
 typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")
 ##
 # for each entry, stack the top pred for each run
-# ensemble_silent_preds = []
-# for i in range(len(silent_pred)):
-#     ensemble_silent_preds.append(np.stack([p[i][0] for p in run_silent_preds.values()]))
+ensemble_silent_preds = []
+for i in range(len(silent_pred)):
+    ensemble_silent_preds.append(np.stack([p[i][0] for p in run_silent_preds.values()]))
 ensemble_silent_labels = silent_labels
 
-ensemble_silent_preds = []
-vals = [[] for _ in range(len(silent_pred))]
-n_per_model = 10
+# ensemble_silent_preds = []
+# vals = [[] for _ in range(len(silent_pred))]
+# n_per_model = 10
 # stack top 10 preds for each run (14.55% WER on GPT-3; worse than top1 of ~12%)
 # for preds in run_silent_preds.values():
 #     for i,topk in enumerate(preds):
 #         vals[i].extend(topk[:n_per_model])
 
 # much better by ordering modelA top1, modelB top1, modelA top2, modelB top2, etc.
-# 12.35% on GPT-3.5. still worse than top1 of ~12%.
+# 12.38% on GPT-3.5. still worse than top1 of ~12%.
 # 13.12% on GPT-4
-for i in range(len(silent_pred)):
-    for n in range(n_per_model):
-        for preds in run_silent_preds.values():
-            try:
-                vals[i].append(preds[i][n])
-            except:
-                print(f"no prediction for {i} {n}")
-        
-ensemble_silent_preds = [np.stack(v) for v in vals]
+# for i in range(len(silent_pred)):
+#     for n in range(n_per_model):
+#         for preds in run_silent_preds.values():
+#             try:
+#                 vals[i].append(preds[i][n])
+#             except:
+#                 print(f"no prediction for {i} {n}")
+# ensemble_silent_preds = [np.stack(v) for v in vals]
+
 ensemble_silent_preds = np.array(ensemble_silent_preds)
 ##
 # try new API
 # gpt-3.5 has topen limit of 160k/min
 # gpt-4-turbo has rate limit of 300k/min
-predictions = silent_predictions[0]
+predictions = ensemble_silent_preds[0]
 client = AsyncOpenAI(
     max_retries=100,
     timeout=15,
@@ -224,7 +224,7 @@ num_pred = len(predictions)
 if num_pred < 10:
     print(f"WARNING: only {num_pred} predictions from beam search")
 
-# print(rescore_msg)
+print(rescore_msg)
 # print(num_tokens)
 ##
 def completion_coroutine(sys_msg, user_msg, model="gpt-3.5-turbo-16k-0613"):
@@ -318,9 +318,11 @@ print(sys_msg)
 #     rescore_msg = "\n".join([f"{s:.3f}\t{p}" for p, s in zip(predictions, scores)])
 #     return rescore_msg  
 
-model = "gpt-4-0125-preview" # 21.85% took 4min
+# model = "gpt-4-0125-preview" # 21.85% took 4min
 # model = "gpt-3.5-turbo-16k-0613" # 21.42 - 21.45%, took 2:10 - 2:37 with 3 jobs
 # model = "gpt-3.5-turbo-1106" # 21.00% took 6:41 with 3 jobs (bad timeout..?)
+# finetuned on top 25 on GAD-939 I think
+model = "ft:gpt-3.5-turbo-1106:personal::8moUtPrA" 
 # Call batch_completions
 lisa_predictions = batch_completions(ensemble_silent_preds, sys_msg,
 # lisa_predictions = batch_completions(silent_predictions[3:], silent_beam_scores[3:], sys_msg,
@@ -346,38 +348,39 @@ baseline_wer = calc_wer(ensemble_best_pred, ensemble_silent_labels, text_transfo
 typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
 typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
 ##
-c.choices[0].message.content
+# c.choices[0].message.content
 ##
-# Get transcripts using the provided function
-transcripts = batch_predict_from_topk(
-    silent_predictions, silent_beam_scores, sys_msg=sys_msg, n_jobs=n_jobs
-)
+# # Get transcripts using the provided function
+# transcripts = batch_predict_from_topk(
+#     silent_predictions, silent_beam_scores, sys_msg=sys_msg, n_jobs=n_jobs
+# )
 
-# Clean and calculate WER for the transcripts
+# # Clean and calculate WER for the transcripts
 
-typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
+# typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
 
 
-##
-for i,t in enumerate(lisa_predictions):
-    if not "TRANSCRIPT: " in t:
-        print(i,t)
-##
-# nondestructively drop 34 and 167 on new copy
-new_preds = np.copy(lisa_predictions)
-new_preds = np.delete(new_preds, 197)
-# new_preds = np.delete(new_preds, 34)
-new_labels = np.copy(silent_labels)
-new_labels = np.delete(new_labels, 197)
-# new_labels = np.delete(new_labels, 34)
-lisa_wer = calc_wer(clean_transcripts(new_preds), new_labels, text_transform)
-typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
-typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
+# ##
+# for i,t in enumerate(lisa_predictions):
+#     if not "TRANSCRIPT: " in t:
+#         print(i,t)
+# ##
+# # nondestructively drop 34 and 167 on new copy
+# new_preds = np.copy(lisa_predictions)
+# new_preds = np.delete(new_preds, 197)
+# # new_preds = np.delete(new_preds, 34)
+# new_labels = np.copy(silent_labels)
+# new_labels = np.delete(new_labels, 197)
+# # new_labels = np.delete(new_labels, 34)
+# lisa_wer = calc_wer(clean_transcripts(new_preds), new_labels, text_transform)
+# typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
+# typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
 ##
 # FINETUNING dataset
 import json
 
-dset = [(create_rescore_msg(p), l) for p,l in zip(silent_predictions[:100], silent_labels[:100])]
+# note that create_rescore_msg was cutting off at 25 messages when this was run
+dset = [(create_rescore_msg(p), l) for p,l in zip(ensemble_silent_preds[:100], ensemble_silent_labels[:100])]
 
 # Convert to JSONL format
 jsonl_data = []
@@ -391,7 +394,7 @@ for user_msg, assistant_msg in dset:
     })
 
 # Save as a JSONL file
-jsonl_path = "../../fine_tuning_data/2024-01-28_icml_LISA.jsonl"
+jsonl_path = "../../fine_tuning_data/2024-01-30_ensemble_top1.jsonl"
 with open(jsonl_path, 'w') as f:
     for entry in jsonl_data:
         json.dump(entry, f)
@@ -412,7 +415,20 @@ with open(jsonl_path, "rb") as f:
 # start finetuning job
 sync_client.fine_tuning.jobs.create(
     # check GUI to get file ID
-    training_file="file-PrSERDhfPXftRC50ZGfbln6Y", 
+    training_file="file-LPwtDDtrvDEUcbbhCj6QyNMC", 
     model="gpt-3.5-turbo-1106"
 )
+##
+# check finetuning performance
+# 8.1% silent EMG Validation!!!!
+model = "ft:gpt-3.5-turbo-1106:personal::8mordMqf" 
+# Call batch_completions
+lisa_predictions = batch_completions(ensemble_silent_preds[100:], sys_msg,
+                                     model=model)
+
+lisa_wer = calc_wer(clean_transcripts(lisa_predictions), ensemble_silent_labels[100:], text_transform)
+ensemble_best_pred = np.array([p[0] for p in ensemble_silent_preds])
+baseline_wer = calc_wer(ensemble_best_pred[100:], ensemble_silent_labels[100:], text_transform)
+typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
+typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
 ##
