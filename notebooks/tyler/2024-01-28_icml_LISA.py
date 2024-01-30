@@ -183,7 +183,7 @@ num_pred = len(predictions)
 if num_pred < 10:
     print(f"WARNING: only {num_pred} predictions from beam search")
 
-print(rescore_msg)
+# print(rescore_msg)
 print(num_tokens)
 ##
 def completion_coroutine(sys_msg, user_msg, model="gpt-3.5-turbo-16k-0613"):
@@ -215,7 +215,7 @@ def batch_completions(predictions, scores, sys_msg, n_jobs=3,
     # run the asynchronous gathering function
     return asyncio.run(gather_completions(coroutines, n_jobs=n_jobs))
 
-# all numbers here from GAD-939 with 5000 beams
+# all numbers here from GAD-939 with 5000 beams unless otherwise noted
 # 21.4%
 sys_msg = """
 Your task is automatic speech recognition. \
@@ -226,10 +226,31 @@ without any introductory text.
 """.strip()
 
 # 20.95% w/ GPT-4, 20.58% w/ GPT-3.5 [10 preds: 20.68% vs 20.58% for 100 preds]
-sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond with the chosen transcription only, without any introductory text."
-
+# 18.0% with GAD-984
 # sys_msg = """Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond with the chosen transcription only, without any introductory text."""
 
+# 18.74% on GAD-984 w/ GPT-3.5; 17.79% on GAD-984 w/ GPT-4
+ex0 = "\n".join([p for p in silent_predictions[0][:25]])
+ex1 = "\n".join([p for p in silent_predictions[1][:25]])
+ex2 = "\n".join([p for p in silent_predictions[2][:25]])
+sys_msg = f"""Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound.
+
+=== Example 1 ===
+**User Message**: {ex0}
+**Response**: {silent_labels[0]}
+
+=== Example 2 ===
+**User Message**: {ex1}
+**Response**: {silent_labels[1]}
+
+=== Example 3 ===
+**User Message**: {ex2}
+**Response**: {silent_labels[2]}
+
+Respond with the chosen transcription only, without any introductory text.
+"""
+print(sys_msg)
+##
 # 22.11% with GPT-3.5, and 2 examples don't conform (10 examples)
 # sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Begin your response with a Chain of Reasoning, explaining your analysis and decision-making process in choosing the most accurate transcription. After your analysis, clearly indicate your final choice with the cue 'TRANSCRIPT: '. Ensure the transcription you choose is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond first with your reasoning, followed by 'TRANSCRIPT: ' and then the chosen transcription."
 
@@ -240,18 +261,18 @@ sys_msg = "Your task is to perform automatic speech recognition. Below are multi
 # sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. If the correct transcription is not explicitly listed, use your understanding of context and language to infer the most likely correct wording. Choose the transcription (or inferred correct version) that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases where the correct transcription is not clear, select or infer the option that is most coherent and contextually sound. Respond with the chosen or inferred transcription only, without any introductory text."
 
 def create_rescore_msg(predictions, scores):
-    rescore_msg = "\n".join([p for p in predictions])
+    rescore_msg = "\n".join([p for p in predictions[:25]])
     return rescore_msg 
 
 # def create_rescore_msg(predictions, scores):
 #     rescore_msg = "\n".join([f"{s:.3f}\t{p}" for p, s in zip(predictions, scores)])
 #     return rescore_msg  
 
-# model = "gpt-4-0125-preview" # 21.85% took 4min
+model = "gpt-4-0125-preview" # 21.85% took 4min
 # model = "gpt-3.5-turbo-16k-0613" # 21.42 - 21.45%, took 2:10 - 2:37 with 3 jobs
-model = "gpt-3.5-turbo-1106" # 21.00% took 6:41 with 3 jobs (bad timeout..?)
+# model = "gpt-3.5-turbo-1106" # 21.00% took 6:41 with 3 jobs (bad timeout..?)
 # Call batch_completions
-lisa_predictions = batch_completions(silent_predictions, silent_beam_scores, sys_msg,
+lisa_predictions = batch_completions(silent_predictions[3:], silent_beam_scores[3:], sys_msg,
                                      model=model)
 ##
 # def clean_transcripts(transcripts):
@@ -266,7 +287,8 @@ lisa_predictions = batch_completions(silent_predictions, silent_beam_scores, sys
 #     transformation = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
 #     ret = transformation(ret)
 #     return ret
-lisa_wer = calc_wer(clean_transcripts(lisa_predictions), silent_labels, text_transform)
+lisa_wer = calc_wer(clean_transcripts(lisa_predictions), silent_labels[3:], text_transform)
+baseline_wer = calc_wer(silent_best_predictions[3:], silent_labels[3:], text_transform)
 typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
 typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
 ##
