@@ -249,11 +249,14 @@ row_to_remove =(df_final_wer['model'].isin(["EMG & Audio (no Librispeech)",
     (df_final_wer['task'].isin(["librispeech_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
 
+# no interesting difference from EMG
+row_to_remove = (df_final_wer['model'] == "EMG (no Librispeech)")
+df_final_wer = df_final_wer[~row_to_remove]
 
 ##
 category_order = [
     'Audio', 
-    'EMG (no Librispeech)', 
+    # 'EMG (no Librispeech)', 
     'EMG', 
     'EMG & Audio (no Librispeech)', 
     'EMG & Audio', 
