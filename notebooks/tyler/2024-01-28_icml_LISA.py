@@ -54,63 +54,7 @@ def clean_transcripts(transcripts):
 
 def create_rescore_msg(predictions):
     rescore_msg = "\n".join([p for p in predictions])
-    return rescore_msg 
-
-@app.command()
-def main(
-    sys_msg: str = typer.Option(None, help="System message to use as input (optional)"),
-    n_jobs: int = typer.Option(3, help="Number of jobs for parallel processing"),
-):
-    # Load the .npz file
-    npz = np.load(npz_file, allow_pickle=True)
-
-    # If sys_msg is not provided, use the default message
-    if sys_msg is None:
-        sys_msg = """
-        Your task is automatic speech recognition. \
-        Below are the candidate transcriptions along with their \
-        negative log-likelihood from a CTC beam search. \
-        Respond with the correct transcription, \
-        without any introductory text.
-        """.strip()
-
-    # Calculate WER for baseline
-    baseline_wer = calc_wer([n[0] for n in npz["predictions"]], npz["sentences"])
-    typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")
-
-    if not baseline:
-        # Get transcripts using the provided function
-        transcripts = batch_predict_from_topk(
-            npz["predictions"], npz["beam_scores"], sys_msg=sys_msg, n_jobs=n_jobs
-        )
-
-        # Clean and calculate WER for the transcripts
-        wer = calc_wer(clean_transcripts(transcripts), npz["sentences"])
-        typer.echo(
-            f"Baseline WER: {baseline_wer * 100:.2f}%"
-        )  # repeat due to noisy output
-        typer.echo(f"Final WER: {wer * 100:.2f}%")
-
-    # Run the application
-    # if __name__ == "__main__":
-    #     app()
-
-
-##
-# crossCon + DTW 256k
-run_id = "GAD-984" # 20.63% val
-# run_id = "GAD-986" # 21.26% val
-# run_id = "GAD-987" # 21.45% val
-# run_id = "GAD-988" # 21.63% val
-# run_id = "GAD-983" # 21.82% val
-
-# # crossCon 256k
-# run_id = "GAD-940" # 21.66% val
-# run_id = "GAD-938" # 22.24% val
-# run_id = "GAD-941" # 22.56% val
-# run_id = "GAD-937" # 22.61% val
-# run_id = "GAD-939" # 23.14% val
-n_jobs = 8
+    return rescore_msg
 
 def get_labels_preds(run_id):
     run = get_neptune_run(run_id, project="neuro/Gaddy")
@@ -133,6 +77,24 @@ def get_labels_preds(run_id):
     silent_predictions = silent_predictions[non_zero]
     silent_beam_scores = silent_beam_scores[non_zero]
     silent_labels = silent_labels[non_zero]
+    
+    vocal_idxs = np.where(npz["dataset"] == "emg_vocal_val")[0]
+    vocal_predictions = npz["predictions"][vocal_idxs]
+    vocal_beam_scores = npz["beam_scores"][vocal_idxs]
+    vocal_labels = npz["sentences"][vocal_idxs]
+    non_zero = np.where(vocal_labels != "")[0]
+    vocal_predictions = vocal_predictions[non_zero]
+    vocal_beam_scores = vocal_beam_scores[non_zero]
+    vocal_labels = vocal_labels[non_zero]
+    
+    audio_idxs = np.where(npz["dataset"] == "audio_val")[0]
+    audio_predictions = npz["predictions"][audio_idxs]
+    audio_beam_scores = npz["beam_scores"][audio_idxs]
+    audio_labels = npz["sentences"][audio_idxs]
+    non_zero = np.where(audio_labels != "")[0]
+    audio_predictions = audio_predictions[non_zero]
+    audio_beam_scores = audio_beam_scores[non_zero]
+    audio_labels = audio_labels[non_zero]
 
     librispeech_idxs = np.where(npz["dataset"] == "librispeech_val")[0]
     librispeech_predictions = npz["predictions"][librispeech_idxs]
@@ -142,91 +104,13 @@ def get_labels_preds(run_id):
     librispeech_beam_scores = librispeech_beam_scores[non_zero]
     librispeech_labels = librispeech_labels[non_zero]
     librispeech_predictions = librispeech_predictions[non_zero]
-    return silent_predictions, silent_labels, librispeech_predictions, librispeech_labels
+    return silent_predictions, silent_labels, \
+        vocal_predictions, vocal_labels, \
+        audio_predictions, audio_labels, \
+        librispeech_predictions, librispeech_labels
+        
 
-(
-    silent_pred, silent_labels, librispeech_pred, librispeech_labels
-) = get_labels_preds(run_id)
 
-silent_best_predictions = np.array([p[0] for p in silent_pred])
-
-run_silent_preds = OrderedDict()
-run_silent_labels = OrderedDict()
-run_librispeech_preds = OrderedDict()
-run_librispeech_labels = OrderedDict()
-
-for r in [
-    "GAD-984",
-    "GAD-986",
-    "GAD-987",
-    "GAD-988",
-    "GAD-983",
-    "GAD-940",
-    "GAD-938",
-    "GAD-941",
-    "GAD-937",
-    "GAD-939",
-]:
-    (silent_predictions, silent_labels, librispeech_predictions, librispeech_labels
-    ) = get_labels_preds(r)
-    run_silent_preds[r] = silent_predictions
-    run_silent_labels[r] = silent_labels
-    run_librispeech_preds[r] = librispeech_predictions
-    run_librispeech_labels[r] = librispeech_labels
-
-# Calculate WER for baseline
-baseline_wer = calc_wer(silent_best_predictions, silent_labels, text_transform)
-typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")
-##
-# for each entry, stack the top pred for each run
-ensemble_silent_preds = []
-for i in range(len(silent_pred)):
-    ensemble_silent_preds.append(np.stack([p[i][0] for p in run_silent_preds.values()]))
-ensemble_silent_labels = silent_labels
-
-# ensemble_silent_preds = []
-# vals = [[] for _ in range(len(silent_pred))]
-# n_per_model = 10
-# stack top 10 preds for each run (14.55% WER on GPT-3; worse than top1 of ~12%)
-# for preds in run_silent_preds.values():
-#     for i,topk in enumerate(preds):
-#         vals[i].extend(topk[:n_per_model])
-
-# much better by ordering modelA top1, modelB top1, modelA top2, modelB top2, etc.
-# 12.38% on GPT-3.5. still worse than top1 of ~12%.
-# 13.12% on GPT-4
-# for i in range(len(silent_pred)):
-#     for n in range(n_per_model):
-#         for preds in run_silent_preds.values():
-#             try:
-#                 vals[i].append(preds[i][n])
-#             except:
-#                 print(f"no prediction for {i} {n}")
-# ensemble_silent_preds = [np.stack(v) for v in vals]
-
-ensemble_silent_preds = np.array(ensemble_silent_preds)
-##
-# try new API
-# gpt-3.5 has topen limit of 160k/min
-# gpt-4-turbo has rate limit of 300k/min
-predictions = ensemble_silent_preds[0]
-client = AsyncOpenAI(
-    max_retries=100,
-    timeout=15,
-)
-
-rescore_msg = create_rescore_msg(predictions)
-# num_tokens = num_tokens_from_string(rescore_msg) + num_tokens_from_string(sys_msg)
-# model="gpt-3.5-turbo-16k-0613"
-model="gpt-4-0125-preview",
-
-num_pred = len(predictions)
-if num_pred < 10:
-    print(f"WARNING: only {num_pred} predictions from beam search")
-
-print(rescore_msg)
-# print(num_tokens)
-##
 def completion_coroutine(sys_msg, user_msg, model="gpt-3.5-turbo-16k-0613"):
     return client.chat.completions.create(
         model=model,
@@ -257,178 +141,293 @@ def batch_completions(predictions, sys_msg, n_jobs=3,
     # run the asynchronous gathering function
     return asyncio.run(gather_completions(coroutines, n_jobs=n_jobs))
 
-# all numbers here from GAD-939 with 5000 beams unless otherwise noted
-# 21.4%
-sys_msg = """
-Your task is automatic speech recognition. \
-Below are the candidate transcriptions, ordered from most likely \
-to least likely. \
-Respond with the correct transcription, \
-without any introductory text.
-""".strip()
-
-# 20.95% w/ GPT-4, 20.58% w/ GPT-3.5 [10 preds: 20.68% vs 20.58% for 100 preds]
-# 18.0% with GAD-984
-
-# first run:
-# 10-model ensemble: 10.47% with GPT-4; 12.27% with GPT-3.5
-# (I prev worried there may have been a label leak here by accidentally passing
-# labels as beam scores, but I don't think so: GPT-4 is just more variable)
-# GPT-4 just has variable resuls)
-# second run:
-# 10-model ensemble: 14.07% with GPT-4; 11.93% with GPT-3.5
-# third run (seeded for hopefully better reproducibility):
-# 10-model ensemble: 13.96% with GPT-4; 12.46% with GPT-3.5
-sys_msg = """Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond with the chosen transcription only, without any introductory text."""
-
-# 18.74% on GAD-984 w/ GPT-3.5; 17.79% on GAD-984 w/ GPT-4
-# ex0 = "\n".join([p for p in silent_predictions[0][:25]])
-# ex1 = "\n".join([p for p in silent_predictions[1][:25]])
-# ex2 = "\n".join([p for p in silent_predictions[2][:25]])
-# sys_msg = f"""Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound.
-
-# === Example 1 ===
-# **User Message**: {ex0}
-# **Response**: {silent_labels[0]}
-
-# === Example 2 ===
-# **User Message**: {ex1}
-# **Response**: {silent_labels[1]}
-
-# === Example 3 ===
-# **User Message**: {ex2}
-# **Response**: {silent_labels[2]}
-
-# Respond with the chosen transcription only, without any introductory text.
-# """
-print(sys_msg)
+DIRECT_SYS_MSG = """Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond with the chosen transcription only, without any introductory text."""
 ##
+# crossCon + DTW 256k
+run_id = "GAD-984" # 20.63% val
+# run_id = "GAD-986" # 21.26% val
+# run_id = "GAD-987" # 21.45% val
+# run_id = "GAD-988" # 21.63% val
+# run_id = "GAD-983" # 21.82% val
+
+# # crossCon 256k
+# run_id = "GAD-940" # 21.66% val
+# run_id = "GAD-938" # 22.24% val
+# run_id = "GAD-941" # 22.56% val
+# run_id = "GAD-937" # 22.61% val
+# run_id = "GAD-939" # 23.14% val
+n_jobs = 8
+
+(
+    silent_pred, silent_labels,
+    vocal_pred, vocal_labels,
+    audio_pred, audio_labels,
+    librispeech_pred, librispeech_labels
+) = get_labels_preds(run_id)
+
+silent_best_pred = np.array([p[0] for p in silent_pred])
+vocal_best_pred = np.array([p[0] for p in vocal_pred])
+audio_best_pred = np.array([p[0] for p in audio_pred])
+librispeech_best_pred = np.array([p[0] for p in librispeech_pred])
+
+client = AsyncOpenAI(
+    max_retries=100,
+    timeout=15,
+)
+
+run_silent_preds = OrderedDict()
+run_silent_labels = OrderedDict()
+run_vocal_preds = OrderedDict()
+run_vocal_labels = OrderedDict()
+run_audio_preds = OrderedDict()
+run_audio_labels = OrderedDict()
+run_librispeech_preds = OrderedDict()
+run_librispeech_labels = OrderedDict()
+
+for r in [
+    "GAD-984",
+    "GAD-986",
+    "GAD-987",
+    "GAD-988",
+    "GAD-983",
+    "GAD-940",
+    "GAD-938",
+    "GAD-941",
+    "GAD-937",
+    "GAD-939",
+]:
+    (
+        silent_pred, silent_labels,
+        vocal_pred, vocal_labels,
+        audio_pred, audio_labels,
+        librispeech_pred, librispeech_labels
+    ) = get_labels_preds(r)
+    run_silent_preds[r] = silent_pred
+    run_silent_labels[r] = silent_labels
+    run_vocal_preds[r] = vocal_pred
+    run_vocal_labels[r] = vocal_labels
+    run_audio_preds[r] = audio_pred
+    run_audio_labels[r] = audio_labels
+    run_librispeech_preds[r] = librispeech_pred
+    run_librispeech_labels[r] = librispeech_labels
+
+# Calculate WER for baseline
+silent_wer = calc_wer(silent_best_pred, silent_labels, text_transform)
+typer.echo(f"Baseline silent EMG WER: {silent_wer * 100:.2f}%")
+vocal_wer = calc_wer(vocal_best_pred, vocal_labels, text_transform)
+typer.echo(f"Baseline vocal EMG WER: {vocal_wer * 100:.2f}%")
+audio_wer = calc_wer(audio_best_pred, audio_labels, text_transform)
+typer.echo(f"Baseline audio WER: {audio_wer * 100:.2f}%")
+librispeech_wer = calc_wer(librispeech_best_pred, librispeech_labels, text_transform)
+typer.echo(f"Baseline librispeech WER: {librispeech_wer * 100:.2f}%")
+##
+#### Chain of Reasoning ####
 # 22.11% with GPT-3.5, and 2 examples don't conform (10 examples)
-# sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Begin your response with a Chain of Reasoning, explaining your analysis and decision-making process in choosing the most accurate transcription. After your analysis, clearly indicate your final choice with the cue 'TRANSCRIPT: '. Ensure the transcription you choose is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond first with your reasoning, followed by 'TRANSCRIPT: ' and then the chosen transcription."
 
-# 26.13% with GPT-3.5, and 1 example doesn't conform (10 examples)
-# sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the three transcriptions that are most accurate, ensuring they are contextually and grammatically correct. Briefly explain your reasoning on which to choose in one or two sentences, focusing on key differences in the options that influence your decision. After your brief reasoning, clearly indicate your final choice with the cue 'TRANSCRIPT: '. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond first with your concise reasoning, followed by 'TRANSCRIPT: ' and then the chosen transcription."
+def cor_clean_transcripts(transcripts):
+    ret = []
+    for transcript in transcripts:
+        # split on 'TRANSCRIPT: '
+        t = transcript.split("TRANSCRIPT: ")[-1]
+        # remove leading and trailing whitespace
+        t = t.strip()
+        ret.append(t)
+    ret = list(map(text_transform.clean_text, ret))
+    transformation = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
+    ret = transformation(ret)
+    return ret
 
-# GPT-3.5 21.29%
-# sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. If the correct transcription is not explicitly listed, use your understanding of context and language to infer the most likely correct wording. Choose the transcription (or inferred correct version) that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases where the correct transcription is not clear, select or infer the option that is most coherent and contextually sound. Respond with the chosen or inferred transcription only, without any introductory text."
+def chain_of_reasoning_LISA(preds, labels, model):
+    sys_msg = "Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Begin your response with a Chain of Reasoning, explaining your analysis and decision-making process in choosing the most accurate transcription. After your analysis, clearly indicate your final choice with the cue 'TRANSCRIPT: '. Ensure the transcription you choose is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond first with your reasoning, followed by 'TRANSCRIPT: ' and then the chosen transcription."
+
+    lisa_predictions = batch_completions(
+        [s[:10] for s in preds],
+        sys_msg, model=model, n_jobs=5)
 
 
+    bad_performance = []
+    for i,text in enumerate(lisa_predictions):
+        if "TRANSCRIPT: " not in text:
+            bad_performance.append(i)
 
-# def create_rescore_msg(predictions, scores):
-#     rescore_msg = "\n".join([f"{s:.3f}\t{p}" for p, s in zip(predictions, scores)])
-#     return rescore_msg  
+    # we give Chain of Reasoning more than it's fair share of leeway here
+    # other approaches are better so this is really just for didactic purposes
+    # to show that it's not a good idea for this task
+    assert len(bad_performance) < 10 # allow 5% task failure rate
+    lisa_filt_predictions = [p for i,p in enumerate(lisa_predictions) if i not in bad_performance]
+    filt_labels = [l for i,l in enumerate(labels) if i not in bad_performance]
+    lisa_wer = calc_wer(cor_clean_transcripts(lisa_filt_predictions), filt_labels, text_transform)
+    typer.echo(f"{run_id} WER with Chain of Reasoning ({model}) and excluding {bad_performance} lazy responses: {lisa_wer * 100:.2f}%")
+    
+    return lisa_predictions
 
-# model = "gpt-4-0125-preview" # 21.85% took 4min
-# model = "gpt-3.5-turbo-16k-0613" # 21.42 - 21.45%, took 2:10 - 2:37 with 3 jobs
-# model = "gpt-3.5-turbo-1106" # 21.00% took 6:41 with 3 jobs (bad timeout..?)
-# finetuned on top 25 on GAD-939 I think
-model = "ft:gpt-3.5-turbo-1106:personal::8moUtPrA" 
-# Call batch_completions
-lisa_predictions = batch_completions(ensemble_silent_preds, sys_msg,
-# lisa_predictions = batch_completions(silent_predictions[3:], silent_beam_scores[3:], sys_msg,
-                                     model=model)
+cor_gpt3_preds = chain_of_reasoning_LISA(silent_pred, silent_labels, "gpt-3.5-turbo-16k-0613")
+cor_gpt4_preds = chain_of_reasoning_LISA(silent_pred, silent_labels, "gpt-4-0125-preview")
 
-# def clean_transcripts(transcripts):
-#     ret = []
-#     for transcript in transcripts:
-#         # split on 'TRANSCRIPT: '
-#         t = transcript.split("TRANSCRIPT: ")[-1]
-#         # remove leading and trailing whitespace
-#         t = t.strip()
-#         ret.append(t)
-#     ret = list(map(text_transform.clean_text, ret))
-#     transformation = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
-#     ret = transformation(ret)
-#     return ret
-lisa_wer = calc_wer(clean_transcripts(lisa_predictions), ensemble_silent_labels, text_transform)
-# lisa_wer = calc_wer(clean_transcripts(lisa_predictions), silent_labels[3:], text_transform)
-ensemble_best_pred = np.array([p[0] for p in ensemble_silent_preds])
-baseline_wer = calc_wer(ensemble_best_pred, ensemble_silent_labels, text_transform)
-# baseline_wer = calc_wer(silent_best_predictions[3:], silent_labels[3:], text_transform)
-typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
-typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
 ##
-# c.choices[0].message.content
+def direct_LISA(preds, labels, model, N=10):
+    assert len(preds) == len(labels), f"{len(preds)=} {len(labels)=}"
+    lisa_predictions = batch_completions(
+        [s[:N] for s in preds],
+        DIRECT_SYS_MSG, model=model, n_jobs=5)
+    
+    try:
+        lisa_wer = calc_wer(cor_clean_transcripts(lisa_predictions), labels, text_transform)
+        typer.echo(f"{run_id} WER with direct {N=} ({model}): {lisa_wer * 100:.2f}%")
+    except Exception as e:
+        typer.echo(f"Error calculating WER: {e}")
+    
+    return lisa_predictions
+
+direct10_gpt3_preds = direct_LISA(silent_pred, silent_labels, "gpt-3.5-turbo-16k-0613")
+direct100_gpt3_preds = direct_LISA(silent_pred, silent_labels, "gpt-3.5-turbo-16k-0613", N=100)
+direct10_gpt4_preds = direct_LISA(silent_pred, silent_labels, "gpt-4-0125-preview")
+direct10_gpt4_preds = direct_LISA(silent_pred, silent_labels, "gpt-4-0125-preview", N=100)
 ##
-# # Get transcripts using the provided function
-# transcripts = batch_predict_from_topk(
-#     silent_predictions, silent_beam_scores, sys_msg=sys_msg, n_jobs=n_jobs
-# )
+#### Ensemble top1 ####
+# for each entry, stack the top pred for each run
+ensemble_top1_silent_preds = []
+for i in range(len(silent_pred)):
+    ensemble_top1_silent_preds.append(np.stack([p[i][0] for p in run_silent_preds.values()]))
 
-# # Clean and calculate WER for the transcripts
+ensemble_top1_vocal_preds = []
+for i in range(len(vocal_pred)):
+    ensemble_top1_vocal_preds.append(np.stack([p[i][0] for p in run_vocal_preds.values()]))
+    
+ensemble_top1_audio_preds = []
+for i in range(len(audio_pred)):
+    ensemble_top1_audio_preds.append(np.stack([p[i][0] for p in run_audio_preds.values()]))
 
-# typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
-
-
-# ##
-# for i,t in enumerate(lisa_predictions):
-#     if not "TRANSCRIPT: " in t:
-#         print(i,t)
-# ##
-# # nondestructively drop 34 and 167 on new copy
-# new_preds = np.copy(lisa_predictions)
-# new_preds = np.delete(new_preds, 197)
-# # new_preds = np.delete(new_preds, 34)
-# new_labels = np.copy(silent_labels)
-# new_labels = np.delete(new_labels, 197)
-# # new_labels = np.delete(new_labels, 34)
-# lisa_wer = calc_wer(clean_transcripts(new_preds), new_labels, text_transform)
-# typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
-# typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
+ensemble_top1_librispeech_preds = []
+for i in range(len(librispeech_pred)):
+    ensemble_top1_librispeech_preds.append(np.stack([p[i][0] for p in run_librispeech_preds.values()])) 
 ##
-# FINETUNING dataset
+# 5.5%
+# ensemble_top1_gpt3_preds = direct_LISA(ensemble_top1_vocal_preds, silent_labels, "gpt-3.5-turbo-16k-0613")
+# 3.62%
+# ensemble_top1_gpt3_preds = direct_LISA(ensemble_top1_audio_preds, silent_labels, "gpt-3.5-turbo-16k-0613")
+# 6.33% 
+ensemble_top1_gpt3_preds = direct_LISA(ensemble_top1_librispeech_preds, librispeech_labels, "gpt-3.5-turbo-16k-0613")
+# ensemble_top1_gpt3_preds = direct_LISA(ensemble_top1_silent_preds, silent_labels, "gpt-3.5-turbo-16k-0613")
+# ensemble_top1_gpt4_preds = direct_LISA(ensemble_top1_silent_preds, silent_labels, "gpt-4-0125-preview")
+##
+# ensemble_silent_preds = []
+
+n_per_model = 10
+ensemble_top10_silent_preds = [[] for _ in range(len(silent_pred))]
+# stack top 10 preds for each run (14.55% WER on GPT-3; worse than top1 of ~12%)
+# for preds in run_silent_preds.values():
+#     for i,topk in enumerate(preds):
+#         ensemble_top10_silent_preds[i].extend(topk[:n_per_model])
+
+for i in range(len(silent_pred)):
+    for n in range(n_per_model):
+        for preds in run_silent_preds.values():
+            try:
+                ensemble_top10_silent_preds[i].append(preds[i][n])
+            except:
+                print(f"no prediction for {i} {n}")
+ensemble_top10_silent_preds = [np.stack(v) for v in ensemble_top10_silent_preds]
+
+ensemble_top10_silent_preds = np.array(ensemble_top10_silent_preds)
+ensemble_top10_gpt3_preds = direct_LISA(ensemble_top10_silent_preds, silent_labels, "gpt-3.5-turbo-16k-0613")
+ensemble_top10_gpt4_preds = direct_LISA(ensemble_top10_silent_preds, silent_labels, "gpt-4-0125-preview")
+##
+#### FINETUNING dataset ####
 import json
 
-# note that create_rescore_msg was cutting off at 25 messages when this was run
-dset = [(create_rescore_msg(p), l) for p,l in zip(ensemble_silent_preds[:100], ensemble_silent_labels[:100])]
+def save_finetuning_dset(preds, labels, save_path):
+    dset = [(create_rescore_msg(p), l) for p,l in zip(preds, labels)]
 
-# Convert to JSONL format
-jsonl_data = []
-for user_msg, assistant_msg in dset:
-    jsonl_data.append({
-        "messages": [
-            {"role": "system", "content": sys_msg},
-            {"role": "user", "content": user_msg},
-            {"role": "assistant", "content": assistant_msg}
-        ]
-    })
+    # Convert to JSONL format
+    jsonl_data = []
+    for user_msg, assistant_msg in dset:
+        jsonl_data.append({
+            "messages": [
+                {"role": "system", "content": DIRECT_SYS_MSG},
+                {"role": "user", "content": user_msg},
+                {"role": "assistant", "content": assistant_msg}
+            ]
+        })
 
-# Save as a JSONL file
-jsonl_path = "../../fine_tuning_data/2024-01-30_ensemble_top1.jsonl"
-with open(jsonl_path, 'w') as f:
-    for entry in jsonl_data:
-        json.dump(entry, f)
-        f.write('\n')
+    # Save as a JSONL file
+    jsonl_path = save_path
+    with open(jsonl_path, 'w') as f:
+        for entry in jsonl_data:
+            json.dump(entry, f)
+            f.write('\n')
 
-jsonl_path
+    return jsonl_path
+
+top1_jsonl_path = save_finetuning_dset(ensemble_top1_silent_preds[:100], silent_labels[:100],
+    "../../fine_tuning_data/2024-01-30_ensemble_top1.jsonl")
+top10_jsonl_path = save_finetuning_dset(ensemble_top10_silent_preds[:100], silent_labels[:100],
+    "../../fine_tuning_data/2024-01-30_ensemble_top10.jsonl")
+top1_vocal_path = save_finetuning_dset(ensemble_top1_vocal_preds[:100], silent_labels[:100],
+    "../../fine_tuning_data/2024-01-30_ensemble_top1_vocal.jsonl")
+top1_librispeech_path = save_finetuning_dset(ensemble_top1_librispeech_preds[:270], librispeech_labels[:270],
+    "../../fine_tuning_data/2024-01-30_ensemble_top1_librispeech.jsonl")
 ##
 # upload finetuning data
 from openai import OpenAI
 sync_client = OpenAI()
 
-with open(jsonl_path, "rb") as f:
-    sync_client.files.create(
-    file=f,
-    purpose="fine-tune"
-    )
+for path in [top1_jsonl_path, top10_jsonl_path, top1_vocal_path, top1_librispeech_path]:
+    with open(path, "rb") as f:
+        sync_client.files.create(
+        file=f,
+        purpose="fine-tune"
+        )
 ##
-# start finetuning job
+# start finetuning job for top1
 sync_client.fine_tuning.jobs.create(
     # check GUI to get file ID
     training_file="file-LPwtDDtrvDEUcbbhCj6QyNMC", 
     model="gpt-3.5-turbo-1106"
 )
+# vocal
+sync_client.fine_tuning.jobs.create(
+    # check GUI to get file ID
+    training_file="file-PON6gvUaIVV4svNtZOQZR9md", 
+    model="gpt-3.5-turbo-1106"
+)
+# librispeech
+sync_client.fine_tuning.jobs.create(
+    # check GUI to get file ID
+    training_file="file-GBQ7cuFj7L4zSlTv0BrnLuCs", 
+    model="gpt-3.5-turbo-1106"
+)
+# start finetuning job for top10
+sync_client.fine_tuning.jobs.create(
+    # check GUI to get file ID
+    training_file="file-7M8a66y3VWf8OxdHLo3EPMbD", 
+    model="gpt-3.5-turbo-1106"
+)
 ##
-# check finetuning performance
-# 8.1% silent EMG Validation!!!!
-model = "ft:gpt-3.5-turbo-1106:personal::8mordMqf" 
-# Call batch_completions
-lisa_predictions = batch_completions(ensemble_silent_preds[100:], sys_msg,
-                                     model=model)
+#### finetuned ensemble top1 ####
+# "ft:gpt-3.5-turbo-1106:personal::8mordMqf" was fine-tuned on ensemble top1 silent (first 100)
+# "ft:gpt-3.5-turbo-1106:personal::8n2fDmAy" was fine-tuned on ensemble top1 librispeech (first 270)
+# 7.3% silent EMG Validation!!!!
+# lisa_predictions = direct_LISA(ensemble_top1_silent_preds[100:], silent_labels[100:],
+#                                "ft:gpt-3.5-turbo-1106:personal::8mordMqf")
+# 8.3% WER as model finetuned on librispeech, a bit worse than using sEMG fine-tuning GPT-3.5
+lisa_predictions = direct_LISA(ensemble_top1_silent_preds[100:], silent_labels[100:],
+                               "ft:gpt-3.5-turbo-1106:personal::8n2fDmAy")
 
-lisa_wer = calc_wer(clean_transcripts(lisa_predictions), ensemble_silent_labels[100:], text_transform)
-ensemble_best_pred = np.array([p[0] for p in ensemble_silent_preds])
-baseline_wer = calc_wer(ensemble_best_pred[100:], ensemble_silent_labels[100:], text_transform)
-typer.echo(f"Baseline WER: {baseline_wer * 100:.2f}%")  # repeat due to noisy output
-typer.echo(f"Final WER with {model}: {lisa_wer * 100:.2f}%")
+# lisa_predictions = direct_LISA(ensemble_top1_vocal_preds, silent_labels,
+#                                "ft:gpt-3.5-turbo-1106:personal::8mordMqf")
+# lisa_predictions = direct_LISA(ensemble_top1_audio_preds[100:], silent_labels[100:],
+#                                "ft:gpt-3.5-turbo-1106:personal::8mordMqf")
+# lisa_predictions = direct_LISA(ensemble_top1_librispeech_preds, librispeech_labels,
+#                                "ft:gpt-3.5-turbo-1106:personal::8mordMqf")
+# 5.3% WER, a bit worse than using sEMG fine-tuning GPT-3.5
+# lisa_predictions = direct_LISA(ensemble_top1_librispeech_preds[270:], librispeech_labels[270:],
+#                                "ft:gpt-3.5-turbo-1106:personal::8n2fDmAy")
+##
+#### finetuned ensemble top10 ####
+lisa_predictions = direct_LISA(ensemble_top10_silent_preds[100:], silent_labels[100:],
+    N=100, model="ft:gpt-3.5-turbo-1106:personal::8n0xqTiW")
+##
+# 4% vs 5.5%
+calc_wer(lisa_predictions[100:], silent_labels[100:], text_transform)
 ##

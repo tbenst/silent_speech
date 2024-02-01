@@ -209,6 +209,8 @@ run_ids = [
     ######## quest for the best ##########
     #### crossCon 256k ####
     937, 938, 939, 940, 941,
+    # batch 2 (for ensemble)
+    992, 993, 994, 995, 996,
     
     #### crossCon + DTW 256k ####
     984, 986, 987, 988, 983,
@@ -224,8 +226,8 @@ audio_only_run_ids = [
     # 929, 930, 945 # missing last epoch
 ]
 # only run a subset
-audio_only_run_ids = [945]
-run_ids = [983, 991]
+audio_only_run_ids = []
+run_ids = [992, 993, 994, 995, 996]
 
 run_ids = [f"GAD-{ri}" for ri in run_ids]
 audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
