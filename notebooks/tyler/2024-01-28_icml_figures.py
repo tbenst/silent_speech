@@ -240,7 +240,7 @@ df_final_wer
 row_to_remove = (df_final_wer['model'] == "Audio") & \
     (df_final_wer['task'].isin(["emg_vocal_val", "emg_silent_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
-row_to_remove = (df_final_wer['model'].isin(["EMG",
+row_to_remove = (df_final_wer['model'].isin(["EMG (256k)",
                                                 "EMG (no Librispeech)"])) & \
     (df_final_wer['task'].isin(["audio_val", "librispeech_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
@@ -271,6 +271,18 @@ category_order = [
     'crossCon (no Librispeech) 256k'
 ]
 
+cat_labels = {
+    'EMG & Audio (no Librispeech)': \
+        'EMG & Audio (-Libri)',
+    'crossCon (no Librispeech) 256k': \
+        'crossCon (-Libri) 256k',
+    'crossCon (balanced) 256k': \
+        'crossCon (bal) 256k',
+    'crossCon + supTcon + DTW': \
+        'crossCon+supTcon+DTW',
+}
+
+category_order = [cat_labels.get(c, c) for c in category_order]
 
 task_labels = {
     "audio_val": "Gaddy Audio",
@@ -285,30 +297,32 @@ global_max_wer = 0.35
 
 def create_chart(task, df):
     df_task = df[df['task'] == task]
-    xlabel = "model" if task == "emg_val" else None
-    return alt.Chart(df_task).mark_circle(size=20).encode(
-        x=alt.X('model:N', axis=alt.Axis(labelAngle=-45),
-            sort=category_order, title=xlabel,  scale=alt.Scale(domain=category_order)),
+    df_task['short_model'] = df_task['model'].apply(lambda x: cat_labels.get(x, x))
+    return alt.Chart(df_task).mark_circle(size=50).encode(
+        x=alt.X('short_model:N', axis=alt.Axis(labelAngle=-20, labelFontSize=16),
+            sort=category_order, title=None,  scale=alt.Scale(domain=category_order)),
         y=alt.Y('wer:Q', title='word error rate (%)',
                 scale=alt.Scale(domain=[global_min_wer, global_max_wer]),
-                axis=alt.Axis(format='%')),
+                axis=alt.Axis(format='%',
+                labelFontSize=16, titleFontSize=16)),
         xOffset="jitter:Q",
-        color=alt.Color('model:N', scale = alt.Scale(scheme='category20'),
+        color=alt.Color('short_model:N', scale = alt.Scale(scheme='category20'),
                         legend=None),
-        tooltip=['run_id', 'model', 'task', 'wer']
+        tooltip=['run_id', 'short_model', 'task', 'wer']
     ).transform_calculate(
         # jitter='random()'
         jitter="sqrt(-2*log(random()))*cos(2*PI*random())"
     ).properties(
-        width=600,
-        height=200,
-        title=task_labels[task],
+        width=1100,
+        height=250,
+        title=alt.Title(task_labels[task],
+            fontSize=20)
     )
 
-# Concatenate charts vertically
 # audio_chart = alt.hconcat(*[create_chart(task, df_final_wer) for task in to_analyze[:2]])
 # emg_chart = alt.hconcat(*[create_chart(task, df_final_wer) for task in to_analyze[2:]])
 # chart = alt.vconcat(audio_chart, emg_chart)
+# Concatenate charts vertically
 chart = alt.vconcat(*[create_chart(task, df_final_wer) for task in to_analyze])
 chart.save(f"../../plots/val-wer_{num_beams}beams.png", scale_factor=2.0)
 chart.save(f"../../plots/val-wer_{num_beams}beams.svg")
@@ -316,7 +330,8 @@ chart
 ##
 wer_run_ids = [
     871, 848, 861, 881, 926, # EMG & Audio
-    835, 841, 818, 868, 936, # crossCon
+    # 835, 841, 818, 868, 936, # crossCon
+    937, 938, 939, 940, 941,
     # 965, 967, 968, 969 # EMG (no librispeech)
     888, 893, 944, 943, 942, # EMG
     # 966 # TODO add when finished
@@ -334,47 +349,94 @@ for run_id in wer_run_ids:
     df_wer.append(df)
 df_wer = pd.concat(df_wer)
 df_wer
-df_wer.loc[df_wer["model"] == "EMG (no Librispeech)", "model"] = "EMG" 
+df_wer.loc[df_wer["model"] == "EMG (no Librispeech)", "model"] = "EMG (256k)" 
 df_wer = df_wer[df_wer['epoch'] <= 199]
 ##
+# Creating mean and standard deviation dataframes
 mean_df = df_wer.groupby(['epoch', 'model']).median().reset_index()
 std_df = df_wer.groupby(['epoch', 'model']).std().reset_index()
 
+# Define common encoding for the x-axis
+xaxis = alt.X('epoch:Q', axis=alt.Axis(title='epoch', titleFontSize=16, labelFontSize=16))
+
+# Define common encoding for the y-axis
+yaxis = alt.Y('wer:Q', title='word error rate', axis=alt.Axis(titleFontSize=16, labelFontSize=16))
+
+# Define common color encoding
+color_scale = alt.Color('model:N',
+                        scale=alt.Scale(domain=["EMG 256k", "EMG & Audio", "crossCon 256k"]),
+                        legend=alt.Legend(title='model', titleFontSize=16, labelFontSize=16))
+
 # Create a line chart for the mean
-mean_line = alt.Chart(mean_df).mark_line().encode(
-    x=alt.X('epoch:Q'),
-    y=alt.Y('wer:Q', title='word error rate'),
-    color=alt.Color('model:N'),
+val_wer_chart = alt.Chart(mean_df).mark_line().encode(
+    x=xaxis,
+    y=yaxis,
+    color=color_scale,
     tooltip=['epoch', 'model', 'wer']
-).properties(
-    # title="Validation WER by Epoch"
 )
-
-# Create an area chart for the standard deviation
-std_area = alt.Chart(std_df).mark_area(opacity=0.3).encode(
-    x="epoch:Q",
-    y=alt.Y('wer:Q', title='WER Std Dev'),
-    y2=alt.Y2('wer:Q'),
-    color=alt.Color('type:N'),
-    tooltip=['epoch', 'type', 'wer']
-).properties(
-    # title=""
-)
-
-# Combine the charts
-combined_chart = mean_line
-# combined_chart = mean_line + std_area
 
 # Save and display the chart
-combined_chart.save(f"../../plots/mean-wer-by-epoch.png", scale_factor=2.0)
-combined_chart.save(f"../../plots/mean-wer-by-epoch.svg")
-combined_chart
+val_wer_chart.save(f"../../plots/mean-wer-by-epoch.png", scale_factor=2.0)
+val_wer_chart.save(f"../../plots/mean-wer-by-epoch.svg")
+val_wer_chart
 ##
-# LISA comparison:
-lisa_types = [
-    "Chain of Reasoning",
-    "Direct Answer (top 10)",
-    "Direct Answer (top 100)",
-    "Ensemble (10 x top 1)",
-    "Ensemble (10 x top 10)",
+########## CTC loss charts ##########
+ctc_run_ids = [
+    871, 848, 861, 881, 926, # EMG & Audio
+    # 835, 841, 818, 868, 936, # crossCon 128k
+    937, 938, 939, 940, 941,
+    # 965, 967, 968, 969 # EMG (no librispeech)
+    888, 893, 944, 943, 942, # EMG
+    # 966 # TODO add when finished
 ]
+ctc_run_ids = [f"GAD-{ri}" for ri in ctc_run_ids]
+df_ctc = []
+for run_id in ctc_run_ids:
+    run = get_neptune_run(run_id, project="neuro/gaddy")
+    ctc = nep_get(run, "training/val/emg_ctc_loss").value
+    hparams = nep_get(run, "training/hyperparams")
+    df = ctc.to_frame(name="ctc")
+    df["epoch"] = df.index
+    df["run_id"] = run_id
+    df["model"] = run_type[run_id]
+    df_ctc.append(df)
+df_ctc = pd.concat(df_ctc)
+df_ctc
+df_ctc.loc[df_ctc["model"] == "EMG (no Librispeech)", "model"] = "EMG (256k)" 
+df_ctc = df_ctc[df_ctc['epoch'] <= 199]
+##
+# Creating mean and standard deviation dataframes
+mean_df = df_ctc.groupby(['epoch', 'model']).median().reset_index()
+std_df = df_ctc.groupby(['epoch', 'model']).std().reset_index()
+
+# Define common encoding for the x-axis
+xaxis = alt.X('epoch:Q', axis=alt.Axis(title='epoch', titleFontSize=16, labelFontSize=16))
+
+# Define common encoding for the y-axis
+yaxis = alt.Y('ctc:Q', title='CTC loss', axis=alt.Axis(titleFontSize=16, labelFontSize=16))
+
+# Define common color encoding
+color_scale = alt.Color('model:N', legend=alt.Legend(title='model', titleFontSize=16, labelFontSize=16))
+
+# Create a line chart for the mean
+ctc_line = alt.Chart(mean_df).mark_line().encode(
+    x=xaxis,
+    y=yaxis,
+    color=color_scale,
+    tooltip=['epoch', 'model', 'ctc']
+)
+
+# Save and display the chart
+ctc_line.save(f"../../plots/mean-ctc-by-epoch.png", scale_factor=2.0)
+ctc_line.save(f"../../plots/mean-ctc-by-epoch.svg")
+ctc_line
+
+
+##
+wer_ctc_chart = alt.hconcat(val_wer_chart, ctc_line)
+
+# Save and display the chart
+wer_ctc_chart.save(f"../../plots/wer_ctc-by-epoch.png", scale_factor=2.0)
+wer_ctc_chart.save(f"../../plots/wer_ctc-by-epoch.svg")
+wer_ctc_chart
+##

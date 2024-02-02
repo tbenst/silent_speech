@@ -363,7 +363,7 @@ def get_run_type(hparams):
     elif e and not l:
         return "EMG (no Librispeech)"
     elif e:
-        return "EMG"
+        return "EMG 256k"
     elif a:
         return "Audio"
     else:
