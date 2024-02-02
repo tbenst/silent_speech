@@ -440,3 +440,75 @@ wer_ctc_chart.save(f"../../plots/wer_ctc-by-epoch.png", scale_factor=2.0)
 wer_ctc_chart.save(f"../../plots/wer_ctc-by-epoch.svg")
 wer_ctc_chart
 ##
+df_final_wer[np.logical_and(df_final_wer.model == "EMG 256k",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "EMG 256k",
+                            df_final_wer.task == "emg_vocal_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "EMG & Audio (no Librispeech)",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+
+##
+df_final_wer[np.logical_and(df_final_wer.model == "EMG & Audio (no Librispeech)",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "EMG & Audio",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+
+##
+df_final_wer[np.logical_and(df_final_wer.model == "crossCon",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "EMG & Audio",
+                            df_final_wer.task == "emg_vocal_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "crossCon",
+                            df_final_wer.task == "emg_vocal_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "crossCon 256k",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+##
+df_final_wer[np.logical_and(df_final_wer.model == "crossCon + DTW 256k",
+                            df_final_wer.task == "emg_silent_val") ].wer.mean()
+
+##
+# we sort by val silent EMG WER.
+ensembleB = np.array([
+    'GAD-984', # crossCon + DTW (256k)
+    'GAD-992', # crossCon + DTW (256k)
+    'GAD-986', # crossCon + DTW (256k)
+    'GAD-996', # crossCon + DTW (256k)
+    'GAD-993', # crossCon + DTW (256k)
+    'GAD-987', # crossCon + DTW (256k)
+    'GAD-988', # crossCon + DTW (256k)
+    'GAD-940', # crossCon (256k)
+    'GAD-995', # crossCon + DTW (256k)
+    'GAD-983', # crossCon + DTW (256k) # 2024-01-31 ensemble10
+])
+
+# 2024-01-30 ensemble10
+# includes 5 crossCon and 5 crossCon + DTW runs
+ensembleA = np.array([
+    "GAD-984",
+    "GAD-986",
+    "GAD-987",
+    "GAD-988",
+    "GAD-983",
+    "GAD-940",
+    "GAD-938",
+    "GAD-941",
+    "GAD-937",
+    "GAD-939",
+])
+
+df_final_wer[np.logical_and(
+    df_final_wer.run_id.isin(ensembleA),
+    df_final_wer.task == "emg_silent_val"
+)].mean()
+##
+df_final_wer[np.logical_and(
+    df_final_wer.run_id.isin(ensembleB),
+    df_final_wer.task == "emg_silent_val"
+)].mean()
+##
