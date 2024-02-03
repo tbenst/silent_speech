@@ -1,7 +1,6 @@
 import string
 
 import numpy as np
-import soundfile as sf
 import librosa
 from textgrids import TextGrid
 import jiwer
@@ -273,13 +272,14 @@ def print_confusion(confusion_mat, n=10):
         print(f'{p1s} {p2s} {v*100:.1f} {(confusion_mat[p1,p1]+confusion_mat[p2,p2])/(target_counts[p1]+target_counts[p2])*100:.1f}')
 
         
-def read_phonemes(textgrid_fname, max_len=None):
+def read_phonemes(textgrid_fname, max_len=None, ms_per_frame=11.60995205089803):
+    # 1000 / 86.133 = 11.6ms per frame (used by Gaddy)
+    nframes = 1000 / ms_per_frame
     tg = TextGrid(textgrid_fname)
-    # 1000 / 86.133 = 11.6ms per frame
     # Gaddy chooses this as some recent vocoders like HiFi GAN use
     # sampling_rate = 22k, hop_length=256 and win_length=1024
     # and 256/22050 = 11.6ms per frame
-    phone_ids = np.zeros(int(tg['phones'][-1].xmax*86.133)+1, dtype=np.int64)
+    phone_ids = np.zeros(int(tg['phones'][-1].xmax*nframes)+1, dtype=np.int64)
     phone_ids[:] = -1
     phone_ids[-1] = phoneme_inventory.index('sil') # make sure list is long enough to cover full length of original sequence
     for interval in tg['phones']:
@@ -289,7 +289,7 @@ def read_phonemes(textgrid_fname, max_len=None):
         if phone[-1] in string.digits:
             phone = phone[:-1]
         ph_id = phoneme_inventory.index(phone)
-        phone_ids[int(interval.xmin*86.133):int(interval.xmax*86.133)] = ph_id
+        phone_ids[int(interval.xmin*nframes):int(interval.xmax*nframes)] = ph_id
     assert (phone_ids >= 0).all(), 'missing aligned phones'
 
     if max_len is not None:
@@ -395,43 +395,63 @@ class TextTransform(object):
             self.g2p   = None
             self.chars = [x for x in string.ascii_lowercase+string.digits+ '|']
 
-    def clean_2(self, text):
+    def clean_text(self, text):
+        #     # also see https://github.com/fwillett/speechBCI/blob/b409b61ec6d928efc58ef8ff882894a1fbc9626e/AnalysisExamples/makeTFRecordsFromSession.py#L109
         text = applyCustomCorrections(text, self.replacement_dict)
         text = unidecode(text)
         text = text.replace('-', ' ')
         text = text.replace(':', ' ')
         text = self.transformation(text)
         text = convertNumbersToStrings(text)
-        return text             
-
-    def clean_text(self, text):
-        if self.togglePhones:
-            text = self.g2p(text)
-            text = [re.sub("\d+", "", x) for x in text]
-            text = [x.replace('-', ' ') for x in text]
-            text = [x.replace(':', ' ') for x in text]
-            text = [jiwer.RemovePunctuation()(x) for x in text]
-            text = [x for x in text if len(x) > 0]
-        else:
-            text = applyCustomCorrections(text, self.replacement_dict)
-            text = unidecode(text)
-            text = text.replace('-', ' ')
-            text = text.replace(':', ' ')
-            text = self.transformation(text)
-            text = convertNumbersToStrings(text)
         
         return text
 
     def text_to_int(self, text):
-        text = self.clean_text(text)
         if self.togglePhones:
+            # also see https://github.com/fwillett/speechBCI/blob/b409b61ec6d928efc58ef8ff882894a1fbc9626e/AnalysisExamples/makeTFRecordsFromSession.py#L109
+            # do we need to append a space to the end of the text..?
+            text = self.g2p(text)
+            text = [re.sub("\d+", "", x) for x in text] # remove stress
+            text = [x.replace('-', ' ') for x in text]
+            text = [x.replace(':', ' ') for x in text]
+            text = [jiwer.RemovePunctuation()(x) for x in text]
+            # text = [x.replace(' ', '|') for x in text] # added by tyler, check with Guy if this is correct
+            text = [x for x in text if len(x) > 0]
             text = [x.replace(' ', '|') for x in text]
+            return [self.chars.index(c.upper()) for c in text]
         else:
+            text = self.clean_text(text)
             text = text.replace(' ', '|')
-        return [self.chars.index(c) for c in text]
+            return [self.chars.index(c.lower()) for c in text]
 
     def int_to_text(self, ints):
+        if self.togglePhones:
+            raise NotImplementedError
         text = ''.join(self.chars[i] for i in ints)
         text = text.replace('|', ' ').lower()
         return text
+    
+    def int_to_phone_str(self, ints):
+        text = ' '.join(self.chars[i] for i in ints)
+        return text
 
+def in_notebook():
+    try:
+        from IPython import get_ipython
+        if 'IPKernelApp' not in get_ipython().config:  # pragma: no cover
+            return False
+    except ImportError:
+        return False
+    except AttributeError:
+        return False
+    return True
+
+def token_error_rate(ref, hyp, text_transform):
+    "CER or PER."
+    if type(ref[0]) is not int:
+        ref = [text_transform.int_to_phone_str(yi) for yi in ref]
+        hyp = [text_transform.int_to_phone_str(yi) for yi in hyp]
+    else:
+        ref = [text_transform.int_to_phone_str(ref)]
+        hyp = [text_transform.int_to_phone_str(hyp)]
+    return jiwer.wer(ref, hyp)

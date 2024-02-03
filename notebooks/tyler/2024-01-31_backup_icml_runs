@@ -1,0 +1,119 @@
+##
+import os, sys
+
+# horrible hack to get around this repo not being a proper python package
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
+sys.path.append(SCRIPT_DIR)
+
+from helpers import get_neptune_run, nep_get
+
+##
+run_ids = [
+    #### crossCon + supTcon + DTW ####
+    823,
+    822,
+    844,
+    839,
+    887,
+    # 816 extra, drop per criteria
+    #### crossCon + supTcon ####
+    815,
+    831,
+    908,
+    867,
+    825,
+    # 840, # skip, logging issue
+    #### crossCon ####
+    835,
+    841,
+    818,
+    868,
+    936,
+    # 850, # skip
+    #### supTcon ####
+    890,
+    891,
+    904,
+    905,
+    897,
+    # 896 # skip
+    #### supTcon + DTW ####
+    907,
+    906,
+    921,
+    922,
+    920,
+    #### EMG + Audio ####
+    871,
+    848,
+    861,
+    881,
+    926,
+    # 837, 827 # drop per selection criteria
+    #### EMG + Audio (no librispeech ####
+    960,
+    961,
+    962,
+    963,
+    964,
+    #### EMG ####
+    888,
+    893,
+    944,
+    943,
+    942,
+    # 863, 832, 819, 852, # issues with runs
+    #### EMG (no librispeech ####
+    965,
+    967,
+    968,
+    969,
+    966,
+    ######## quest for the best ##########
+    #### crossCon 256k ####
+    937,
+    938,
+    939,
+    940,
+    941,
+    # batch 2 (for ensemble)
+    992,
+    993,
+    994,
+    995,
+    996,
+    #### crossCon + DTW 256k ####
+    984,
+    986,
+    987,
+    988,
+    983,
+    #### crossCon no librispeech 256k ####
+    972,
+    973,
+    974,
+    970,
+    971,
+    #### crossCon balanced 256k ####
+    957,
+    958,
+    989,
+    990,
+    991,
+]
+audio_only_run_ids = [932, 933, 946, 947, 945]
+
+run_ids = [f"GAD-{ri}" for ri in run_ids]
+audio_only_run_ids = [f"GAD-{ri}" for ri in audio_only_run_ids]
+run_ids = run_ids + audio_only_run_ids
+
+backup_dir = "/oak/stanford/projects/babelfish/magneto/icml_runs"
+for ri in run_ids:
+    run = get_neptune_run(ri, project="neuro/gaddy")
+    output_directory = nep_get(run, "output_directory")
+    # run rsync command
+    rsync_command = f"rsync -avP {output_directory} {backup_dir}/{ri}/"
+    print(rsync_command)
+    # Execute the rsync command
+    os.system(rsync_command)
+##

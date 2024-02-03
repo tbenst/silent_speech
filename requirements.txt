@@ -51,6 +51,11 @@ git+https://github.com/tbenst/glia.git # functional obfuscation ;)
 
 evaluate
 transformers>=4.27.0
-flash-attn
+# flash-attn
 flashlight-text
 vector-quantize-pytorch
+openai
+pqdm
+typer
+tenacity
+bark
