@@ -1,4 +1,8 @@
 ##
+# TODO: evaluate the following job IDs:
+# ftjob-dXkS39hLYGTiOdwR88gwztiI trained on first 500
+# ftjob-wABfdutTpdL7jAOlp4EzeAaW trained on first 500 (no easy examples)
+# ftjob-gC6obTMnQKJQjIJJqL5ypn3b trained on 0::2 for 1 epoch
 import os, sys, numpy as np
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.getcwd()))
 sys.path.append(SCRIPT_DIR)
@@ -109,6 +113,9 @@ clean_test_preds = [cleanup_lisa_pred(l) for l in test_predictions]
 # clean_wer = calc_wer(clean_test_preds, truth, text_transform)
 clean_wer = calc_wer(clean_test_preds[1::2], truth[1::2], text_transform)
 print(f"Test LISA WER %2=1: {clean_wer*100:.2f}%")
+
+clean_wer = calc_wer(clean_test_preds[500:], truth[500:], text_transform)
+print(f"Test LISA WER last100: {clean_wer*100:.2f}%")
 ##
 # sorting by best to worst model
 sorted_wers = np.argsort(wers)
@@ -124,10 +131,59 @@ sorted_test_predictions = batch_completions(
 clean_sorted_test_preds = [cleanup_lisa_pred(l) for l in sorted_test_predictions]
 clean_sorted_wer = calc_wer(clean_sorted_test_preds[1::2], truth[1::2], text_transform)
 print(f"Sorted Test LISA WER %2=1: {clean_sorted_wer*100:.2f}%")
+# 14.9%, with no fine-tuning
+# ft:gpt-3.5-turbo-1106:personal::8rg4EtAG
+# 13.4% (I think ;)
+sorted_test_1epoch_predictions = batch_completions(
+    client, sorted_test_preds, DIRECT_SYS_MSG, model="ft:gpt-3.5-turbo-1106:personal::8rigxo2U", n_jobs=5
+)
+clean_sorted_test_1epoch_preds = [cleanup_lisa_pred(l) for l in sorted_test_1epoch_predictions]
+clean_sorted_wer = calc_wer(clean_sorted_test_1epoch_preds[1::2], truth[1::2], text_transform)
+print(f"1 epoch Test LISA WER %2=1: {clean_sorted_wer*100:.2f}%")
+# ft:gpt-3.5-turbo-1106:personal::8rigxo2U
+# 14.55% (worse than 3 epochs!)
 
 best_model_preds = [s[0] for s in sorted_test_preds]
 best_model_wer = calc_wer(best_model_preds[1::2], truth[1::2], text_transform)
 print(f"Best Model Test WER %2=1: {best_model_wer*100:.2f}%")
+
+best_model_wer = calc_wer(best_model_preds[:500], truth[:500], text_transform)
+print(f"Best Model Test WER last100: {best_model_wer*100:.2f}%")
+##
+lisa_100_wer = calc_wer(clean_sorted_test_preds[500:], truth[500:], text_transform)
+print(f"LISA WER last100: {lisa_100_wer*100:.2f}%") # 12.5%
+##
+last100_no_easy_predictions = batch_completions(
+    client,
+    sorted_test_preds,
+    DIRECT_SYS_MSG,
+    model="ft:gpt-3.5-turbo-1106:personal::8riY3Qp1",
+    n_jobs=5,
+)
+clean_last100_no_easy_preds = [cleanup_lisa_pred(l) for l in last100_no_easy_predictions]
+clean_sorted_wer = calc_wer(clean_last100_no_easy_preds[500:], truth[500:], text_transform)
+print(f"No easy Test LISA WER Last100: {clean_sorted_wer*100:.2f}%")
+# ****BEST MODEL SO FAR****
+# "ft:gpt-3.5-turbo-1106:personal::8riY3Qp1" (fine-tuned on 500-no-easy)
+# 11.0% (compare to 12.5% for LISA or 16.3% best model)
+##
+last100_lisa_finetune_predictions = batch_completions(
+    client,
+    sorted_test_preds,
+    DIRECT_SYS_MSG,
+    model="ft:gpt-3.5-turbo-1106:personal::8riY3Qp1",
+    n_jobs=5,
+)
+clean_last100_lisa_finetune_preds = [
+    cleanup_lisa_pred(l) for l in last100_lisa_finetune_predictions
+]
+clean_sorted_wer = calc_wer(
+    clean_last100_lisa_finetune_preds[500:], truth[500:], text_transform
+)
+print(f"finetuned Test LISA WER Last100: {clean_sorted_wer*100:.2f}%")
+# ft:gpt-3.5-turbo-1106:personal::8ricgz8C (fine-tuned on 500)
+# 11.1% (marginally worse than with no-easy examples)
+
 ##
 # top1_jsonl_path = save_finetuning_dset(
 #     sorted_test_preds[0::2],
@@ -135,11 +191,18 @@ print(f"Best Model Test WER %2=1: {best_model_wer*100:.2f}%")
 #     "../../fine_tuning_data/2024-02-12_willet-ensemble.jsonl",
 # )
 
-# save 500 for fine-tuning
+# # save 500 for fine-tuning
+# top1_jsonl_path = save_finetuning_dset(
+#     sorted_test_preds[:500],
+#     truth[:500],
+#     "../../fine_tuning_data/2024-02-12_willet-500.jsonl",
+# )
+
+# save 500b for fine-tuning
 top1_jsonl_path = save_finetuning_dset(
-    sorted_test_preds[:500],
-    truth[:500],
-    "../../fine_tuning_data/2024-02-12_willet-500.jsonl",
+    sorted_test_preds[100:],
+    truth[100:],
+    "../../fine_tuning_data/2024-02-12_willet-500b.jsonl",
 )
 
 
@@ -153,8 +216,10 @@ with open(top1_jsonl_path, "rb") as f:
 sync_client.fine_tuning.jobs.create(
     # check GUI to get file ID
     # training_file="file-fZAEewYLFQLPGg8FjhVv6mI2",
-    training_file="file-MMPa98OyGRAXO7HMMVihZbQ0",
+    # training_file="file-MMPa98OyGRAXO7HMMVihZbQ0",
+    training_file="file-BnJFslgX3VF1f8rg9BBuupjp", # 500b
     model="gpt-3.5-turbo-1106",
+    # hyperparameters={"n_epochs": 3},
 )
 ##
 # evaluate on %2=1
@@ -193,7 +258,7 @@ with open("../../fine_tuning_data/2024-02-12_willet-handlabel.txt", "w") as f:
             f.write("\n")
 # drop "impossible"
 # 1, 9, 15, 20, 23, 29, 34, 38, 42, 46, 49, 60, 62, 65, 68, 75, 77, 81, 84,
-# 88, 91, 97, 101, 102, 105, 106, 107, 
+# 88, 91, 97, 101, 102, 105, 106, 107,
 
 # 87: change to "i wanted to go to that golf course down south"
 ##
@@ -225,10 +290,39 @@ top1_jsonl_path = save_finetuning_dset(
 )
 with open(top1_jsonl_path, "rb") as f:
     sync_client.files.create(file=f, purpose="fine-tune")
+
+##
+# drop easy cases where all predictions are the same
+skip_idxs = set()
+for i, (preds, tru) in enumerate(zip(sorted_test_preds, truth)):
+    pred = preds[0]
+    if all(p == pred for p in preds):
+        skip_idxs.add(i)
+skip_idxs, len(skip_idxs)
+N = 0
+for i in skip_idxs:
+    if i < 500:
+        N += 1
+# only train on first 500
+for i in range(500, len(sorted_test_preds)):
+    skip_idxs.add(i)
+# drop skip_idxs
+new_test_preds = [p for i, p in enumerate(sorted_test_preds) if i not in skip_idxs]
+new_truth = [t for i, t in enumerate(truth) if i not in skip_idxs]
+print(f"fine-tune on {len(new_test_preds)}. sanity check: {500-N=}")
+top1_jsonl_path = save_finetuning_dset(
+    new_test_preds,
+    new_truth,
+    "../../fine_tuning_data/2024-02-12_willet_500-no-easy.jsonl",
+)
+##
+with open(top1_jsonl_path, "rb") as f:
+    sync_client.files.create(file=f, purpose="fine-tune")
 ##
 sync_client.fine_tuning.jobs.create(
     # check GUI to get file ID
-    training_file="file-E3bgAm7lbGdW2ocoPratCEvW",
+    # training_file="file-E3bgAm7lbGdW2ocoPratCEvW",
+    training_file="file-iRu6dTUaCFmN0LmyiJSViHZh", # 500-no-easy
     model="gpt-3.5-turbo-1106",
 )
 
