@@ -1,4 +1,21 @@
 ##
+# Conclusions so far:
+# - more data is better, so let's train on everything
+# - 1 epoch is worse than 3 epochs, as is 5 epochs
+# - no easy may be slightly better
+
+# Proposed final model:
+# all data 3 epochs. no easy seems too risky for 0.1% improvement
+
+# TODO: check 500b vs 500b-no-easy to validate
+#    - ftjob-s1sm2NspgZdHSbuQtg4PGSRx 500b
+#    - ftjob-bSolxPJBCSVw3wkP3qj8T49Y 500b-no-easy
+# check 5 epochs vs 3 epochs to validate
+#    - ft:gpt-3.5-turbo-1106:personal::8rjLa89Y 5 epochs 0::2
+#    - compare to ft:gpt-3.5-turbo-1106:personal::8rg4EtAG 0::2
+# MAYBE TODO:
+# 3-fold cross-validation for 5 epochs, no easy..?
+
 # TODO: evaluate the following job IDs:
 # ftjob-dXkS39hLYGTiOdwR88gwztiI trained on first 500
 # ftjob-wABfdutTpdL7jAOlp4EzeAaW trained on first 500 (no easy examples)
@@ -50,7 +67,6 @@ model = "gpt-3.5-turbo-16k-0613"
 # lisa_predictions
 
 ##
-# TEST
 def read_preds_from_dir(pred_dir, glob_pattern="/*.txt"):
     pred_txts = list(sorted(glob(pred_dir + glob_pattern)))
     each_file = []
@@ -83,7 +99,7 @@ with open("/oak/stanford/projects/babelfish/magneto/willett/testPartitionTruth.t
 
 wers = []
 for i in range(len(test_preds[0])):
-    wer = calc_wer([s[i] for s in test_preds[0::2]], truth[0::2], text_transform)
+    wer = calc_wer([s[i] for s in test_preds], truth, text_transform)
     print(f"Seed {i} WER: {wer*100:.2f}%")
     wers.append(wer)
 mean_wer = np.array(wers).mean()
@@ -124,7 +140,21 @@ for i in range(len(test_preds)):
     sorted_test_preds.append([])
     for j in sorted_wers:
         sorted_test_preds[i].append(test_preds[i][j])
+##
+# FINAL MODEL
+finetuned_test_predictions = batch_completions(
+    client,
+    sorted_test_preds,
+    DIRECT_SYS_MSG,
+    model="ft:gpt-3.5-turbo-1106:personal::8rkR8IhW",
+    n_jobs=5,
+)
+finetuned_test_preds = [cleanup_lisa_pred(l) for l in finetuned_test_predictions]
+finetuned_wer = calc_wer(finetuned_test_preds, truth, text_transform)
+print(f"Finetuned Test LISA WER (trained on all Test): {finetuned_wer*100:.2f}%")
 
+
+##
 sorted_test_predictions = batch_completions(
     client, sorted_test_preds, DIRECT_SYS_MSG, model=model, n_jobs=5
 )
@@ -166,12 +196,13 @@ print(f"No easy Test LISA WER Last100: {clean_sorted_wer*100:.2f}%")
 # ****BEST MODEL SO FAR****
 # "ft:gpt-3.5-turbo-1106:personal::8riY3Qp1" (fine-tuned on 500-no-easy)
 # 11.0% (compare to 12.5% for LISA or 16.3% best model)
+# 11.5% on re-run next day... 2023-02-13
 ##
 last100_lisa_finetune_predictions = batch_completions(
     client,
     sorted_test_preds,
     DIRECT_SYS_MSG,
-    model="ft:gpt-3.5-turbo-1106:personal::8riY3Qp1",
+    model="ft:gpt-3.5-turbo-1106:personal::8ricgz8C",
     n_jobs=5,
 )
 clean_last100_lisa_finetune_preds = [
@@ -183,7 +214,27 @@ clean_sorted_wer = calc_wer(
 print(f"finetuned Test LISA WER Last100: {clean_sorted_wer*100:.2f}%")
 # ft:gpt-3.5-turbo-1106:personal::8ricgz8C (fine-tuned on 500)
 # 11.1% (marginally worse than with no-easy examples)
+# 11.7% on re-run next day... 2023-02-13
+##
+first100_lisa_finetune_predictions = batch_completions(
+    client,
+    sorted_test_preds,
+    DIRECT_SYS_MSG,
+    model="ft:gpt-3.5-turbo-1106:personal::8rjhCVdL",
+    n_jobs=5,
+)
+clean_first100_lisa_finetune_preds = [
+    cleanup_lisa_pred(l) for l in first100_lisa_finetune_predictions
+]
+clean_sorted_wer = calc_wer(
+    clean_first100_lisa_finetune_preds[:100], truth[:100], text_transform
+)
+print(f"finetuned Test LISA WER First100: {clean_sorted_wer*100:.2f}%")
+# ft:gpt-3.5-turbo-1106:personal::8rjyPAWR (fine-tuned on 500b)
+# 10.2%
 
+# ft:gpt-3.5-turbo-1106:personal::8rjhCVdL (fine-tuned on 500b-no-easy)
+# 10.35%
 ##
 # top1_jsonl_path = save_finetuning_dset(
 #     sorted_test_preds[0::2],
@@ -205,6 +256,13 @@ top1_jsonl_path = save_finetuning_dset(
     "../../fine_tuning_data/2024-02-12_willet-500b.jsonl",
 )
 
+# save all for fine-tuning
+top1_jsonl_path = save_finetuning_dset(
+    sorted_test_preds,
+    truth,
+    "../../fine_tuning_data/2024-02-12_willet-all.jsonl",
+)
+
 
 from openai import OpenAI
 
@@ -217,7 +275,8 @@ sync_client.fine_tuning.jobs.create(
     # check GUI to get file ID
     # training_file="file-fZAEewYLFQLPGg8FjhVv6mI2",
     # training_file="file-MMPa98OyGRAXO7HMMVihZbQ0",
-    training_file="file-BnJFslgX3VF1f8rg9BBuupjp", # 500b
+    # training_file="file-BnJFslgX3VF1f8rg9BBuupjp", # 500b
+    training_file="file-3hj6cpw49jQ7s4VKPoTUwFpn",  # all
     model="gpt-3.5-turbo-1106",
     # hyperparameters={"n_epochs": 3},
 )
@@ -235,6 +294,9 @@ finetuned_wer = calc_wer(finetuned_test_preds[1::2], truth[1::2], text_transform
 print(f"Sorted Test LISA WER %2=1: {finetuned_wer*100:.2f}%")
 # ft:gpt-3.5-turbo-1106:personal::8rg4EtAG (fine-tuned on 0::2)
 # 13.4%, better than no fine-tuning!
+# ft:gpt-3.5-turbo-1106:personal::8rjLa89Y (5 epochs 0::2)
+# 15.2%, yuck!
+
 # ft:gpt-3.5-turbo-1106:personal::8n2fDmAy (Gaddy LibriSpeech fine-tuned on 270)
 # 13.7%
 # ft:gpt-3.5-turbo-1106:personal::8nHXtaiS (Best Gaddy fine-tuned test perf)
@@ -301,10 +363,10 @@ for i, (preds, tru) in enumerate(zip(sorted_test_preds, truth)):
 skip_idxs, len(skip_idxs)
 N = 0
 for i in skip_idxs:
-    if i < 500:
+    if i > 100:
         N += 1
-# only train on first 500
-for i in range(500, len(sorted_test_preds)):
+# only train on last 500
+for i in range(100):
     skip_idxs.add(i)
 # drop skip_idxs
 new_test_preds = [p for i, p in enumerate(sorted_test_preds) if i not in skip_idxs]
@@ -313,7 +375,7 @@ print(f"fine-tune on {len(new_test_preds)}. sanity check: {500-N=}")
 top1_jsonl_path = save_finetuning_dset(
     new_test_preds,
     new_truth,
-    "../../fine_tuning_data/2024-02-12_willet_500-no-easy.jsonl",
+    "../../fine_tuning_data/2024-02-12_willet_500b-no-easy.jsonl",
 )
 ##
 with open(top1_jsonl_path, "rb") as f:
@@ -322,7 +384,8 @@ with open(top1_jsonl_path, "rb") as f:
 sync_client.fine_tuning.jobs.create(
     # check GUI to get file ID
     # training_file="file-E3bgAm7lbGdW2ocoPratCEvW",
-    training_file="file-iRu6dTUaCFmN0LmyiJSViHZh", # 500-no-easy
+    # training_file="file-iRu6dTUaCFmN0LmyiJSViHZh", # 500-no-easy
+    training_file="file-Haen3M0DJelDa0Cq7zgOmHeV",  # 500b-no-easy
     model="gpt-3.5-turbo-1106",
 )
 

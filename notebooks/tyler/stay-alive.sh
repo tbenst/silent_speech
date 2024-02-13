@@ -1,11 +1,10 @@
 #!/bin/bash
-#SBATCH -p henderj
+#SBATCH -p shauld
 #SBATCH --job-name=stay_alive
 #SBATCH --time=7-00:00:00  # Run for 7 days
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
-#SBATCH --constraint=GPU_MEM:80GB
 
 # Change to the specified directory
 cd $GROUP_HOME/tyler/jobs
