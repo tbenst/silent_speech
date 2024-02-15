@@ -65,8 +65,11 @@ def cleanup_lisa_pred(lisa_pred):
     return new
 
 text_transform = TextTransform()
-test_preds = read_preds_from_dir("/oak/stanford/projects/babelfish/magneto/willett/",
-                            glob_pattern="testPartition_seed*.txt")
+test_preds = read_preds_from_dir(
+    "/oak/stanford/projects/babelfish/magneto/willett/",
+    glob_pattern="testPartition_newParams_seed*.txt",
+)
+# glob_pattern="testPartition_seed*.txt")
 truth = []
 with open("/oak/stanford/projects/babelfish/magneto/willett/testPartitionTruth.txt", "r") as f:
     lines = f.readlines()
@@ -151,3 +154,11 @@ with open(
     for l in competition_preds:
         f.write(l + "\n")
 
+##
+for i in range(25):
+    print("LISA:")
+    print(competition_preds[i])
+    print("ENSEMBLE:")
+    for pred in sorted_comp_preds[i]:
+        print(pred)
+##
