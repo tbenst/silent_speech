@@ -29,25 +29,6 @@ client = AsyncOpenAI(
 
 
 ##
-def read_preds_from_dir(pred_dir, glob_pattern="/*.txt"):
-    pred_txts = list(sorted(glob(pred_dir + glob_pattern)))
-    each_file = []
-    for file in pred_txts:
-        with open(file, "r") as f:
-            each_file.append(f.read())
-    # split by newline
-    each_file = [s.split("\n")[:-1] for s in each_file]
-    the_len = len(each_file[0])
-    for f in each_file:
-        # 1200 competition, 600 test
-        assert (len(f) == 1200) or (len(f) == 600)
-
-    preds = [[] for _ in range(the_len)]
-    for f in each_file:
-        for i, s in enumerate(f):
-            preds[i].append(s)
-    return preds
-
 def cleanup_lisa_pred(lisa_pred):
     "match the cleanup in the competition script"
     # drop , " ? . -
@@ -65,6 +46,26 @@ def cleanup_lisa_pred(lisa_pred):
     # remove leading and trailing whitespace
     new = new.strip()
     return new
+
+def read_preds_from_dir(pred_dir, glob_pattern="/*.txt"):
+    pred_txts = list(sorted(glob(pred_dir + glob_pattern)))
+    each_file = []
+    for file in pred_txts:
+        with open(file, "r") as f:
+            each_file.append(f.read())
+    # split by newline
+    each_file = [s.split("\n")[:-1] for s in each_file]
+    the_len = len(each_file[0])
+    for f in each_file:
+        # 1200 competition, 600 test
+        assert (len(f) == 1200) or (len(f) == 600), f"len(f)={len(f)}"
+
+    preds = [[] for _ in range(the_len)]
+    for f in each_file:
+        for i, s in enumerate(f):
+            # preds[i].append(s)
+            preds[i].append(cleanup_lisa_pred(s))
+    return preds
 
 text_transform = TextTransform()
 test_preds = read_preds_from_dir(
