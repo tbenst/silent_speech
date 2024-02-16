@@ -26,28 +26,14 @@ client = AsyncOpenAI(
     max_retries=100,
     timeout=15,
 )
-
+##
+file = "/oak/stanford/projects/babelfish/magneto/willett/ptOutputs_test_nbest_seed0.txt"
+with open(file, "r") as f:
+    topk = f.read().split("\n\n")
+preds = [k.split("\n") for k in topk][:-1]
+preds = [[cleanup_lisa_pred(l) for l in p] for p in preds]
 
 ##
-def read_preds_from_dir(pred_dir, glob_pattern="/*.txt"):
-    pred_txts = list(sorted(glob(pred_dir + glob_pattern)))
-    each_file = []
-    for file in pred_txts:
-        with open(file, "r") as f:
-            each_file.append(f.read())
-    # split by newline
-    each_file = [s.split("\n")[:-1] for s in each_file]
-    the_len = len(each_file[0])
-    for f in each_file:
-        # 1200 competition, 600 test
-        assert (len(f) == 1200) or (len(f) == 600)
-
-    preds = [[] for _ in range(the_len)]
-    for f in each_file:
-        for i, s in enumerate(f):
-            preds[i].append(s)
-    return preds
-
 def cleanup_lisa_pred(lisa_pred):
     "match the cleanup in the competition script"
     # drop , " ? . -
@@ -66,20 +52,28 @@ def cleanup_lisa_pred(lisa_pred):
     new = new.strip()
     return new
 
+def read_topk_from_nbest(file):
+    with open(file, "r") as f:
+        topk = f.read().split("\n\n")
+    preds = [k.split("\n") for k in topk][:-1]
+    preds = [[cleanup_lisa_pred(l) for l in p] for p in preds]
+    return preds
+
 text_transform = TextTransform()
-test_preds = read_preds_from_dir(
-    "/oak/stanford/projects/babelfish/magneto/willett/",
-    glob_pattern="ptOutputs_test_*.txt",
+test_preds = read_topk_from_nbest(
+    "/oak/stanford/projects/babelfish/magneto/willett/ptOutputs_test_nbest_seed0.txt"
 )
 # glob_pattern="testPartition_seed*.txt")
 truth = []
-with open("/oak/stanford/projects/babelfish/magneto/willett/testPartitionTruth.txt", "r") as f:
+with open(
+    "/oak/stanford/projects/babelfish/magneto/willett/testPartitionTruth.txt", "r"
+) as f:
     lines = f.readlines()
     for l in lines:
         truth.append(l[:-1])
 
 wers = []
-for i in range(len(test_preds[0])):
+for i in range(1):
     wer = calc_wer([s[i] for s in test_preds], truth, text_transform)
     print(f"Seed {i} WER: {wer*100:.2f}%")
     wers.append(wer)
@@ -128,7 +122,10 @@ for i in range(len(comp_preds)):
 ##
 # Sanity check that Test WER is improved
 baseline_predictions = batch_completions(
-    client, sorted_test_preds, DIRECT_SYS_MSG, n_jobs=5,
+    client,
+    sorted_test_preds,
+    DIRECT_SYS_MSG,
+    n_jobs=5,
     model="gpt-3.5-turbo-16k-0613",
 )
 baseline_test_preds = [cleanup_lisa_pred(l) for l in baseline_predictions]
@@ -136,7 +133,10 @@ finetuned_wer = calc_wer(baseline_test_preds, truth, text_transform)
 print(f"Test LISA WER: {finetuned_wer*100:.2f}%")
 
 finetuned_predictions = batch_completions(
-    client, sorted_test_preds, DIRECT_SYS_MSG, n_jobs=5,
+    client,
+    sorted_test_preds,
+    DIRECT_SYS_MSG,
+    n_jobs=5,
     # model="ft:gpt-3.5-turbo-1106:personal::8rstXRQ6",
     model="ft:gpt-3.5-turbo-1106:personal::8sjJbyhn",
 )
@@ -147,7 +147,10 @@ print(f"Test LISA WER: {finetuned_wer*100:.2f}%")
 ##
 # save competition predictions for fine-tuned LISA
 competition_predictions = batch_completions(
-    client, sorted_comp_preds, DIRECT_SYS_MSG, n_jobs=5,
+    client,
+    sorted_comp_preds,
+    DIRECT_SYS_MSG,
+    n_jobs=5,
     # model="ft:gpt-3.5-turbo-1106:personal::8rstXRQ6",
     model="ft:gpt-3.5-turbo-1106:personal::8sjJbyhn",
 )
