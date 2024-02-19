@@ -84,6 +84,7 @@ text_transform = TextTransform()
 #     "/oak/stanford/projects/babelfish/magneto/willett/ptOutputs_test_nbest_seed0.txt"
 # )
 
+# topK = 10
 topK = 1
 test_preds = read_topk_from_dir(
     "/oak/stanford/projects/babelfish/magneto/willett/nbest/",
@@ -209,7 +210,7 @@ assert topK == 1
 model = "ft:gpt-3.5-turbo-1106:personal::8sniQV12"
 
 # assert topK == 10
-# model = "ftjob-ehtuoPJiNjykGf8GP3hBoH84"
+# model = "ft:gpt-3.5-turbo-1106:personal::8spAAo0P"
 
 # Sanity check that Test WER is improved
 baseline_predictions = batch_completions(
@@ -221,7 +222,7 @@ baseline_predictions = batch_completions(
 )
 baseline_test_preds = [cleanup_lisa_pred(l) for l in baseline_predictions]
 finetuned_wer = calc_wer(baseline_test_preds, truth, text_transform)
-print(f"Test {topK=} LISA WER: {finetuned_wer*100:.2f}%")
+print(f"Test top{topK=} LISA WER: {finetuned_wer*100:.2f}%")
 
 finetuned_predictions = batch_completions(
     client,
@@ -234,8 +235,9 @@ finetuned_predictions = batch_completions(
 )
 finetuned_test_preds = [cleanup_lisa_pred(l) for l in finetuned_predictions]
 finetuned_wer = calc_wer(finetuned_test_preds, truth, text_transform)
-print(f"Test LISA WER: {finetuned_wer*100:.2f}%")
-
+print(f"Test Finetuned top{topK=} LISA WER: {finetuned_wer*100:.2f}%")
+# top1: 13.79% -> 10.43%
+# top10: 13.11% -> 8.72%, likely overfitting
 ##
 # save competition predictions for fine-tuned LISA
 competition_predictions = batch_completions(
