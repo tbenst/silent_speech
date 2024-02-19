@@ -4,13 +4,21 @@ This repository contains code for training Multimodal Orofacial Neural Audio (MO
 Model (LLM) Integrated Scoring Adjustment
 (LISA). Together, MONA LISA sets a new state-of-the art for decoding silent speech, achieving 7.3% WER on validation data for open vocabulary.
 
-## ICML paper reproduction
+### ICML paper reproduction
 First you will need to download the [Gaddy 2020 dataset](https://doi.org/10.5281/zenodo.4064408) Then, the following scripts can be modified and run in order on SLURM or a local machine. An individual model trains on one A100 for 24-48 hours depending on loss functions (supTcon increases train time by ~75%). The full model sweep as done in the paper trains 60 models.
 0) run `notebooks/tyler/2023-07-17_cache_dataset_with_attrs_.py`
 1) run `notebooks/tyler/batch_model_sweep.sh` (`2024-01-15_icml_models.py`)
 2) run `notebooks/tyler/2024-01-26_icml_pred.py`
 3) run `notebooks/tyler/batch_beam_search.sh` (`2024-01-26_icml_beams.py`)
 4) run `notebooks/tyler/2024-01-28_icml_figures.py`
+5) run `notebooks/tyler/2024-01-31_icml_TEST.py`
+
+### Brain-to-text '24 reproduction
+1) Train 10 models of the [Pytorch NPTL baseline RNN](https://github.com/cffan/neural_seq_decoder)
+2) Run beam search with the 5-gram model. The average validation WER should be approximatel 14.6%
+3) run `notebooks/tyler/2024-02-13_wiilet_competition.py`. The validation WER of finetuned LISA should be approximately 13.7% without finetuning, or 10.2% with finetuning.
+
+The [final competition WER was 8.9%](https://eval.ai/web/challenges/challenge-page/2099/leaderboard/4944), which at time of writing is rank 1.
 
 ## Environment Setup
 
