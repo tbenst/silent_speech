@@ -6,14 +6,34 @@
 # %load_ext autoreload
 # %autoreload 2
 ##
-import os
+import os, subprocess
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync" # no OOM
+hostname = subprocess.run("hostname", capture_output=True)
+ON_SHERLOCK = hostname.stdout[:2] == b"sh"
+if ON_SHERLOCK:
+    os.environ["SLURM_JOB_NAME"] = "interactive" # best practice for pytorch lightning...
+    os.environ["SLURM_NTASKS"] = "1" # best practice for pytorch lightning...
+    # best guesses
+    os.environ["SLURM_LOCALID"] = "0" # Migtht be used by pytorch lightning...
+    os.environ["SLURM_NODEID"] = "0" # Migtht be used by pytorch lightning...
+    os.environ["SLURM_NTASKS_PER_NODE"] = "1" # Migtht be used by pytorch lightning...
+    os.environ["SLURM_PROCID"] = "0" # Migtht be used by pytorch lightning...
+
+# from pl source code
+# "SLURM_NODELIST": "1.1.1.1, 1.1.1.2",
+# "SLURM_JOB_ID": "0001234",
+# "SLURM_NTASKS": "20",
+# "SLURM_NTASKS_PER_NODE": "10",
+# "SLURM_LOCALID": "2",
+# "SLURM_PROCID": "1",
+# "SLURM_NODEID": "3",
+# "SLURM_JOB_NAME": "JOB",
 
 import pytorch_lightning as pl, pickle
 import sys, warnings
 import numpy as np
 import logging
-import subprocess, torchmetrics
+import torchmetrics
 import random
 from tqdm.auto import tqdm
 from typing import List
@@ -58,20 +78,21 @@ RESUME = False
 # RESUME = True
 
 if RESUME:
+    # TODO: make an auto-resume feature...? or at least find ckpt_path from run_id
+    # to think about: can we do this automatically on gaia/sherlock if OOM..? (maybe we don't care / can do manually)
     # INFO: when resuming logging to Neptune, we might repeat some steps,
     # e.g. if epoch 29 was lowest WER, but we resume at epoch 31, we will
     # log epoch 30 & 31 twice. mainly an issue for publication plots
-    ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
-    run_id = 'GAD-372'
-    
+    # ckpt_path = '/scratch/2023-07-10T12:20:43.920850_gaddy/SpeechOrEMGToText-epoch=29-val/wer=0.469.ckpt'
+    ckpt_path = '/scratch/2023-08-03T21:30:03.418151_gaddy/SpeechOrEMGToText-epoch=15-val/wer=0.547.ckpt'
+    run_id = 'GAD-493'
+
 
 per_index_cache = True # read each index from disk separately
 # per_index_cache = False # read entire dataset from disk
 
 
 isotime = datetime.now().isoformat()
-hostname = subprocess.run("hostname", capture_output=True)
-ON_SHERLOCK = hostname.stdout[:2] == b"sh"
 
 if DEBUG:
     # NUM_GPUS = 1
@@ -94,9 +115,12 @@ else:
     NUM_GPUS = 2
     # grad_accum = 3
     grad_accum = 2 # EMG only, 128000 max_len
+    precision = "16-mixed"
+
     if ON_SHERLOCK:
         NUM_GPUS = 4
         grad_accum = 1
+        # precision = "32"
     # variable length batches are destroying pytorch lightning
     # limit_train_batches = 900 # validation loop doesn't run at 900 ?! wtf
     # limit_train_batches = 100 # validation loop runs at 100
@@ -106,7 +130,6 @@ else:
     log_neptune = True
     # log_neptune = False
     n_epochs = 200
-    precision = "16-mixed"
     num_sanity_val_steps = 0 # may prevent crashing of distributed training
     # grad_accum = 2 # NaN loss at epoch 67 with BatchNorm, two gpu, grad_accum=2, base_bz=16
     
@@ -141,7 +164,7 @@ else:
     sessions_dir = '/data/magneto/'
     scratch_directory = "/scratch"
     gaddy_dir = '/scratch/GaddyPaper/'
-    
+
 data_dir = os.path.join(gaddy_dir, 'processed_data/')
 lm_directory = os.path.join(gaddy_dir, 'pretrained_models/librispeech_lm/')
 normalizers_file = os.path.join(SCRIPT_DIR, "normalizers.pkl")
@@ -149,7 +172,7 @@ togglePhones = False
 
 if ON_SHERLOCK:
     lm_directory = ensure_folder_on_scratch(lm_directory, scratch_directory)
-    
+
 gpu_ram = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
 if gpu_ram < 24:
@@ -166,10 +189,12 @@ if gpu_ram < 24:
     # assert NUM_GPUS == 2
 elif gpu_ram > 30:
     # V100
-    base_bz = 24
+    # base_bz = 24
+    base_bz = 12 # don't think does anything..?
     val_bz = 8
     # max_len = 64000 # OOM epoch 32
-    max_len = 56000
+    # max_len = 56000
+    max_len = 48000 # possibly better performance than 56000, def less memory
     # assert NUM_GPUS == 4
 else:
     raise ValueError("Unknown GPU")
@@ -192,7 +217,8 @@ else:
 
 logging.basicConfig(handlers=[
         logging.StreamHandler()
-        ], level=logger_level, format="%(message)s")
+        ], level=logger_level, format="%(message)s",
+        force=True)
 
 logging.debug("DEBUG mode")
 if not log_neptune:
@@ -200,8 +226,8 @@ if not log_neptune:
 ##
 auto_lr_find = False
 
-# precision = 32
-learning_rate = 3e-4
+# learning_rate = 3e-4
+learning_rate = 1.5e-4
 # 3e-3 leads to NaNs, prob need to have slower warmup in this case
 togglePhones = False
 text_transform = TextTransform(togglePhones = togglePhones)
@@ -225,13 +251,14 @@ if NUM_GPUS > 1:
     # we cannot call DistributedSampler before pytorch lightning trainer.fit() is called,
     # or we get this error:
     # RuntimeError: Default process group has not been initialized, please make sure to call init_process_group.
+    # always include at least one example of class 0 (silent EMG & parallel Audio) in batch
     # always include at least one example of class 1 (EMG & Audio) in batch
     # TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
     # TrainBatchSampler = partial(DistributedStratifiedBatchSampler,
     #     num_replicas=NUM_GPUS)
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=0)
     ValSampler = lambda: DistributedSampler(emg_datamodule.val,
         shuffle=False, num_replicas=NUM_GPUS)
     TestSampler = lambda: DistributedSampler(emg_datamodule.test,
@@ -239,7 +266,7 @@ if NUM_GPUS > 1:
 else:
     # TrainBatchSampler = SizeAwareStratifiedBatchSampler
     TrainBatchSampler = partial(DistributedSizeAwareStratifiedBatchSampler,
-        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=1)
+        num_replicas=NUM_GPUS, max_len=max_len//8, always_include_class=0)
     # num_workers=32
     num_workers=0 # prob better now that we're caching
     bz = base_bz
@@ -274,8 +301,13 @@ steps_per_epoch = len(datamodule.TrainBatchSampler) // grad_accum
 # steps_per_epoch = len(datamodule.train_dataloader()) # may crash if distributed
 
 num_outs = n_chars + 1 # +1 for CTC blank token ( i think? )
-config = SpeechOrEMGToTextConfig(steps_per_epoch, lm_directory, num_outs,
-                                 num_train_epochs=n_epochs)
+config = SpeechOrEMGToTextConfig(
+    steps_per_epoch,
+    lm_directory,
+    num_outs,
+    num_train_epochs=n_epochs,
+    precision=precision,
+)
 
 model = SpeechOrEMGToText(config, text_transform)
 logging.info('made model')
@@ -292,6 +324,7 @@ if log_neptune:
         "project": "neuro/Gaddy",
         "name": model.__class__.__name__,
         "tags": [model.__class__.__name__,
+                isotime,
                 f"fp{config.precision}",
                 ],
     }
@@ -308,11 +341,17 @@ if log_neptune:
             log_model_checkpoints=False
         )
         neptune_logger.log_hyperparams(vars(config))
+        neptune_logger.experiment["isotime"] = isotime
+        neptune_logger.experiment["hostname"] = hostname.stdout.decode().strip()
+        neptune_logger.experiment["output_directory"] = output_directory
+        if "SLURM_JOB_ID" in os.environ:
+            neptune_logger.experiment["SLURM_JOB_ID"] = os.environ["SLURM_JOB_ID"]
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val/wer",
         mode="min",
         dirpath=output_directory,
+        save_top_k=10, # TODO: try averaging weights afterwards to see if improve WER..?
         filename=model.__class__.__name__+"-{epoch:02d}-{val/wer:.3f}",
     )
     callbacks.extend([
@@ -346,12 +385,13 @@ trainer = pl.Trainer(
     limit_val_batches=limit_val_batches,
     # strategy=strategy,
     use_distributed_sampler=False, # we need to make a custom distributed sampler
-    num_sanity_val_steps=num_sanity_val_steps,
+    # num_sanity_val_steps=num_sanity_val_steps,
     sync_batchnorm=True,
     strategy=strategy,
     # strategy='fsdp', # errors on CTC loss being used on half-precision.
     # also model only ~250MB of params, so fsdp may be overkill
     # check_val_every_n_epoch=10 # should give speedup of ~30% since validation is bz=1
+    num_sanity_val_steps=0,
 )
 
 if auto_lr_find:
@@ -360,10 +400,10 @@ if auto_lr_find:
     # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#learning-rate-finder
     tuner = pl.tuner.Tuner(trainer)
     tuner.lr_find(model, datamodule)
-        
+
 affinity = os.sched_getaffinity(0)
 print(f"{rank=}, {affinity=}")
-        
+
 logging.info('about to fit')
 # epoch of 242 if only train...
 if RESUME:
@@ -371,7 +411,7 @@ if RESUME:
         ckpt_path=ckpt_path)
 else:
     trainer.fit(model, datamodule=datamodule)
-    
+
 if log_neptune:
     ckpt_path = os.path.join(output_directory,f"finished-training_epoch={model.current_epoch}.ckpt")
     trainer.save_checkpoint(ckpt_path)
