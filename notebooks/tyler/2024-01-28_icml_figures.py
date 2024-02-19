@@ -240,7 +240,7 @@ df_final_wer
 row_to_remove = (df_final_wer['model'] == "Audio") & \
     (df_final_wer['task'].isin(["emg_vocal_val", "emg_silent_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
-row_to_remove = (df_final_wer['model'].isin(["EMG (256k)",
+row_to_remove = (df_final_wer['model'].isin(["EMG (256k)", "EMG 256k",
                                                 "EMG (no Librispeech)"])) & \
     (df_final_wer['task'].isin(["audio_val", "librispeech_val"]))
 df_final_wer = df_final_wer[~row_to_remove]
@@ -511,4 +511,78 @@ df_final_wer[np.logical_and(
     df_final_wer.run_id.isin(ensembleB),
     df_final_wer.task == "emg_silent_val"
 )].mean()
+##
+# make small plot for thesis slides
+slides_category_order_og = [
+    # 'EMG (no Librispeech)', 
+    'EMG 256k',
+    'EMG & Audio (no Librispeech)', 
+    'EMG & Audio', 
+    'crossCon 256k',
+    'crossCon + DTW 256k',
+]
+
+slides_cat_labels = {
+    'EMG & Audio (no Librispeech)': \
+        'EMG & Audio (-Libri)',
+    'EMG 256k': 'EMG',
+    'crossCon (no Librispeech) 256k': \
+        'crossCon (-Libri) 256k',
+    'crossCon (balanced) 256k': \
+        'crossCon (bal) 256k',
+    'crossCon + supTcon + DTW': \
+        'crossCon+supTcon+DTW',
+    'crossCon 256k': 'crossCon',
+    'crossCon + DTW 256k': 'crossCon + DTW',
+}
+
+slides_category_order = [slides_cat_labels.get(c, c) for c in slides_category_order_og]
+
+slides_task_labels = {
+    "audio_val": "Gaddy Audio",
+    "librispeech_val": "Librispeech",
+    "emg_silent_val": "Gaddy Silent EMG",
+    "emg_vocal_val": "Gaddy Vocal EMG"
+}
+
+# Calculate global min and max wer for consistent y-axis
+global_min_wer = 0.
+global_max_wer = 0.35
+
+def create_small_wer_chart(task, df):
+    df_task = df[df['task'] == task]
+    df_task['short_model'] = df_task['model'].apply(lambda x: slides_cat_labels.get(x, x))
+    return alt.Chart(df_task).mark_circle(size=50).encode(
+        x=alt.X('short_model:N', axis=alt.Axis(labelAngle=-20, labelFontSize=19),
+            sort=slides_category_order, title=None,  scale=alt.Scale(domain=slides_category_order)),
+        y=alt.Y('wer:Q', title='word error rate',
+                scale=alt.Scale(domain=[global_min_wer, global_max_wer]),
+                axis=alt.Axis(format='%',
+                labelFontSize=19, titleFontSize=19)),
+        xOffset="jitter:Q",
+        color=alt.Color('short_model:N', scale = alt.Scale(scheme='category20'),
+                        legend=None),
+        tooltip=['run_id', 'short_model', 'task', 'wer']
+    ).transform_calculate(
+        # jitter='random()'
+        jitter="sqrt(-2*log(random()))*cos(2*PI*random())"
+    ).properties(
+        width=500,
+        height=250,
+        title=alt.Title(slides_task_labels[task],
+            fontSize=28)
+    )
+
+slides_df = df_final_wer.copy()
+slides_df = slides_df[slides_df.model.isin(slides_category_order_og)]
+charts = {}
+for task in to_analyze:
+    chart = create_small_wer_chart(task, slides_df)
+    charts[task] = chart
+    chart.save(f"../../plots/slides_task-{task}.png", scale_factor=2.0)
+audio_chart = alt.hconcat(charts['librispeech_val'], charts['audio_val'])
+emg_chart = alt.hconcat(charts['emg_silent_val'], charts['emg_vocal_val'])
+combined_chart = alt.vconcat(audio_chart, emg_chart)
+combined_chart.save(f"../../plots/slides_combined.png", scale_factor=2.0)
+combined_chart
 ##

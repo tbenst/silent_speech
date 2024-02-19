@@ -7,9 +7,15 @@ from torchaudio.models.decoder import ctc_decoder
 import functools
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
-import jiwer
+import jiwer, json, asyncio
 import neptune.new as neptune
 from pytorch_lightning.loggers import NeptuneLogger
+from time import sleep
+from openai import OpenAI, AsyncOpenAI
+from typing import List
+from data_utils import in_notebook
+from aiocache.serializers import PickleSerializer
+from aiocache import cached
 
 
 def sentence_to_fn(sentence, directory, ext=".wav"):
@@ -368,3 +374,134 @@ def get_run_type(hparams):
         return "Audio"
     else:
         raise ValueError(f"unknown run type for {hparams}")
+
+
+##### LISA #####
+def create_rescore_msg(predictions):
+    rescore_msg = "\n".join([p for p in predictions])
+    return rescore_msg
+
+
+def completion_coroutine(client, sys_msg, user_msg, model="gpt-3.5-turbo-16k-0613"):
+    return client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": sys_msg},
+            {"role": "user", "content": user_msg},
+        ],
+        temperature=0.0,
+        seed=20240130,
+    )
+
+
+async def gather_completions(coroutines, n_jobs=3):
+    msgs = []
+    for i in tqdm(range(0, len(coroutines), n_jobs), desc="Processing completions"):
+        batch = coroutines[i : i + n_jobs]
+        responses = await asyncio.gather(*batch)
+        msgs.extend([response.choices[0].message.content for response in responses])
+    return msgs
+
+
+def batch_completions(client, predictions, sys_msg, n_jobs=3, model="gpt-3.5-turbo-16k-0613"):
+    coroutines = []
+    for pred in predictions:
+        rescore_msg = create_rescore_msg(pred)
+        cc = completion_coroutine(client, sys_msg, rescore_msg, model=model)
+        coroutines.append(cc)
+        sleep(0.05)
+    # run the asynchronous gathering function
+    return asyncio.run(gather_completions(coroutines, n_jobs=n_jobs))
+
+
+DIRECT_SYS_MSG = """Your task is to perform automatic speech recognition. Below are multiple candidate transcriptions, listed from most likely to least likely. Choose the transcription that is most accurate, ensuring it is contextually and grammatically correct. Focus on key differences in the options that change the meaning or correctness. Avoid selections with repetitive or nonsensical phrases. In cases of ambiguity, select the option that is most coherent and contextually sound. Respond with the chosen transcription only, without any introductory text."""
+
+
+def cor_clean_transcripts(transcripts, text_transform):
+    ret = []
+    for transcript in transcripts:
+        # split on 'TRANSCRIPT: '
+        t = transcript.split("TRANSCRIPT: ")[-1]
+        # remove leading and trailing whitespace
+        t = t.strip()
+        ret.append(t)
+    ret = list(map(text_transform.clean_text, ret))
+    transformation = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
+    ret = transformation(ret)
+    return ret
+
+
+def direct_LISA(client, preds, labels, model, text_transform, N=10):
+    assert len(preds) == len(labels), f"{len(preds)=} {len(labels)=}"
+    lisa_predictions = batch_completions(client,
+        [s[:N] for s in preds], DIRECT_SYS_MSG, model=model, n_jobs=5
+    )
+
+    try:
+        lisa_wer = calc_wer(
+            cor_clean_transcripts(lisa_predictions, text_transform), labels, text_transform
+        )
+        print(f"WER with direct {N=} ({model}): {lisa_wer * 100:.2f}%")
+    except Exception as e:
+        print(f"Error calculating WER: {e}")
+
+    return lisa_predictions
+
+
+def save_finetuning_dset(preds, labels, save_path):
+    dset = [(create_rescore_msg(p), l) for p, l in zip(preds, labels)]
+
+    # Convert to JSONL format
+    jsonl_data = []
+    for user_msg, assistant_msg in dset:
+        jsonl_data.append(
+            {
+                "messages": [
+                    {"role": "system", "content": DIRECT_SYS_MSG},
+                    {"role": "user", "content": user_msg},
+                    {"role": "assistant", "content": assistant_msg},
+                ]
+            }
+        )
+
+    # Save as a JSONL file
+    jsonl_path = save_path
+    with open(jsonl_path, "w") as f:
+        for entry in jsonl_data:
+            json.dump(entry, f)
+            f.write("\n")
+
+    return jsonl_path
+
+
+# @cached(ttl=24 * 60 * 60, serializer=PickleSerializer())  # Cache results for 24 hours
+@cached(serializer=PickleSerializer())
+def get_transcript(client, wav_file, cache_seed=None, **kwargs):
+    # with open(wav_file, "rb") as audio_file:
+    audio_file = open(wav_file, "rb")  # for async
+    transcript = client.audio.transcriptions.create(
+        model="whisper-1", file=audio_file, **kwargs
+    )
+    return transcript
+
+
+async def gather_transcripts(coroutines, n_jobs=3):
+    msgs = []
+    for i in tqdm(range(0, len(coroutines), n_jobs), desc="Processing transcripts"):
+        batch = coroutines[i : i + n_jobs]
+        responses = await asyncio.gather(*batch)
+        msgs.extend([response.text for response in responses])
+    return msgs
+
+
+def batch_transcripts(async_client, wav_files, temperatures: List[float], n_jobs=3):
+    coroutines = []
+    for wav_file in wav_files:
+        for i,t in enumerate(temperatures):
+            coroutines.append(get_transcript(async_client, wav_file,
+                            cache_seed=(i,t), temperature=t))
+    # run the asynchronous gathering function
+    predictions = asyncio.run(gather_transcripts(coroutines, n_jobs=n_jobs))
+    # reshape the predictions into a list of lists
+    predictions = np.array(predictions).reshape(len(wav_files), len(temperatures))
+    return predictions
