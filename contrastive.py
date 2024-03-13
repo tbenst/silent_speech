@@ -8,6 +8,32 @@ import scipy.io
 from scipy.signal import iirnotch, lfilter
 from typing import List
 
+
+class KoLeoLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pdist = nn.PairwiseDistance(p=2, eps=1e-8)
+
+    def pairwise_NNs_inner(self, x):
+        x_flat = x.view(-1, x.size(-1))
+        dots = torch.matmul(x_flat, x_flat.t())
+        n = x_flat.shape[0]
+        dots.view(-1)[::n+1].fill_(-1)
+        _, I = torch.max(dots, dim=1)
+
+        return I
+
+    def forward(self, emg_latent, emg_parallel_latent, eps=1e-8):
+        joint_embedding = torch.cat([emg_latent, emg_parallel_latent], dim=-1)
+        joint_embedding = F.normalize(joint_embedding, p=2, dim=-1, eps=eps)
+        
+        I = self.pairwise_NNs_inner(joint_embedding)
+        distances = self.pdist(joint_embedding.view(-1, joint_embedding.size(-1)), 
+                               joint_embedding.view(-1, joint_embedding.size(-1))[I])
+        
+        loss = -torch.log(distances + eps).mean()
+        return loss
+
 class ContrastiveLoss(nn.Module):
     def __init__(self, device = 'cpu', temperature=0.5):
         super().__init__()
@@ -292,7 +318,7 @@ def var_length_cross_contrastive_loss(x:List[torch.Tensor], y:List[torch.Tensor]
         loss += nobatch_cross_contrastive_loss(x[i], y[i], temperature=temperature, device=device)
     return loss / len(x)
 
-def supervised_contrastive_loss(embeddings, labels, cos_sim=None, temperature=0.1, device="cpu"):
+def supervised_contrastive_loss(embeddings, labels, phoneme_inventory, phoneme_weight, cos_sim=None, temperature=0.1, device="cpu"):
     """
     Compute supervised contrastive loss for a batch of embeddings. Skip classes with only one sample.
     
@@ -330,6 +356,8 @@ def supervised_contrastive_loss(embeddings, labels, cos_sim=None, temperature=0.
     logging.debug(f"{classes=}")
     for i,c in enumerate(classes):
         c = int(c)
+        phoneme_label = phoneme_inventory[c]
+        phoneme_weight = weights.get(phoneme_label, 1.0)
         positives_mask, denominator_mask = supNCE_mask(labels, c, device=device)
         nominator = positives_mask * similarity_matrix
         # nominator = similarity_matrix[positives_mask]
@@ -341,7 +369,8 @@ def supervised_contrastive_loss(embeddings, labels, cos_sim=None, temperature=0.
         # print(f"{denominator_mask=}")
         # print(f"{denominator=}")
         # sum over samples of proper class, divide by number of positives
-        class_loss[i] = -torch.log(nominator / denominator).sum() / cardinality[c]
+        class_loss[i] = (-torch.log(nominator / denominator).sum() / cardinality[c]) * phoneme_weight
+
     return class_loss.sum()
 
 class SupConLoss(torch.nn.Module):

@@ -23,6 +23,7 @@ from contrastive import (
     nobatch_cross_contrastive_loss,
     supervised_contrastive_loss,
     SupConLoss,
+    KoLeoLoss,
 )
 from typing import Tuple
 from pytorch_lightning.loggers import NeptuneLogger
@@ -76,16 +77,16 @@ class ResBlock(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
-        self.norm1 = nn.BatchNorm1d(num_outs)
+        self.norm1 = nn.LayerNorm(num_outs)
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
-        self.norm2 = nn.BatchNorm1d(num_outs)
+        self.norm2 = nn.LayerNorm(num_outs)
         # self.act = nn.ReLU()
         self.act = nn.GELU()  # TODO: test which is better
         self.beta = beta
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
-            self.res_norm = nn.BatchNorm1d(num_outs)
+            self.res_norm = nn.LayerNorm(num_outs)
             if pre_activation:
                 self.skip = nn.Sequential(self.res_norm, self.residual_path)
             else:
@@ -1299,6 +1300,7 @@ class MONA(GaddyBase):
         self.use_crossCon = cfg.use_crossCon
         self.use_supTcon = cfg.use_supTcon
         self.warmup_steps = cfg.warmup_steps
+        self.koleo_loss_function = KoLeoLoss()
         # self.supervised_contrastive_loss = SupConLoss(temperature=0.1)
 
     def emg_encoder(self, x):
@@ -1675,7 +1677,11 @@ class MONA(GaddyBase):
                 emg_audio_contrastive_loss = nobatch_cross_contrastive_loss(
                     matched_e_z, matched_a_z, device=self.device
                 )
+                koleo_loss = self.koleo_loss_function(
+                    matched_e_z, matched_e_z
+                )
             else:
+                koleo_loss = 0.0
                 emg_audio_contrastive_loss = 0.0
 
             ###### Supervised NCE #######
@@ -1697,8 +1703,30 @@ class MONA(GaddyBase):
                 # logging.debug(f"{[a.shape for a in audio_z]=}, {[a.shape for a in audio_phonemes]=}")
                 z = torch.concatenate([matched_e_z, *audio_z])
                 z_class = torch.concatenate([matched_phonemes, *audio_phonemes])
+                # TODO: Putting it here to easily see all the changes
+                PHONEME_INVENTORY = [
+                    'aa','ae','ah','ao','aw',
+                    'ax','axr','ay','b','ch',
+                    'd','dh','dx','eh','el',
+                    'em','en','er','ey','f',
+                    'g','hh','hv','ih','iy',
+                    'jh','k','l','m','n','nx',
+                    'ng','ow','oy','p','r','s',
+                    'sh','t','th','uh','uw','v',
+                    'w','y','z','zh','sil'
+                ]
+                PHONEME_WEIGHTS = {
+                    # Lower weights for challenging distinctions
+                    'b': 0.5, 'p': 0.5,  # Voiced-voiceless pairs
+                    'd': 0.5, 't': 0.5,
+                    'g': 0.5, 'k': 0.5,
+                    'v': 0.5, 'f': 0.5,
+                    'z': 0.5, 's': 0.5,
+                    'm': 0.7, 'n': 0.7, 'ng': 0.7,  # Nasals, given their difficulty due to velum positioning
+                }
+
                 sup_nce_loss = supervised_contrastive_loss(
-                    z, z_class, device=self.device
+                    z, z_class, PHONEME_INVENTORY, PHONEME_WEIGHTS, device=self.device
                 )
             else:
                 sup_nce_loss = 0.0
@@ -1738,6 +1766,8 @@ class MONA(GaddyBase):
             + self.audio_lambda * audio_ctc_loss
             + self.cross_nce_lambda * emg_audio_contrastive_loss
             + self.sup_nce_lambda * sup_nce_loss
+            # Add koleo, hard-coding weights to 0.1 for now
+            + 0.1 * koleo
         )
 
         if torch.isnan(loss):
