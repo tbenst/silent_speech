@@ -4,7 +4,9 @@ This repository contains code for training Multimodal Orofacial Neural Audio (MO
 Model (LLM) Integrated Scoring Adjustment
 (LISA). Together, MONA LISA sets a new state-of-the art for decoding silent speech, achieving 7.3% WER on validation data for open vocabulary.
 
-### ICML paper reproduction
+[See the preprint on arxiv](https://arxiv.org/abs/2403.05583).
+
+### Paper reproduction
 First you will need to download the [Gaddy 2020 dataset](https://doi.org/10.5281/zenodo.4064408) Then, the following scripts can be modified and run in order on SLURM or a local machine. An individual model trains on one A100 for 24-48 hours depending on loss functions (supTcon increases train time by ~75%). The full model sweep as done in the paper trains 60 models.
 0) run `notebooks/tyler/2023-07-17_cache_dataset_with_attrs_.py`
 1) run `notebooks/tyler/batch_model_sweep.sh` (`2024-01-15_icml_models.py`)
