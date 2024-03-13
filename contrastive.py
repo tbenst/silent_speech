@@ -318,7 +318,7 @@ def var_length_cross_contrastive_loss(x:List[torch.Tensor], y:List[torch.Tensor]
         loss += nobatch_cross_contrastive_loss(x[i], y[i], temperature=temperature, device=device)
     return loss / len(x)
 
-def supervised_contrastive_loss(embeddings, labels, phoneme_inventory, phoneme_weight, cos_sim=None, temperature=0.1, device="cpu"):
+def supervised_contrastive_loss(embeddings, labels, phoneme_inventory, phoneme_weights, cos_sim=None, temperature=0.1, device="cpu"):
     """
     Compute supervised contrastive loss for a batch of embeddings. Skip classes with only one sample.
     
@@ -357,7 +357,7 @@ def supervised_contrastive_loss(embeddings, labels, phoneme_inventory, phoneme_w
     for i,c in enumerate(classes):
         c = int(c)
         phoneme_label = phoneme_inventory[c]
-        phoneme_weight = weights.get(phoneme_label, 1.0)
+        phoneme_weight = phoneme_weights.get(phoneme_label, 1.0)
         positives_mask, denominator_mask = supNCE_mask(labels, c, device=device)
         nominator = positives_mask * similarity_matrix
         # nominator = similarity_matrix[positives_mask]
