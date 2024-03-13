@@ -1767,7 +1767,7 @@ class MONA(GaddyBase):
             + self.cross_nce_lambda * emg_audio_contrastive_loss
             + self.sup_nce_lambda * sup_nce_loss
             # Add koleo, hard-coding weights to 0.1 for now
-            + 0.1 * koleo
+            + 0.1 * koleo_loss
         )
 
         if torch.isnan(loss):
