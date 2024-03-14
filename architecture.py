@@ -77,16 +77,16 @@ class ResBlock(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv1d(num_ins, num_outs, 3, padding=1, stride=stride)
-        self.norm1 = nn.LayerNorm(num_outs)
+        self.norm1 = nn.BatchNorm1d(num_outs)
         self.conv2 = nn.Conv1d(num_outs, num_outs, 3, padding=1)
-        self.norm2 = nn.LayerNorm(num_outs)
+        self.norm2 = nn.BatchNorm1d(num_outs)
         # self.act = nn.ReLU()
         self.act = nn.GELU()  # TODO: test which is better
         self.beta = beta
 
         if stride != 1 or num_ins != num_outs:
             self.residual_path = nn.Conv1d(num_ins, num_outs, 1, stride=stride)
-            self.res_norm = nn.LayerNorm(num_outs)
+            self.res_norm = nn.BatchNorm1d(num_outs)
             if pre_activation:
                 self.skip = nn.Sequential(self.res_norm, self.residual_path)
             else:
@@ -860,7 +860,7 @@ class S4Layer(nn.Module):
                 lr=None,
             )
 
-        self.norm = nn.LayerNorm(model_size)
+        self.norm = nn.BatchNorm1d(model_size)
         self.dropout = nn.Dropout1d(dropout)
         # self.dropout  = nn.Dropout(dropout)
         self.prenorm = prenorm
