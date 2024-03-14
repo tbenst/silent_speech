@@ -1678,7 +1678,7 @@ class MONA(GaddyBase):
                     matched_e_z, matched_a_z, device=self.device
                 )
                 koleo_loss = self.koleo_loss_function(
-                    matched_e_z, matched_e_z
+                    matched_e_z, matched_a_z
                 )
             else:
                 koleo_loss = 0.0
