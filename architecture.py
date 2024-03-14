@@ -1689,6 +1689,8 @@ class MONA(GaddyBase):
                 emg_parallel_emg_contrastive_loss = nobatch_cross_contrastive_loss(
                     silent_e_z, aligned_pe_z, device=self.device
                 )
+            else:
+                emg_parallel_emg_contrastive_loss = 0.0
 
             ###### Supervised NCE #######
             if use_supTcon:
@@ -1746,6 +1748,8 @@ class MONA(GaddyBase):
             # z_class = torch.concatenate(emg_phonemes)
             emg_audio_contrastive_loss = 0.0
             sup_nce_loss = 0.0
+            emg_parallel_emg_contrastive_loss = 0.0
+
         # elif audio_z is not None:
         #     raise NotImplementedError("audio only is not expected")
         #     z = torch.concatenate(audio_z)
@@ -1753,6 +1757,7 @@ class MONA(GaddyBase):
         else:
             emg_audio_contrastive_loss = 0.0
             sup_nce_loss = 0.0
+            emg_parallel_emg_contrastive_loss = 0.0
 
         # TODO: add neural sup contrastive loss
         if neural_z is not None:
