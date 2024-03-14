@@ -1683,6 +1683,12 @@ class MONA(GaddyBase):
             else:
                 koleo_loss = 0.0
                 emg_audio_contrastive_loss = 0.0
+                
+            if use_crossCon and use_dtw:
+                aligned_pe_z = parallel_e_z[alignment]
+                emg_parallel_emg_contrastive_loss = nobatch_cross_contrastive_loss(
+                    silent_e_z, aligned_pe_z, device=self.device
+                )
 
             ###### Supervised NCE #######
             if use_supTcon:
@@ -1765,6 +1771,7 @@ class MONA(GaddyBase):
             + self.neural_lambda * neural_ctc_loss
             + self.audio_lambda * audio_ctc_loss
             + self.cross_nce_lambda * emg_audio_contrastive_loss
+            + self.cross_nce_lambda * emg_parallel_emg_contrastive_loss
             + self.sup_nce_lambda * sup_nce_loss
             # Add koleo, hard-coding weights to 0.1 for now
             + 0.1 * koleo_loss
