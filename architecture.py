@@ -1717,12 +1717,12 @@ class MONA(GaddyBase):
                 ]
                 PHONEME_WEIGHTS = {
                     # Lower weights for challenging distinctions
-                    'b': 0.5, 'p': 0.5,  # Voiced-voiceless pairs
-                    'd': 0.5, 't': 0.5,
-                    'g': 0.5, 'k': 0.5,
-                    'v': 0.5, 'f': 0.5,
-                    'z': 0.5, 's': 0.5,
-                    'm': 0.7, 'n': 0.7, 'ng': 0.7,  # Nasals, given their difficulty due to velum positioning
+                    'b': 1.5, 'p': 1.5,  # Voiced-voiceless pairs
+                    'd': 1.5, 't': 1.5,
+                    'g': 1.5, 'k': 1.5,
+                    'v': 1.5, 'f': 1.5,
+                    'z': 1.5, 's': 1.5,
+                    'm': 1.3, 'n': 1.3, 'ng': 1.3,  # Nasals, given their difficulty due to velum positioning
                 }
 
                 sup_nce_loss = supervised_contrastive_loss(
